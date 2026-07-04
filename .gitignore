@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+AppIcon.icns
+*.ico
+_kokoro_stage/
+argos_models/
+EnglishCoach Models/
+运行日志.txt
+翻译历史.txt
+*.zip
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+venv/
+.venv/

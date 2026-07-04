@@ -1,0 +1,21 @@
+# English Coach 源码运行核心依赖（完整的、经过验证的打包环境以 Build 脚本为准）
+PyQt6>=6.7
+edge-tts
+requests
+argostranslate
+python-docx
+pypdf
+pdfplumber
+reportlab
+num2words
+cn2an
+pypinyin
+jieba
+soundfile
+lameenc
+# —— 离线朗读（可选，不装则仅线上嗓音可用）——
+# kokoro
+# misaki[zh]
+# torch            # Intel Mac 需 ==2.2.2；Windows GPU 版见 Build Windows GPU.bat
+# transformers>=4.44,<4.49
+setuptools<81
