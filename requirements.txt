@@ -1,21 +1,80 @@
-# English Coach 源码运行核心依赖（完整的、经过验证的打包环境以 Build 脚本为准）
-PyQt6>=6.7
-edge-tts
+# English Coach — 运行依赖 / Runtime dependencies
+# 从源码运行本程序所需的库。仅打包发布时还需 requirements-build.txt。
+# Libraries needed to RUN the app from source. To BUILD installers you also
+# need requirements-build.txt.
+#
+#   pip install -r requirements.txt
+#
+# 版本钉死说明 / Why versions are pinned:
+#   本组合经过实机验证，可同时满足 macOS Big Sur (Intel) 的旧系统限制、
+#   Windows 与 Linux 的运行需求。随意升级 torch / transformers / ctranslate2
+#   很可能破坏 Kokoro 离线朗读或 Argos 离线翻译。
+#   This combination is validated on real machines and satisfies the old-system
+#   constraints of macOS Big Sur (Intel) as well as Windows and Linux. Upgrading
+#   torch / transformers / ctranslate2 casually is likely to break Kokoro offline
+#   speech or Argos offline translation.
+
+# ---------------------------------------------------------------- 界面 / GUI
+# Apple Silicon / Windows / Linux 用新版；Intel Mac 必须停在 6.4.x 以兼容
+# macOS 11 Big Sur（6.5+ 要求更新的系统）。
+# Newer Qt on Apple Silicon / Windows / Linux; Intel Macs must stay on 6.4.x to
+# keep macOS 11 Big Sur support (6.5+ requires a newer OS).
+PyQt6==6.4.2 ; sys_platform == "darwin" and platform_machine == "x86_64"
+PyQt6-Qt6==6.4.3 ; sys_platform == "darwin" and platform_machine == "x86_64"
+PyQt6 ; sys_platform != "darwin" or platform_machine != "x86_64"
+PyQt6-Qt6 ; sys_platform != "darwin" or platform_machine != "x86_64"
+PyQt6-sip
+
+# macOS 原生外观（标题栏等系统装饰的深浅同步）
+# macOS native appearance (syncs system decorations such as the title bar)
+pyobjc-framework-Cocoa ; sys_platform == "darwin"
+
+# ------------------------------------------------ 在线翻译与朗读 / Online services
 requests
+edge-tts
+
+# -------------------------------- Argos 离线翻译 / Argos offline translation
+# ctranslate2 4.3.1 需要 pkg_resources（setuptools 81+ 已移除）
+# ctranslate2 4.3.1 needs pkg_resources, removed in setuptools 81+
+setuptools<81
+numpy<2
+sentencepiece==0.2.0
+ctranslate2==4.3.1
 argostranslate
+sacremoses
+
+# ------------------------------------ Kokoro 离线朗读 / Kokoro offline speech
+# transformers 4.40.2 与 torch 2.2.x 配套，是 Big Sur 上可用的组合。
+# GPU 用户请改用 requirements-gpu.txt（CUDA 版 torch）。
+# transformers 4.40.2 pairs with torch 2.2.x and is the combination that works
+# on Big Sur. GPU users should use requirements-gpu.txt instead (CUDA torch).
+torch==2.2.2
+transformers==4.40.2
+kokoro
+soundfile
+lameenc
+
+# 中文文本处理（Kokoro 中文嗓音）/ Chinese text handling for Kokoro zh voices
+misaki[zh]
+pypinyin
+jieba
+cn2an
+
+# ----------------------------------------- 文件导入导出 / File import & export
 python-docx
 pypdf
 pdfplumber
 reportlab
 num2words
-cn2an
-pypinyin
-jieba
-soundfile
-lameenc
-# —— 离线朗读（可选，不装则仅线上嗓音可用）——
-# kokoro
-# misaki[zh]
-# torch            # Intel Mac 需 ==2.2.2；Windows GPU 版见 Build Windows GPU.bat
-# transformers>=4.44,<4.49
-setuptools<81
+
+# ------------------------------------------------- 运行期杂项 / Misc runtime
+ordered_set
+addict
+regex
+pydantic
+loguru
+
+# spaCy 英文模型（Kokoro 分词用）。pip 索引里没有，需从官方 Releases 安装：
+# spaCy English model used by Kokoro. Not on PyPI — install from the official
+# GitHub release:
+#   pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl

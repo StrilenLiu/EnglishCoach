@@ -1,16 +1,19 @@
 @echo off
 REM ===========================================================================
 REM  EnglishCoach - Windows build script (v1.9.1)
-REM  Output: dist\EnglishCoach\EnglishCoach.exe  and  EnglishCoach-1.0.7-windows.zip
+REM  Output: dist\Windows-x64-CPU\English Coach\English Coach.exe
+REM          and  dist\Windows-x64-CPU\EnglishCoach-<ver>-Windows-x64-CPU.zip
 REM  Bundles Argos en<->zh offline models.
 REM  ASCII-only for GBK consoles.
 REM ===========================================================================
 
-setlocal enabledelayedexpansion
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 
 set APP_NAME=English Coach
-set VERSION=2.5.1
+rem Auto-extract version from english_coach.py (single source of truth)
+for /f tokens^=2^ delims^=^" %%A in ('findstr /b /c:"APP_VERSION" english_coach.py') do set "VERSION=%%A"
+if not defined VERSION set VERSION=0.0.0
 set MAIN=english_coach.py
 set CONDA_ENV=EnglishCoach
 set PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -72,7 +75,15 @@ REM Chinese G2P deps (Kokoro Chinese needs pypinyin/jieba/cn2an)
 call :pipinstall pypinyin jieba cn2an "misaki[zh]"
 if errorlevel 1 call :pipinstall pypinyin jieba cn2an
 REM misaki English G2P needs spaCy English model; preinstall to avoid runtime download
-python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || echo   [!] en_core_web_sm preinstall failed; first offline EN read will download it
+rem en_core_web_sm is NOT on PyPI (spaCy models ship via GitHub Releases); mirrors
+rem return a 0-byte placeholder that triggers a "Wheel is invalid" error. Check first:
+rem skip if already installed (no noisy error), else install from the official GitHub wheel.
+python -c "import en_core_web_sm" >nul 2>&1
+if errorlevel 1 (
+  python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || echo   [!] en_core_web_sm preinstall failed; first offline EN read will download it
+) else (
+  echo   [OK] en_core_web_sm already installed, skipping
+)
 python -c "import torch,transformers,kokoro;print('Kokoro deps OK, torch',torch.__version__,'transformers',transformers.__version__)" || echo   [!] Kokoro dependency check failed
 echo     Pre-download Kokoro model (~330MB, first time slow)...
 python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Kokoro');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='hexgrad/Kokoro-82M',local_dir=t);print('Kokoro model ready:',t)" || echo   [!] Kokoro model predownload failed; offline EN voices unavailable without network
@@ -102,8 +113,12 @@ if exist "%USERPROFILE%\EnglishCoach Models\Kokoro" (
 )
 
 echo ==^> [5/7] Clean old build
+set DESTDIR=dist\Windows-x64-CPU
 if exist build rmdir /s /q build
-if exist dist rmdir /s /q dist
+rem Clean only this platform's own output folder, keep other platforms' artifacts
+if exist "%DESTDIR%" rmdir /s /q "%DESTDIR%"
+if not exist dist mkdir dist
+mkdir "%DESTDIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
 echo ==^> [6/7] PyInstaller build
@@ -146,20 +161,22 @@ if errorlevel 1 (
 )
 
 echo ==^> [7/7] Package zip
-set OUT=%APP_NAME%-%VERSION%-windows.zip
+set OUT=%DESTDIR%\EnglishCoach-%VERSION%-Windows-x64-CPU.zip
 if exist "%OUT%" del /q "%OUT%"
 REM Zip the whole app folder (so the zip contains "English Coach\English Coach.exe")
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\%APP_NAME%' -DestinationPath '%OUT%' -Force"
+rem Move the PyInstaller output into this platform's folder, keep dist root clean
+if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
+powershell -NoProfile -Command "Compress-Archive -Path '%DESTDIR%\%APP_NAME%' -DestinationPath '%OUT%' -Force"
 
 echo.
 echo ================================================================
 echo   Done.
-echo   EXE : dist\%APP_NAME%\%APP_NAME%.exe
+echo   EXE : %DESTDIR%\%APP_NAME%\%APP_NAME%.exe
 echo   Zip : %OUT%
 echo ================================================================
 echo.
 echo If it fails to start, run the exe from a console to see the error:
-echo     dist\%APP_NAME%\%APP_NAME%.exe
+echo     %DESTDIR%\%APP_NAME%\%APP_NAME%.exe
 echo.
 echo Translation/TTS need internet ^(Argos works offline after bundle^).
 goto :end

@@ -2,13 +2,16 @@
 # ============================================================================
 #  EnglishCoach · macOS 一键编译脚本  (v1.9.1)
 #  PyInstaller 打包，兼容 macOS 11 Big Sur，内置 Argos 中英离线模型。
-#  产物: dist/EnglishCoach.app  和  EnglishCoach-2.5.1-<arch>.dmg
+#  产物: dist/MacOS-Intel(或 MacOS-AppleSilicon)/ 下的 .app 与 .dmg
+#        (版本自动取自 APP_VERSION，架构自动取自 uname -m)
 # ============================================================================
 
 set -e
 
 APP_NAME="English Coach"
-VERSION="2.5.1"
+# 版本号自动从 english_coach.py 提取(单一事实来源，不再手工维护)
+VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' english_coach.py | head -1)
+[ -z "$VERSION" ] && VERSION="0.0.0"
 MAIN="english_coach.py"
 CONDA_ENV="EnglishCoach"
 # 多镜像：清华优先，失败回退官方源（解决 argostranslate 下载被重置）
@@ -51,9 +54,21 @@ fi
 
 echo "==> [2/8] 安装依赖（清华源，失败自动回退官方源）"
 python -m pip install --upgrade pip -i "$PIP_MIRROR" || true
-# PyQt6 钉 6.4.x（兼容 Big Sur）
-pip_install "PyQt6==6.4.2" "PyQt6-Qt6==6.4.3" "PyQt6-sip"
+# —— 按架构决定 PyQt6 版本与最低系统 ——
+#   Intel: 停在 6.4.x 以兼容 Big Sur 11.0（老 Intel 机上限于此）
+#   Apple Silicon: M 芯片跑不了 Big Sur，无向下兼容包袱，用最新 6.11.x 拿新特性
+ARCH_EARLY="$(uname -m)"
+if [ "$ARCH_EARLY" = "arm64" ]; then
+    echo "    架构 arm64(Apple Silicon) -> PyQt6 6.11.x，最低 macOS 12.0"
+    pip_install "PyQt6" "PyQt6-Qt6" "PyQt6-sip"     # 不钉版本=装最新(6.11.x)
+    MIN_MACOS="12.0"
+else
+    echo "    架构 x86_64(Intel) -> PyQt6 6.4.x，最低 macOS 11.0(Big Sur)"
+    pip_install "PyQt6==6.4.2" "PyQt6-Qt6==6.4.3" "PyQt6-sip"
+    MIN_MACOS="11.0"
+fi
 pip_install requests pyinstaller pillow
+pip_install pyobjc-framework-Cocoa   # mac 原生外观(AppKit)辅助
 # —— Argos 离线翻译：钉死兼容 Big Sur 且无 PyTorch 的版本组合 ——
 # numpy<2 避免 NumPy 2.x 冲突；sentencepiece 0.2.0 有 cp312 Intel 预编译包；
 # ctranslate2 4.3.1 兼容 Big Sur；argostranslate 1.9.6 用 --no-deps 挡掉 stanza/torch
@@ -81,10 +96,17 @@ pip_install python-docx pypdf pdfplumber reportlab num2words
 pip_install ordered_set addict regex pydantic loguru
 # 中文 G2P 依赖（Kokoro 读中文需要：pypinyin/jieba/cn2an）
 pip_install pypinyin jieba cn2an "misaki[zh]" || pip_install pypinyin jieba cn2an
-# misaki 英文 G2P 需要 spaCy 英文模型，预装好避免运行时联网下载
-python -m pip install \
-  "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
-  || pip_install en_core_web_sm || echo "  ⚠ en_core_web_sm 预装失败，首次离线英文朗读会自动下载（需联网）"
+# misaki 英文 G2P 需要 spaCy 英文模型。它不在 PyPI（spaCy 模型走 GitHub Releases），
+# 清华等镜像会返回 0 字节占位文件导致 "Wheel is invalid" 报错。故先检查是否已安装：
+# 已装则跳过（不再产生噪音报错），未装才安装——优先官方 GitHub wheel，失败再退回 pip。
+if python -c "import en_core_web_sm" >/dev/null 2>&1; then
+  echo "  ✓ en_core_web_sm 已安装，跳过"
+else
+  python -m pip install \
+    "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
+    || pip_install en_core_web_sm \
+    || echo "  ⚠ en_core_web_sm 预装失败，首次离线英文朗读会自动下载（需联网）"
+fi
 # 校验 Kokoro 关键链路：torch 没被 transformers 禁用
 python -c "import torch,transformers,kokoro;print('  ✓ Kokoro 依赖链 OK, torch',torch.__version__,'transformers',transformers.__version__)" \
   || echo "  ⚠ Kokoro 依赖校验未通过，离线朗读可能不可用"
@@ -193,10 +215,22 @@ if [ -d argos_models ] && [ -n "$(ls -A argos_models 2>/dev/null)" ]; then
 fi
 
 echo "==> [5/8] 清理旧产物"
-rm -rf build dist "${APP_NAME}.spec" "${APP_NAME}-${VERSION}"*.dmg
+# 按架构决定输出子目录：Intel=x86_64，Apple Silicon=arm64
+ARCH_RAW="$(uname -m)"
+if [ "$ARCH_RAW" = "arm64" ]; then
+    OUTDIR="MacOS-AppleSilicon"
+    ARCH_LABEL="MacOS-AppleSilicon"
+else
+    OUTDIR="MacOS-Intel"
+    ARCH_LABEL="MacOS-Intel"
+fi
+DESTDIR="dist/${OUTDIR}"
+# 只清理本平台自己的产物目录，不动 dist 下其它平台的成果
+rm -rf build "${APP_NAME}.spec" "$DESTDIR"
+mkdir -p "$DESTDIR"
 
 echo "==> [6/8] PyInstaller 编译（兼容 Big Sur）"
-export MACOSX_DEPLOYMENT_TARGET=11.0
+export MACOSX_DEPLOYMENT_TARGET="${MIN_MACOS:-11.0}"
 ARCH="$(uname -m)"
 echo "    本机架构: ${ARCH}（产物仅适配此架构）"
 # Kokoro 模型作为数据打包进 app（若已预下载）
@@ -243,8 +277,8 @@ python -m PyInstaller \
 
 PLIST="dist/${APP_NAME}.app/Contents/Info.plist"
 if [ -f "$PLIST" ]; then
-    /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion 11.0" "$PLIST" 2>/dev/null \
-      || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$PLIST"
+    /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${MIN_MACOS:-11.0}" "$PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string ${MIN_MACOS:-11.0}" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" 2>/dev/null || true
 fi
@@ -253,7 +287,7 @@ echo "==> [7/8] 解除自身隔离"
 xattr -cr "dist/${APP_NAME}.app" 2>/dev/null || true
 
 echo "==> [8/8] 打包 DMG"
-DMG="${APP_NAME}-${VERSION}-${ARCH}.dmg"
+DMG="${DESTDIR}/EnglishCoach-${VERSION}-${ARCH_LABEL}.dmg"
 # 先卸载可能残留的同名挂载卷，避免 "hdiutil: create failed - 资源忙"
 for v in /Volumes/${APP_NAME}*; do
     [ -d "$v" ] && hdiutil detach "$v" -force >/dev/null 2>&1 || true
@@ -273,10 +307,15 @@ rm -rf "$STAGE"
 
 echo ""
 echo "================================================================"
-echo "  完成 ✅   App: dist/${APP_NAME}.app   DMG: ${DMG}"
+# 把 .app 移进本平台产物目录，dist 根目录保持干净
+if [ -d "dist/${APP_NAME}.app" ]; then
+    rm -rf "${DESTDIR}/${APP_NAME}.app"
+    mv "dist/${APP_NAME}.app" "${DESTDIR}/"
+fi
+echo "  完成 ✅   App: ${DESTDIR}/${APP_NAME}.app   DMG: ${DMG}"
 echo "================================================================"
 echo ""
 echo "若无法启动，终端运行查看真实报错："
-echo "    ./dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+echo "    ./${DESTDIR}/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
 echo "分发他人首次打开若提示\"已损坏\"（未签名）："
 echo "    sudo xattr -rd com.apple.quarantine /路径/${APP_NAME}.app"

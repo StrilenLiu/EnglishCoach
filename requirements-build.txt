@@ -1,0 +1,15 @@
+# English Coach — 编译打包依赖 / Build dependencies
+# 仅在自行编译安装包时需要；只是从源码运行的话不必安装。
+# Only needed to BUILD installers. Not required just to run from source.
+#
+#   pip install -r requirements.txt
+#   pip install -r requirements-build.txt
+#
+# 注意 / Note: PyInstaller 不支持交叉编译 —— 每个平台的产物必须在该平台上编译。
+# PyInstaller cannot cross-compile: each platform's binary must be built on that
+# platform.
+
+-r requirements.txt
+
+pyinstaller
+pillow          # 生成各平台图标 / icon generation (make_icon.py)

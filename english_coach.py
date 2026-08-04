@@ -138,7 +138,7 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.5.1"
+APP_VERSION = "2.15.12"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -283,6 +283,1093 @@ def _add_history(src_text, tgt_text, engine):
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
     {
+        "version": "2.15.12",
+        "date": "2026-07-28",
+        "title": "恢复 API Key 输入框样式 · 复选框勾选色恢复为蓝色（不再跟随系统强调色）",
+        "notes": [
+            "修复 API Key 输入框在 Win10 深色下变白、Win11 出现原生底部亮条：输入框原本与下拉闭合框共用同一条样式规则，改用混合方案时只搬了下拉、把输入框漏了，导致它退回原生渲染。现已恢复，深色 #2d2d30 / 浅色 #ffffff，与下拉闭合框一致，悬停与聚焦为蓝边",
+            "修复 Win11 复选框勾选后是黄色：复选框现在走系统原生渲染，勾选色默认取自【系统强调色】，系统若设成黄色勾选就是黄色。现在显式把调色板的强调色固定为程序蓝 #1e88e5，原生渲染与边线保持不变，Win10 同样受益",
+            "关于朗读与卡拉OK字幕的原则：经实测验证，卡拉OK（青蓝 #5aa8b0 + 白字）确实覆盖在蓝色主动选区与灰色被动选区之上，三层重叠时最终显示卡拉OK；拖动进度条的『字幕铁律』（该侧音频缓存在且文字在则必有字幕，边界丢失会先从缓存恢复、再按朗读范围重建）也已在代码中实现",
+            "本次仅改动非 mac 路径的两处样式；mac 分支未动（经伪装 darwin 验证不调用非 mac 的调色板函数、不重建样式）；6.11 与 6.4.2 两套 Qt 验证：主界面下拉、设置窗下拉、反复切换主题均正常，设置窗与主窗样式一致，无崩溃",
+        ],
+        "title_en": "Restored the API key field styling · checkbox tick colour is blue again instead of following the system accent",
+        "notes_en": [
+            "Fixed the API key field turning white in dark mode on Win10 and showing a native bottom accent line on Win11: the field originally shared one style rule with the dropdown closed-box, and when the hybrid approach was introduced only the dropdown was carried over, leaving the field to fall back to native rendering. It is restored now — #2d2d30 in dark, #ffffff in light, matching the dropdown closed-box, with a blue border on hover and focus",
+            "Fixed the Win11 checkbox tick appearing yellow: checkboxes are rendered natively, and the tick colour defaults to the system accent, so a yellow system accent produced a yellow tick. The palette's accent role is now pinned to the app blue #1e88e5, leaving native rendering and the indicator border untouched; Win10 benefits from the same change",
+            "On the playback and karaoke subtitle principle: verified by test that karaoke (teal #5aa8b0 with white text) does paint above both the blue active selection and the grey passive selection, and wins where all three overlap; the slider's subtitle rule (whenever that side has cached audio and text, dragging must show subtitles, restoring boundaries from cache and otherwise rebuilding them from the spoken range) is already implemented",
+            "This release changes only two styling spots on the non-mac path; the mac branch is untouched (a simulated-darwin run confirms it neither calls the non-mac palette helper nor rebuilds the style); verified on Qt 6.11 and 6.4.2: main window dropdowns, settings dropdowns and repeated theme switching all work, the settings dialog matches the main window, and there are no crashes",
+        ],
+    },
+    {
+        "version": "2.15.11",
+        "date": "2026-07-27",
+        "title": "修复设置窗语言/主题下拉『整体向上串一行、末尾空白』：弹出列表被卡在滚下一行的位置",
+        "notes": [
+            "根因(由现象精确定位)：这不是丢项，而是弹出列表被卡在『向下滚了一行』的位置。这两个下拉的弹出高度正好等于项数，本不需要滚动；但选中最后一项时 Qt 会 scrollTo 让当前项可见，把视图滚下一行，而弹出的滚动条是关闭的、滚轮也被忽略，滚下去就卡住回不来 —— 于是显示成 items[1..N-1] 加一行空白，正是『中文/English US』变成『English US/空白』、『深色/浅色/跟随系统』变成『浅色/跟随系统/空白』的现象",
+            "修复：只给设置窗的语言与主题这两个下拉，在弹出后把列表滚动位置归零。范围极窄 —— 不改任何弹出机制，不影响主界面下拉，也不影响设置窗里的其它下拉",
+            "Linux/Fusion 下项目较矮、内容正好装得下，滚动上限为 0 根本滚不动，这正是此前在测试环境反复复现不出来的原因；windows11 原生样式下项目更高，才会滚出这一行",
+            "Mac 分支直接跳过本处理，弹出仍走系统原生；6.11 与 6.4.2 两套 Qt 验证：主界面下拉(14 项)正常，反复选择并弹出 12 次后语言恒 2 项、主题恒 3 项、滚动位置恒为 0，无崩溃",
+        ],
+        "title_en": "Fixed the settings language/theme dropdowns appearing shifted up by one row with a blank at the end: the popup list was stuck scrolled down by one row",
+        "notes_en": [
+            "Root cause (pinned down from the exact symptom): nothing was ever lost — the popup list was stuck one row down. These dropdowns size their popup to exactly the number of items so no scrolling should be needed, but selecting the last item makes Qt scroll the view to reveal it, and because the popup's scrollbar is disabled and the wheel is ignored, it stays scrolled and cannot come back. The result is items[1..N-1] plus a blank row, exactly matching 'Chinese / English US' becoming 'English US / blank' and 'Dark / Light / Follow System' becoming 'Light / Follow System / blank'",
+            "Fix: for the settings dialog's language and theme dropdowns only, the list scroll position is reset to the top after the popup opens. The change is deliberately narrow — no popup machinery is modified, the main window dropdowns are untouched, and other dropdowns in the settings dialog are unaffected",
+            "Under Linux/Fusion the items are shorter and the content fits exactly, so the scroll maximum is zero and nothing can scroll — which is why this never reproduced in the test environment; the native windows11 style renders taller items, which is what produces the extra row",
+            "The mac branch skips this handling entirely and popups still use the native system look; verified on both Qt 6.11 and 6.4.2: the main window dropdowns (14 items) work, and after 12 rounds of selecting and reopening the language dropdown stays at 2 items, the theme dropdown at 3, and the scroll position stays at 0, with no crashes",
+        ],
+    },
+    {
+        "version": "2.15.10",
+        "date": "2026-07-27",
+        "title": "回退 2.15.9 对下拉弹出机制的改动（它弄坏了主界面下拉），只保留设置窗语言/主题下拉的丢项自愈",
+        "notes": [
+            "回退：2.15.9 改了所有下拉共用的弹出机制（每次弹出重算可见项数、开滚动条兜底、滚轮条件放行），本意是修设置窗的丢项，结果把 2.15.8 里已经好用的主界面下拉一起弄坏了。现已完整恢复成 2.15.8 的弹出机制：滚动条关闭、可见项数按创建时项数、滚轮一律忽略、无弹出包装",
+            "保留：2.15.8 的下拉弹出背景随主题刷新（深色 #2d2d30 / 浅色 #ffffff）不受影响，仍然生效",
+            "保留并收紧：设置窗语言/主题下拉的丢项自愈改为只按身份值判断、且只在项【真的少了】时才重建 —— 项目齐全时完全不碰下拉，零副作用（此前按显示文字比对，会在每次界面重译时误触发重建）",
+            "Mac 分支一字未动；6.11 与 6.4.2 两套 Qt 验证：主界面下拉(14 项引擎)与设置窗下拉(语言 2/主题 3)弹出均正常，弹出背景随主题正确，无崩溃",
+        ],
+        "title_en": "Reverted the 2.15.9 dropdown popup changes (they broke the main window dropdowns), keeping only the settings-dialog language/theme item self-heal",
+        "notes_en": [
+            "Reverted: 2.15.9 modified the popup machinery shared by every dropdown (recomputing the visible-item count on each popup, a scrollbar fallback, conditional wheel scrolling). It was meant to fix the settings dialog but broke the main window dropdowns that worked fine in 2.15.8. The 2.15.8 popup machinery is fully restored: scrollbar off, visible-item count fixed at creation, wheel always ignored, no popup wrapper",
+            "Kept: the 2.15.8 fix that refreshes the dropdown popup background with the theme (#2d2d30 dark / #ffffff light) is unaffected and still active",
+            "Kept and tightened: the settings dialog's language/theme item self-heal now checks identity values only and rebuilds only when an item is genuinely missing — when the items are complete it does not touch the dropdown at all, so there are no side effects (it previously compared display text, which triggered a needless rebuild on every UI retranslation)",
+            "The mac branch is untouched; verified on both Qt 6.11 and 6.4.2: the main window dropdowns (14-item engine list) and the settings dropdowns (2 language / 3 theme) open correctly, the popup background follows the theme, and there are no crashes",
+        ],
+    },
+    {
+        "version": "2.15.9",
+        "date": "2026-07-27",
+        "title": "修复 Windows 语言/主题下拉反复切换后『丢一项』：弹出高度不够且滚不动，那一项永远够不着",
+        "notes": [
+            "根因：弹出列表同时做了三件相互冲突的事 —— 关闭垂直滚动条、禁用滚轮、且可见项数只在下拉『创建时』按当时项数算一次。在 windows11 原生样式下项目实际更高(原生内边距叠加样式表 padding)，弹出高度就只装得下 N-1 项；而滚动条和滚轮又都被关掉，那一项便永远够不着，看起来就是『丢了一项』(Linux/Fusion 装得下，所以此前一直复现不出)",
+            "修复一：每次弹出前按当前真实项数重算可见项数；弹出后若仍装不下，自动打开滚动条兜底，保证任何一项都能被看到和选到",
+            "修复二：滚轮不再一律拦截 —— 确实可滚动时放行(mac 保持原来一律忽略的行为不变)",
+            "修复三：语言与主题两个下拉都加上项目完整性自愈 —— 每次界面重译后校验，一旦项数或身份值不符，自动重建为完整项并保留当前选择(此前只有语言下拉有这道保险)",
+            "Mac 分支一字未动：尺寸重算与滚动兜底都在 mac 上直接跳过，弹出仍走系统原生(经伪装 darwin 验证)；6.11 与 6.4.2 两套 Qt 反复切换 16 次后语言恒 2 项、主题恒 3 项，无崩溃",
+        ],
+        "title_en": "Fixed the language/theme dropdowns losing an item after repeated switching on Windows: the popup was too short to fit every item and could not scroll",
+        "notes_en": [
+            "Root cause: the popup list did three conflicting things at once — the vertical scrollbar was disabled, the mouse wheel was blocked, and the visible-item count was computed only once when the dropdown was created. Under the native windows11 style the items are taller (native padding on top of the stylesheet padding), so the popup only fits N-1 items; with both the scrollbar and the wheel disabled, that last item became permanently unreachable and looked like it had disappeared (everything fits under Linux/Fusion, which is why this never reproduced in testing)",
+            "Fix 1: the visible-item count is recomputed from the real item count before every popup, and if items still do not fit the scrollbar is enabled afterwards as a fallback so every item can be seen and selected",
+            "Fix 2: the mouse wheel is no longer blocked unconditionally — it now scrolls when the list actually can scroll (mac keeps its previous always-ignore behaviour)",
+            "Fix 3: both the language and theme dropdowns now self-heal their item lists — after every UI retranslation the items are validated and rebuilt with the current selection preserved if anything is missing (previously only the language dropdown had this safeguard)",
+            "The mac branch is untouched: the resizing and scroll fallback are skipped entirely on mac and popups still use the native system look (verified with a simulated-darwin run); after 16 consecutive switches on both Qt 6.11 and 6.4.2 the language dropdown stays at 2 items and the theme dropdown at 3, with no crashes",
+        ],
+    },
+    {
+        "version": "2.15.8",
+        "date": "2026-07-27",
+        "title": "修复 Windows 切浅色后下拉弹出仍是黑底、以及由此造成的『下拉少一项』（两者是同一个 Bug）",
+        "notes": [
+            "根因：下拉弹出容器的背景色只在下拉『创建时』设过一次，切换主题时从不更新。所以从深色切到浅色后，弹出容器仍是黑底，而项目文字已随浅色主题变成深色 —— 深字配黑底就完全看不见了",
+            "这同时解释了『反复改几次就丢一项』：项目其实一个都没丢（实测反复切换 12 次后语言仍是 2 项、主题仍是 3 项），只是没被选中的那些项深字黑底看不见；被选中那项因为有蓝色高亮加白字所以还看得见，于是看起来就像少了一项",
+            "修复：把弹出容器配色抽成与主样式表共用的函数，并在主题热切换时刷新主窗与所有已打开弹窗内的全部下拉 —— 深色 #2d2d30、浅色 #ffffff，与下拉闭合框配色一致",
+            "Mac 分支一字未动：mac 的下拉弹出走系统原生、不设任何样式，热切换时也不会调用这个刷新（经伪装 darwin 验证）；6.11 与 6.4.2 两套 Qt 反复切换均无崩溃",
+        ],
+        "title_en": "Fixed the dropdown popup staying black after switching to the light theme on Windows, and the resulting phantom missing item (both were the same bug)",
+        "notes_en": [
+            "Root cause: the dropdown popup container's background colour was set only once, when the dropdown was created, and never updated on a theme change. After switching from dark to light the popup container was still black while the item text had followed the light theme and turned dark — dark text on a black background is simply invisible",
+            "This also explains the reported item loss after repeated changes: no item was ever removed (after 12 consecutive switches the language dropdown still had 2 items and the theme dropdown 3). The unselected items were merely invisible, while the selected one stayed visible thanks to its blue highlight and white text, making it look like an item had gone missing",
+            "Fix: the popup container colours were extracted into a function shared with the main stylesheet, and the theme hot-switch now refreshes every dropdown in the main window and in any open dialog — #2d2d30 in dark, #ffffff in light, matching the dropdown closed-box",
+            "The mac branch is untouched: mac dropdown popups use the native system look with no stylesheet, and the hot-switch never calls this refresh on mac (verified with a simulated-darwin run); repeated switching on both Qt 6.11 and 6.4.2 produces no crashes",
+        ],
+    },
+    {
+        "version": "2.15.7",
+        "date": "2026-07-27",
+        "title": "修复 Windows 深色切浅色后按钮图标/文字看不见：切主题时重新生成图标",
+        "notes": [
+            "找到根因：按钮图标是按当前深浅现场渲染的 SVG（浅色主题用深色 #1f1f22，深色主题用浅色 #e8e8e8）。mac 分支在切主题时一直会重新生成图标，非 mac 分支却漏了这一步——从深色切到浅色后，图标仍是浅灰色，落在浅底按钮上就看不见了",
+            "修复：非 mac 的主题热切换现在同样调用图标重生成，并且连已打开的设置窗/弹窗里的按钮图标也一并按新深浅重新着色",
+            "已用实际像素颜色验证：深色主题下图标为 #e8e8e8、浅色主题下为 #1f1f22，按钮文字色也随主题正确切换（深色 #dcdcdc / 浅色 #1f1f22）",
+            "Mac 分支一字未动：mac 仍走 _mac_hybrid_qss，既不重建样式对象也不调用非 mac 的调色板函数（经伪装 darwin 验证）；6.11 与 6.4.2 两套 Qt 连切 5 次均无崩溃，设置窗与主窗始终一致",
+        ],
+        "title_en": "Fixed invisible button icons and text on Windows after switching dark to light: icons are now regenerated on theme change",
+        "notes_en": [
+            "Root cause: button icons are SVGs rendered on the fly for the current theme (dark #1f1f22 for the light theme, light #e8e8e8 for the dark theme). The mac branch has always regenerated icons on a theme change, but the non-mac branch skipped this step — after switching from dark to light the icons stayed light grey and became invisible on light buttons",
+            "Fix: the non-mac theme hot-switch now regenerates icons too, including button icons inside any already-open Settings dialog or popup",
+            "Verified by sampling actual pixel colors: icons are #e8e8e8 in the dark theme and #1f1f22 in the light theme, and button text follows the theme correctly (#dcdcdc dark / #1f1f22 light)",
+            "The mac branch is untouched: mac still uses _mac_hybrid_qss and neither rebuilds the style object nor calls the non-mac palette helper (verified with a simulated-darwin run); five consecutive switches on both Qt 6.11 and 6.4.2 produce no crashes and the Settings dialog stays identical to the main window",
+        ],
+    },
+    {
+        "version": "2.15.6",
+        "date": "2026-07-27",
+        "title": "修复 Windows 切换深浅色后仍错乱：热切换时重建样式对象并全量重绘（Mac 不受影响）",
+        "notes": [
+            "找到『重启才好』的最后一块拼图：启动时的顺序是 设调色板 -> app.setStyle() 新建样式对象 -> 再设 colorScheme -> 建窗口。原生样式(windows11)在【创建那一刻】确定深浅状态，之后再改 colorScheme，这个已存在的样式对象不会彻底重绘——所以只有重启(重新创建样式对象)才正常",
+            "修复：主题热切换时完整复刻启动顺序——重设调色板、重建样式对象、在其后再设一次调色板与 colorScheme(setStyle 会把调色板重置为样式标准值，必须在其后补回)，最后重套混合样式表",
+            "新增全量重新 polish：仅调 update() 不足以让已经 polish 过的控件按新样式与调色板重绘，现在对所有控件执行 unpolish/polish，强制彻底刷新",
+            "Mac 分支一字未动：mac 仍走 _mac_hybrid_qss，既不重建样式对象也不调用 _apply_win_palette(经伪装 darwin 验证)；6.11 与 6.4.2 两套 Qt 反复切换 5 次均无崩溃，样式引擎保持不变、调色板随主题正确变化、设置窗与主窗始终一致",
+        ],
+        "title_en": "Fixed Windows still breaking after a light/dark switch: the style object is now rebuilt and everything repolished on switch (Mac unaffected)",
+        "notes_en": [
+            "Found the last piece of the \"only a restart fixes it\" puzzle: startup does palette -> app.setStyle() creating a fresh style object -> colorScheme -> build window. The native windows11 style fixes its light/dark state at the moment it is created, so changing colorScheme afterwards never fully repaints the existing style object — which is exactly why only a restart looked right",
+            "Fix: the theme hot-switch now mirrors the startup sequence exactly — set the palette, rebuild the style object, then set the palette and colorScheme again afterwards (setStyle resets the palette to the style's standard one, so it must be restored), and finally re-apply the hybrid stylesheet",
+            "Added a full repolish: calling update() alone does not make already-polished widgets repaint under the new style and palette, so unpolish/polish is now run across all widgets to force a complete refresh",
+            "The mac branch is untouched: mac still uses _mac_hybrid_qss and neither rebuilds the style object nor calls _apply_win_palette (verified with a simulated-darwin run); on both Qt 6.11 and 6.4.2, five consecutive switches produce no crashes, the style engine stays the same, the palette tracks the theme, and the Settings dialog stays identical to the main window",
+        ],
+    },
+    {
+        "version": "2.15.5",
+        "date": "2026-07-26",
+        "title": "真正修复 Windows 改深浅色后错乱 + 复选框没边线（Mac 不受影响）",
+        "notes": [
+            "找到真正根因：启动时非 mac 会给 app 设一套深/浅调色板，但主题热切换(apply_theme)在改用混合方案后漏掉了这一步——原生控件(复选框边线、背景)保留启动时的旧调色板，于是出现『打开好、改主题坏、重启又好』；现在启动与热切换共用同一个 _apply_win_palette，切主题时调色板同步更新",
+            "修复复选框小方块没有边线：复选框改为完全走原生(由 setColorScheme+调色板驱动)——移除了窗口级样式表里的 QCheckBox 规则，以及每个复选框的内联样式；只要给复选框设任何样式表，windows11 引擎就会对它整体接管渲染而丢失原生边线(测试程序的混合模式正是不设 QCheckBox 规则才正确)",
+            "两条修复合力：调色板同步 + 复选框纯原生，改主题后复选框、按钮、下拉、背景都跟着正确变深浅",
+            "Mac 分支一字未动：mac 继续走 _mac_hybrid_qss，且 _apply_win_palette 仅在非 mac 调用(经伪装 darwin 验证 mac 路径不碰它)；6.11 与 6.4.2 两套 Qt 环境反复切换均无崩溃、设置窗与主窗始终一致",
+        ],
+        "title_en": "Actually fixed Windows corruption after changing light/dark + checkboxes with no border (Mac unaffected)",
+        "notes_en": [
+            "Found the true root cause: at startup the non-mac path sets a full dark/light palette on the app, but the theme hot-switch (apply_theme) dropped this step when it moved to the hybrid approach — native controls (checkbox borders, backgrounds) kept the startup palette, producing \"fine on open, broken on change, fine after restart\"; startup and hot-switch now share the same _apply_win_palette so the palette updates on every theme change",
+            "Fixed checkboxes having no border: checkboxes are now fully native (driven by setColorScheme plus the palette) — the QCheckBox rule was removed from the window stylesheet along with each checkbox's inline style; setting any stylesheet on a checkbox makes the windows11 engine take over its rendering and lose the native border (the test program's hybrid mode was correct precisely because it set no QCheckBox rule)",
+            "The two fixes together: palette sync plus fully-native checkboxes mean that after a theme change the checkboxes, buttons, dropdowns and backgrounds all switch light/dark correctly",
+            "The mac branch is untouched: mac still uses _mac_hybrid_qss, and _apply_win_palette is called only on non-mac (verified via a simulated-darwin run that the mac path never touches it); repeated switching on both Qt 6.11 and 6.4.2 shows no crashes and the Settings dialog stays identical to the main window",
+        ],
+    },
+    {
+        "version": "2.15.4",
+        "date": "2026-07-26",
+        "title": "修复 Windows 在设置里改深浅色后界面错乱（设置窗改为与主窗完全一致，Mac 不受影响）",
+        "notes": [
+            "根因找到(靠『刚开好、改主题坏、重启又好』这条线索锁定)：设置窗的下拉/按钮样式函数只有 mac 分支、没有 Windows 分支，改主题时它给设置窗套上一张残缺样式表(只有下拉弹出、没有下拉闭合框和按钮)，覆盖了主窗正确的混合样式，于是整个界面错乱；重启因设置窗未打开而恢复正常",
+            "修复：非 mac 时设置窗直接套用主窗的混合样式(_win_hybrid_qss)，与主界面一模一样，且只有一个深浅真相来源，改主题不再错乱",
+            "mac 分支一字未动：mac 继续走原有的 _mac_hybrid_qss，效果完全不变(经伪装 darwin 验证 mac 代码路径原样执行)",
+            "6.11 与 6.4.2 两套 Qt 环境均验证：反复切换深浅色后，设置窗样式始终与主窗完全一致，下拉正常、无崩溃",
+        ],
+        "title_en": "Fixed Windows UI corruption after changing light/dark in Settings (Settings dialog now identical to the main window; Mac unaffected)",
+        "notes_en": [
+            "Root cause (pinned down by the clue \"fine on open, breaks on theme change, fine again after restart\"): the Settings dialog's dropdown/button style function had only a mac branch and no Windows branch, so changing the theme applied an incomplete stylesheet (dropdown popup only, no closed-box or buttons) that overrode the main window's correct hybrid style and corrupted the whole UI; a restart looked fine because the Settings dialog was not open",
+            "Fix: on non-mac the Settings dialog now applies the main window's hybrid stylesheet (_win_hybrid_qss) directly, making it identical to the main UI with a single source of truth for light/dark, so changing the theme no longer corrupts it",
+            "The mac branch is untouched: mac still uses the existing _mac_hybrid_qss and is completely unchanged (verified via a simulated-darwin run that the mac code path executes as before)",
+            "Verified on both Qt 6.11 and 6.4.2: after repeated light/dark switches the Settings dialog stylesheet stays identical to the main window, dropdowns work, no crashes",
+        ],
+    },
+    {
+        "version": "2.15.3",
+        "date": "2026-07-26",
+        "title": "Windows/Linux 改用混合主题方案（照搬 mac 成功模式）：深浅切换正常、复选框原生、按钮下拉自绘保持",
+        "notes": [
+            "彻底重做 Windows/Linux 的深浅主题：改用与 mac 同构的混合方案——用 Qt 的 setColorScheme 驱动系统原生控件(复选框、滚动条、窗口底色随之正确变深浅)，样式表只绘制按钮、下拉闭合框、下拉弹出(蓝色高亮)、滑杆、状态栏，不再碰复选框指示器与滚动条",
+            "解决 Win11 深浅切换后按钮字太浅、复选框没边线/勾选变实心：这些都源于旧方案用样式表强行涂色与 windows11 原生引擎打架；混合方案让原生引擎自己画复选框，样式表只管按钮/下拉，两不相扰",
+            "下拉弹出的蓝色高亮(#0e639c)+白字效果完整保留，深浅两主题都在",
+            "此改动仅影响非 mac 路径；mac(Intel/Silicon)继续用原有的 _mac_hybrid_qss，效果完全不变",
+        ],
+        "title_en": "Windows/Linux switched to the hybrid theme approach (mirroring the working mac model): correct dark/light, native checkboxes, self-drawn buttons and dropdowns preserved",
+        "notes_en": [
+            "Reworked Windows/Linux dark/light theming to mirror mac's hybrid approach: Qt's setColorScheme drives the native controls (checkboxes, scrollbars and window background change light/dark correctly), while the stylesheet only draws buttons, the dropdown closed-box, the dropdown popup (blue highlight), sliders and the status bar — it no longer touches the checkbox indicator or scrollbar",
+            "Fixes pale button text and missing checkbox borders / solid-fill checkmarks on Win11 after a theme switch: these came from the old approach fighting the native windows11 engine with stylesheet colors; the hybrid approach lets the native engine draw checkboxes while the stylesheet handles only buttons and dropdowns",
+            "The dropdown popup's blue highlight (#0e639c) with white text is fully preserved in both light and dark themes",
+            "This change affects only the non-mac path; mac (Intel/Silicon) continues to use the existing _mac_hybrid_qss and is completely unchanged",
+        ],
+    },
+    {
+        "version": "2.15.2",
+        "date": "2026-07-26",
+        "title": "Win11 深浅切换按钮字太浅/复选框实心 · 语言下拉丢项 两个老问题再修（不影响 Mac）",
+        "notes": [
+            "撤销上一版给复选框指示器加的自绘样式：它在 Win11 上让勾选态变成实心方块(SVG 对勾在 windows11 原生样式下不渲染)。现改为让 Windows 原生样式自己画正确的对勾",
+            "修复 Win11 浅色主题下按钮文字太浅看不清：跟随系统且 Qt 返回未知色彩方案时，之前默认按深色处理，导致浅底配浅字；现在未知时保守当作浅色，只有明确深色才用深色配色",
+            "语言下拉丢项(中文项消失)彻底根治：改用 userData 存身份值让显示文字与身份解耦(读 currentData 而非文字)，并在每次界面重译后加自愈保险——若因任何原因少了项，自动重建为『中文/English US』两项并保留当前选择",
+            "以上仅改动非 Mac 路径与共享样式表，Mac(Intel/Silicon)的原生混合方案完全未动，效果不受影响",
+        ],
+        "title_en": "Win11 dark/light: pale button text / solid checkbox · language dropdown losing an item — both re-fixed (Mac untouched)",
+        "notes_en": [
+            "Reverted the custom checkbox-indicator styling added last version: on Win11 it turned the checked state into a solid square (the SVG check does not render under the native windows11 style). The native Windows style now draws the correct checkmark",
+            "Fixed pale, unreadable button text in light theme on Win11: when following the system and Qt reported an unknown color scheme, it previously defaulted to dark, producing light text on a light background; unknown is now treated as light, and only an explicit dark scheme uses dark colors",
+            "Definitively fixed the language dropdown losing its Chinese item: it now stores identity values in userData (decoupled from display text, read via currentData rather than text), plus a self-healing guard after every UI retranslation that rebuilds the two items (Chinese / English US) and keeps the current selection if any item goes missing",
+            "These changes touch only the non-Mac path and the shared stylesheet; the Mac (Intel/Silicon) native hybrid approach is entirely untouched and unaffected",
+        ],
+    },
+    {
+        "version": "2.15.1",
+        "date": "2026-07-26",
+        "title": "多风格换行误判修复 · 选区/卡拉OK统一白字 · 日志写入修复 · Win11深浅复选框 · 被动选区朗读报错",
+        "notes": [
+            "修复普通翻译时原文含换行被误判为多风格分区：此前用译文第一个空行作直译区/多风格区分界，导致原文如『下载(换行)计算机』译成『Download(空行)computer』时 computer 被误划入多风格区变灰。现在只有多风格模式真正开启时才做空行分界，普通模式绝不分区",
+            "文字颜色统一：原文区/译文区只要有选区或卡拉OK效果，被覆盖的字一律显示白色——不论深浅主题、不论直译区黑字还是多风格灰字、不论主动蓝色还是被动灰色背景；未被覆盖的多风格区仍是灰字",
+            "修复朗读时到达处的青蓝卡拉OK效果+白字有时不覆盖：三种背景格式(青蓝已读/蓝选区/灰联动)现都显式带白字前景，覆盖一致",
+            "修复朗读被动灰色联动区报错『cannot access local variable text』：该分支里 len(text) 用在了 text 赋值之前，现已调整顺序",
+            "修复日志文件一直为空(谎报写入)：异常钩子调用的是不存在的 _log 函数，写入在 try 中被静默吞掉，却仍提示已记录；改为正确的 _log_error，日志真正写入(全平台，非仅 Silicon)",
+            "修复 Win11 深浅切换后复选框没有边框：给复选框指示器加了显式样式(边框+背景+白色对勾 SVG)，不再依赖 windows11 原生样式在调色板切换时重绘",
+            "进度滑杆拖到最左的卡拉OK边界问题与朗读到达覆盖逻辑一并改良",
+        ],
+        "title_en": "Multi-style newline misdetection fix · unified white text for selection/karaoke · log-write fix · Win11 dark/light checkbox · passive-selection speak error",
+        "notes_en": [
+            "Fixed normal translations with a newline in the source being misread as a multi-style split: the first blank line in the output was used as the direct/multi-style boundary, so a source like 'download(newline)computer' translated to 'Download(blank line)computer' had computer wrongly grayed into the multi-style area. The blank-line split now only happens when multi-style mode is actually on; normal mode never splits",
+            "Unified text color: in both the source and target areas, any text under a selection or karaoke effect now shows white — regardless of light/dark theme, direct-area black text or multi-style gray text, and active blue or passive gray background; uncovered multi-style text stays gray",
+            "Fixed the teal karaoke highlight + white text sometimes not covering during playback: all three background formats (teal read / blue selection / gray link) now explicitly carry a white foreground for consistent coverage",
+            "Fixed 'cannot access local variable text' when speaking the passive gray link region: that branch used len(text) before text was assigned; the order is now corrected",
+            "Fixed the log file always being empty (falsely reporting a write): the exception hook called a non-existent _log function, so the write was silently swallowed in a try while still claiming it logged; switched to the correct _log_error so the log actually writes (all platforms, not just Silicon)",
+            "Fixed checkboxes losing their border after a light/dark switch on Win11: the checkbox indicator now has explicit styling (border, background and a white check SVG) instead of relying on the windows11 native style to repaint on a palette change",
+            "Improved the karaoke boundary when the progress slider is dragged fully left, alongside the playback coverage logic",
+        ],
+    },
+    {
+        "version": "2.15.0",
+        "date": "2026-07-25",
+        "title": "修复 macOS Apple Silicon：不再弹新窗、深浅色正常 · 按架构分 Qt 版本",
+        "notes": [
+            "修复 Apple Silicon 打包版生成朗读音频时不断弹出新 App 窗口：torch/Kokoro 用 multiprocessing 起子进程，冻结的 app 里未调用 freeze_support() 会让每个子进程重新启动整个程序；现在入口最前调用 multiprocessing.freeze_support()",
+            "修复 Apple Silicon 界面颜色混乱、深色模式按钮全白、切换深浅无反应：mac 深浅之前只靠 pyobjc(AppKit)驱动，Silicon+新系统上失效；现改为优先用 Qt 原生 setColorScheme/colorScheme(6.5+，Apple Silicon 的 6.11 可靠且不依赖 pyobjc)，老 Intel(6.4.2)自动回退 AppKit",
+            "按架构分 Qt 版本：Apple Silicon 用 PyQt6 6.11.x(最低 macOS 12.0)，Intel 保持 6.4.2(最低 Big Sur 11.0)；Windows 与 Linux 用 6.11.x。构建脚本按 uname -m 自动选择版本与最低系统",
+            "构建脚本两架构都装 pyobjc-framework-Cocoa，作为标题栏等系统装饰深浅同步的辅助",
+        ],
+        "title_en": "Fixed macOS Apple Silicon: no more popup windows, correct light/dark · Qt version per architecture",
+        "notes_en": [
+            "Fixed the Apple Silicon packaged build spawning new app windows while generating audio: torch/Kokoro use multiprocessing to start workers, and in a frozen app without freeze_support() each worker relaunches the whole program; multiprocessing.freeze_support() is now called first thing at the entry point",
+            "Fixed Apple Silicon UI color chaos, all-white buttons in dark mode, and light/dark switching doing nothing: mac dark/light previously relied solely on pyobjc (AppKit), which fails on Silicon with newer systems; it now prefers Qt's native setColorScheme/colorScheme (6.5+, reliable on Apple Silicon's 6.11 without pyobjc) and falls back to AppKit on older Intel (6.4.2)",
+            "Qt version per architecture: Apple Silicon uses PyQt6 6.11.x (min macOS 12.0), Intel stays on 6.4.2 (min Big Sur 11.0); Windows and Linux use 6.11.x. The build script picks the version and minimum system automatically from uname -m",
+            "The build script installs pyobjc-framework-Cocoa on both architectures, as an aid for syncing system decorations like the title bar to light/dark",
+        ],
+    },
+    {
+        "version": "2.14.9",
+        "date": "2026-07-25",
+        "title": "滚动条回归系统原生 · 语言下拉丢项/主题错乱/卡拉OK字色/暂停失效/滚轮误改 五项修复 · 新增 Linux 构建脚本",
+        "notes": [
+            "滚动条不再强加任何自定义样式，各平台一律用系统原生：Win11 原生 Fluent 圆角、Win10 原生 Vista 直角、macOS 原生——与主窗风格统一",
+            "修复 Windows 版语言下拉在中英切换后丢失中文项：语言项是身份值(用于判断当前语言)，不应被界面重译改写，现标记为不参与重译",
+            "修复深浅主题互换时设置窗下拉/按钮颜色错乱：设置窗缺少主题热切换回调，切主题时保留了旧配色；现补上回调，按新深浅重建自绘样式",
+            "卡拉OK字幕字色统一为白色：多风格区原本灰字，被卡拉OK/选区背景覆盖的部分现一律显示白字，与直译区一致；未被覆盖的灰区保持灰字",
+            "修复全选文字并有卡拉OK时暂停键失效：全选朗读时选区仍在，暂停点击被误判为新朗读请求而重启；现同段朗读时优先按暂停/继续处理，只有真正不同的新选区才重启",
+            "修复设置窗内用滚轮滚动内容时误改下拉选项：下拉框未获焦点时不再响应滚轮，把滚动交给页面",
+            "新增 Linux 一键构建脚本 Build Linux.sh：PyInstaller 打包，产物为 dist/Linux-x64/ 下的可执行目录与 tar.gz；建议在较老发行版(如 Ubuntu 20.04)上编译以保 glibc 向下兼容",
+        ],
+        "title_en": "Scrollbars back to OS-native · five fixes (language dropdown, theme colors, karaoke text, pause, wheel) · new Linux build script",
+        "notes_en": [
+            "Scrollbars no longer force any custom style; every platform uses its native default: Win11 native Fluent rounded, Win10 native Vista square, macOS native — consistent with the main window",
+            "Fixed the Windows language dropdown losing its Chinese item after switching languages: the language items are identity values (used to determine the current language) and must not be rewritten by UI retranslation; they are now marked to skip it",
+            "Fixed dropdown and button colors going wrong in the Settings dialog when switching light/dark themes: the dialog lacked a theme-refresh callback and kept its old colors; the callback is now added and rebuilds the styling for the new theme",
+            "Karaoke subtitle text is now uniformly white: the multi-style area was gray, and the parts covered by the karaoke/selection background now show white text like the direct-translation area; uncovered gray regions stay gray",
+            "Fixed the pause button failing when playing a full-text selection with karaoke: the selection stays active during playback, so a pause click was misread as a new play request and restarted; pausing/resuming now takes priority for the same spoken span, and only a genuinely different selection restarts",
+            "Fixed the scroll wheel accidentally changing dropdown values while scrolling the Settings dialog: dropdowns no longer respond to the wheel unless focused, passing the scroll to the page",
+            "Added a one-command Linux build script (Build Linux.sh): PyInstaller packaging producing an executable folder and a tar.gz under dist/Linux-x64/; build on an older distro (e.g. Ubuntu 20.04) for forward glibc compatibility",
+        ],
+    },
+    {
+        "version": "2.14.8",
+        "date": "2026-07-25",
+        "title": "自绘滚动条配色改进：Win10 深浅主题下都清晰可见",
+        "notes": [
+            "修复 Win10 上自绘圆角滚动条看不清：此前滑块用半透明灰，对比依赖底层背景色，Win10 背景不同就与轨道糊在一起",
+            "改用不透明实色并主动画一层浅色圆角轨道，滑块与轨道之间保证足够亮度差；按深浅主题自动选配色，浅色主题用中深灰滑块、深色主题用中灰滑块",
+            "各类背景(浅色/深色/中灰)下实测滑块与轨道亮度差均 ≥80，清晰可辨",
+        ],
+        "title_en": "Custom scrollbar colors improved: clearly visible on Win10 in both light and dark themes",
+        "notes_en": [
+            "Fixed the custom rounded scrollbar being hard to see on Win10: the slider previously used a semi-transparent gray whose contrast depended on the underlying background, so on Win10's different background it blended into the track",
+            "Now uses opaque solid colors and draws a light rounded track underneath, guaranteeing enough brightness difference between slider and track; colors are chosen automatically per light/dark theme (a mid-dark gray slider on light themes, a mid gray slider on dark themes)",
+            "Measured slider-vs-track brightness difference is >=80 across light, dark and mid-gray backgrounds — clearly distinguishable",
+        ],
+    },
+    {
+        "version": "2.14.7",
+        "date": "2026-07-25",
+        "title": "修复 DeepSeek 模型停用导致翻译失败 · Win10 滚动条改自绘圆角 · 构建脚本消噪",
+        "notes": [
+            "修复 DeepSeek 翻译报 400：deepseek-chat 模型名已于 2026-07-24 15:59 UTC 停用，改用官方新名 deepseek-v4-flash（原 deepseek-chat 对应的经济档）",
+            "翻译任务显式关闭 DeepSeek 的思考模式（v4-flash 默认开启思考，会平添延迟与费用），保持与原来一致的快速非思考行为",
+            "Win10 滚动条改用自绘方案（QProxyStyle 直接用 QPainter 画圆角胶囊）：此前给滚动条套 Fusion 样式在实机上仍是直角，因为 Qt 新版的 windows11 引擎会忽略 QSS 圆角、且样式表回退到平台样式；自绘完全绕开样式引擎与 QSS 的层叠，任何 Qt 版本都画出一致圆角",
+            "构建脚本消除 en_core_web_sm 的无害报错：该 spaCy 模型不在 PyPI（走 GitHub Releases），镜像返回 0 字节占位导致 Wheel invalid 报错；现改为先检查是否已安装，已装则跳过，未装才从官方地址安装",
+        ],
+        "title_en": "Fixed DeepSeek translation failure from model retirement · Win10 scrollbars now custom-drawn round · quieter build scripts",
+        "notes_en": [
+            "Fixed DeepSeek translation returning HTTP 400: the deepseek-chat model name was retired on 2026-07-24 15:59 UTC, replaced with the official new name deepseek-v4-flash (the economical tier the old deepseek-chat mapped to)",
+            "Thinking mode is now explicitly disabled for DeepSeek translation (v4-flash enables thinking by default, adding latency and cost), preserving the previous fast non-thinking behaviour",
+            "Win10 scrollbars are now custom-drawn (a QProxyStyle painting rounded capsules directly with QPainter): applying the Fusion style still rendered square on real machines because Qt's newer windows11 engine ignores QSS rounding and the stylesheet fell back to the platform style; custom drawing bypasses the style engine and QSS entirely for consistent rounded corners on any Qt version",
+            "Build scripts no longer print the harmless en_core_web_sm error: that spaCy model is not on PyPI (it ships via GitHub Releases) and mirrors return a 0-byte placeholder that fails wheel validation; the scripts now check whether it is already installed, skip if so, and otherwise install from the official URL",
+        ],
+    },
+    {
+        "version": "2.14.6",
+        "date": "2026-07-25",
+        "title": "修复 mac 进设置窗闪退（NameError: lv）",
+        "notes": [
+            "真因找到：v2.14.3 重写下拉弹出函数时，旧函数的尾部代码被遗落在函数体外，成了缩进错误的游离代码块，其中引用的 lv 变量已不在作用域内",
+            "这段游离代码恰好是 macOS 专属分支(弹出列表走系统原生透明背景)，所以只在 mac 上触发、Linux 沙盒测不出来——这也是前两版反复没修对的原因",
+            "已删除游离代码，并把 macOS 原生弹出处理放回它应在的函数内（lv 有效作用域）",
+            "顺带全量扫描了模块结构，确认没有其它同类遗留代码块",
+            "上一版加的全局异常钩子发挥了作用：正是它把静默闪退变成了可读的错误提示，才得以一次定位",
+        ],
+        "title_en": "Fixed macOS crash when opening Settings (NameError: lv)",
+        "notes_en": [
+            "Real cause found: when the dropdown popup function was rewritten in v2.14.3, the tail of the old function was left outside the function body as a mis-indented orphaned block, referencing the variable lv which was no longer in scope",
+            "That orphaned block happened to be the macOS-only branch (native translucent popup), so it fired only on Mac and could not be reproduced in the Linux sandbox — which is why the two previous attempts fixed the wrong thing",
+            "The orphaned block has been removed and the macOS native popup handling restored inside the function where lv is actually in scope",
+            "Also scanned the whole module structure to confirm no other leftover blocks of this kind exist",
+            "The global exception hook added in the previous version did its job: it turned a silent crash into a readable error message, which is what made this diagnosis possible",
+        ],
+    },
+    {
+        "version": "2.14.5",
+        "date": "2026-07-25",
+        "title": "紧急修复：一点设置就闪退（槽函数异常导致 PyQt 直接中止）",
+        "notes": [
+            "找到闪退真因：崩溃栈显示 pyqt6_err_print → QMessageLogger::fatal → qAbort，且发生在按钮点击(QAbstractButton::mouseReleaseEvent)之后——这是 PyQt6 的行为：槽函数里任何未被捕获的 Python 异常都会让程序直接 abort()，而不是像普通异常那样被忽略",
+            "新增全局异常钩子：槽函数抛异常时改为写入日志并弹窗提示，程序继续运行，不再闪退；日志中以 [UNCAUGHT] 标记，便于定位",
+            "『保持程序置顶』复选框的响应函数此前完全没有异常保护，正是崩溃栈指向的按钮点击路径，现已加上",
+            "置顶收尾函数改为局部导入 Qt 并整体保护，避免作用域问题引发异常",
+            "全流程回归通过：设置窗四个按钮逐一点击(含此前必崩的『导出日志』)、置顶勾选与取消、三个下拉弹出、关闭收尾，均无闪退",
+        ],
+        "title_en": "Critical fix: crash when touching Settings (slot exception aborting PyQt)",
+        "notes_en": [
+            "Found the real cause: the crash report shows pyqt6_err_print → QMessageLogger::fatal → qAbort right after a button click (QAbstractButton::mouseReleaseEvent). This is PyQt6 behaviour — any uncaught Python exception inside a slot makes the program abort() outright rather than being ignored as a normal exception would be",
+            "Added a global exception hook: an exception raised in a slot is now logged and shown in a dialog while the program keeps running, instead of crashing; entries are tagged [UNCAUGHT] in the log for easy tracing",
+            "The Keep Window on Top checkbox handler had no exception protection at all — precisely the button-click path the crash stack pointed to — and is now guarded",
+            "The always-on-top flush function now imports Qt locally and is fully guarded, removing any scope-related failure",
+            "Full regression passed: every Settings button clicked in turn (including Export Log, which previously killed the process), on-top toggled on and off, all three dropdowns opened, and the dialog closed — no crashes",
+        ],
+    },
+    {
+        "version": "2.14.4",
+        "date": "2026-07-25",
+        "title": "紧急修复：进入设置即闪退（滚动条样式对象悬空指针）",
+        "notes": [
+            "修复上一版一点设置就闪退：QWidget.setStyle() 并不接管样式对象的所有权，上版把 Fusion 样式存成应用的 Python 属性以为能保住它，但 Qt 退出时仍会销毁该对象，而滚动条还指向它——悬空指针导致段错误闪退",
+            "改为给样式对象设置真正的 Qt 父对象，生命周期交由 Qt 对象树管理，杜绝悬空",
+            "事件过滤器加固：只在窗口 Show 时处理并延后一拍执行，避免控件尚未构造完成或已销毁时被访问；对已销毁控件静默跳过",
+            "滚动条样式改为按需设置（已是目标样式则不重复设），减少无谓重绘",
+        ],
+        "title_en": "Critical fix: crash when opening Settings (dangling scrollbar style pointer)",
+        "notes_en": [
+            "Fixed the previous version crashing as soon as Settings was touched: QWidget.setStyle() does not take ownership of the style object, and storing the Fusion style as a Python attribute on the application did not keep it alive — Qt still destroyed it at shutdown while scrollbars were pointing at it, producing a dangling pointer and a segmentation fault",
+            "The style object is now given a real Qt parent so its lifetime is managed by the Qt object tree, eliminating the dangling pointer",
+            "Hardened the event filter: it now acts only on window Show events and defers by one tick, avoiding access to widgets that are not yet fully constructed or have already been destroyed; destroyed widgets are skipped silently",
+            "Scrollbar styling is now applied only when it differs from the current state, avoiding redundant repaints",
+        ],
+    },
+    {
+        "version": "2.14.3",
+        "date": "2026-07-24",
+        "title": "下拉弹出根治 · Win10 圆角滚动条(方案B) · 构建目录分平台 · 更新说明全部双语",
+        "notes": [
+            "根治 Windows 下拉点击无效与文字截断：此前用猴子补丁改写 showPopup 并 setFixedWidth 永久锁死宽度——重复应用会层层包裹导致弹出失败，锁死的宽度又让后续任何重新布局都无法调整，越改越窄；现改为 minimumWidth 由 Qt 自行排版，可反复调用",
+            "弹出宽度计算补齐内边距/边框/勾号(此前只算纯文字宽，余量不足才出现 …)",
+            "Win10 圆角滚动条改用方案B：只给滚动条套 Fusion 样式(其它控件外观不变)，绕开 Qt 6.7+ 的 windows11 引擎忽略 QSS 圆角的问题；通过全局事件过滤器覆盖主窗与所有对话框",
+            "中文朗读引擎下拉在中英切换后不再变窄、弹出项不再显示成 -On…：译后按新文字重算闭合框与弹出宽度，宽度只增不减",
+            "构建产物按平台分目录：dist/MacOS-Intel、MacOS-AppleSilicon(自动按 uname -m 判定)、Windows-x64-CPU、Windows-x64-GPU；文件名自描述如 EnglishCoach-2.14.3-Windows-x64-CPU.zip；各脚本只清理自己的目录，不再互相覆盖",
+            "程序置顶：首次运行显式写入未勾选状态，确保默认不置顶",
+            "历史更新说明翻译全部完成——87 条全部中英双语",
+        ],
+        "title_en": "Dropdown popup root fix · rounded scrollbars on Win10 (option B) · per-platform build folders · change log fully bilingual",
+        "notes_en": [
+            "Root fix for Windows dropdowns not opening and text being truncated: the previous code monkey-patched showPopup and used setFixedWidth, so re-applying the styling wrapped the patch in itself until the popup failed to open, while the locked width blocked every later relayout and made the popup progressively narrower; width is now set via minimumWidth and laid out by Qt, safe to re-apply",
+            "Popup width calculation now accounts for padding, borders and the checkmark (it previously measured raw text only, leaving too little room and causing ellipses)",
+            "Rounded scrollbars on Win10 now use option B: the Fusion style is applied to scrollbars only, leaving every other control's appearance untouched, which sidesteps the Qt 6.7+ windows11 engine ignoring QSS border-radius; a global event filter covers the main window and all dialogs",
+            "The Chinese voice dropdown no longer narrows after switching between Chinese and English, and popup entries no longer show as -On…: widths are recalculated from the translated text and only ever grow",
+            "Build artifacts are now organized per platform: dist/MacOS-Intel, MacOS-AppleSilicon (chosen automatically from uname -m), Windows-x64-CPU and Windows-x64-GPU, with self-describing names such as EnglishCoach-2.14.3-Windows-x64-CPU.zip; each script cleans only its own folder so platforms no longer overwrite each other",
+            "Always-on-top: the unchecked state is written explicitly on first run so the default is genuinely off",
+            "Historical change log translation is complete — all 87 entries are now bilingual",
+        ],
+    },
+    {
+        "version": "2.14.2",
+        "date": "2026-07-24",
+        "title": "使用说明补齐分发说明 · 大陆用户免 VPN 下载模型",
+        "notes": [
+            "使用说明新增『哪些需要联网』与『中国大陆用户须知』两节，并说明无需安装 Python / 依赖 / conda、Linux 暂无预编译版、GPU 版仅适合 NVIDIA 机器",
+            "英文版使用说明补齐 System Requirements 整节（此前完全缺失），与中文版内容对齐",
+            "中国大陆免 VPN 下载 Kokoro 朗读模型：huggingface.co 大陆无法直连，现按系统区域自动改用 hf-mirror.com 公益镜像；可用 HF_ENDPOINT 环境变量自行覆盖",
+        ],
+        "title_en": "Distribution details added to the guide · VPN-free model download in mainland China",
+        "notes_en": [
+            "The user guide gained What Needs a Network Connection and Notes for Users in Mainland China sections, and now states that no Python, dependencies or conda are required, that Linux has no prebuilt binary yet, and that the GPU edition only suits NVIDIA machines",
+            "The English guide gained a full System Requirements section (previously missing entirely), matching the Chinese version",
+            "VPN-free Kokoro model download in mainland China: huggingface.co is not directly reachable there, so the app now falls back to the hf-mirror.com community mirror based on system locale; override it with the HF_ENDPOINT environment variable",
+        ],
+    },
+    {
+        "version": "2.14.1",
+        "date": "2026-07-24",
+        "title": "弹出窗宽度锚定悬停条 · 置顶失焦根治 · 对话框圆角滚动条",
+        "notes": [
+            "设置窗下拉弹出列表宽度改在弹出瞬间按最长项内容重设——锚定 mac 悬停蓝条的自然宽度：引擎约占闭合框 27%、语言 18%、样式 16%，Windows 与 mac 一致",
+            "根治置顶导致的设置窗异常(v2.14.0 的两个 bug)：改 windowFlags 会销毁重建原生窗口——对对话框做会让它先缩小消失再出现，且 exec() 模态循环失效导致关闭后主界面按钮点了没反应；现在模态窗开着时只记录意图，等它关闭后再应用，全程不重建任何窗口",
+            "顺带修掉一个隐藏错误：上版弹出宽度代码引用了尚未定义的变量，整段被异常吞掉从未生效",
+            "Win10 圆角滚动条补齐到所有对话框：设置窗/历史窗/文档窗会自设样式表覆盖应用级规则，现在各自带上圆角滚动条样式",
+            "继续翻译历史更新说明条目（累计 72/85 条已双语）",
+        ],
+        "title_en": "Popup width anchored to the hover bar · always-on-top focus fix · rounded scrollbars in dialogs",
+        "notes_en": [
+            "Settings dropdown popup width is now set at popup time from the longest item — anchored to the natural width of the macOS hover bar: the engine popup is about 27% of the closed box, language 18% and theme 16%, identical on Windows and macOS",
+            "Root fix for the Settings dialog problems caused by always-on-top (two bugs from v2.14.0): changing windowFlags destroys and rebuilds the native window — doing it to the dialog made it shrink, vanish and reappear, and broke the exec() modal loop so main-window buttons stopped responding afterwards; the intent is now recorded while a modal dialog is open and applied once it closes, rebuilding no windows at all",
+            "Also fixed a hidden error: last version's popup width code referenced a variable before it was defined, so the whole block was swallowed by the exception and never took effect",
+            "Rounded scrollbars on Win10 extended to every dialog: Settings, History and document windows set their own stylesheets which override the application-level rule, so each now carries the rounded scrollbar styling itself",
+            "Continued translating historical change log entries (72 of 85 now bilingual)",
+        ],
+    },
+    {
+        "version": "2.14.0",
+        "date": "2026-07-24",
+        "title": "下拉弹出窗收窄 · Win10 圆角滚动条 · Windows 置顶失焦修复",
+        "notes": [
+            "设置窗下拉弹出列表大幅收窄：不再跟随被表单拉伸的闭合框，改为只按最长项内容定宽——引擎约占闭合框 25%，语言约 17%，样式约 14%",
+            "Win10 及以下滚动条改为圆角胶囊，与 Win11 / macOS 观感一致；样式提升到应用级，设置窗、历史窗、说明窗等所有对话框一并生效（此前仅主窗有，对话框仍是直角）",
+            "修复 Windows 版勾选置顶时设置窗被压到主窗下面：Windows 的窗口层级变更由系统异步处理，同步归还焦点会被随后到达的置顶事件覆盖；改为立即归还后再延后两拍补两次，并让对话框跟随主窗一起置顶",
+            "继续翻译历史更新说明条目（累计 58/84 条已双语）",
+        ],
+        "title_en": "Narrower dropdown popups · rounded scrollbars on Win10 · Windows always-on-top focus fix",
+        "notes_en": [
+            "Settings dropdown popups made much narrower: instead of following the form-stretched closed box they size to their longest item — the engine popup is about 25% of the closed box, language about 17% and theme about 14%",
+            "Scrollbars on Win10 and below are now rounded capsules matching Win11 and macOS; the styling moved to application level so Settings, History, User Guide and every other dialog gets it too (previously only the main window did, leaving dialogs square)",
+            "Fixed the Settings dialog being pushed behind the main window when enabling always-on-top on Windows: Windows processes stacking changes asynchronously, so a synchronous focus restore was overridden by the arriving topmost event; focus is now restored immediately and again on two deferred ticks, and the dialog follows the main window's topmost state",
+            "Continued translating historical change log entries (58 of 84 now bilingual)",
+        ],
+    },
+    {
+        "version": "2.13.9",
+        "date": "2026-07-23",
+        "title": "提示文字随语言切换 · Windows 下拉弹出窗修复 · 置顶不再抢焦点",
+        "notes": [
+            "更改语言后，空的原文/译文区提示文字立即互换（通用化根治：遍历重译现在处理所有带 placeholder 的控件，不再只限单行输入框——原文/译文是多行编辑器，此前从未被覆盖）",
+            "修复 Windows 版设置窗下拉弹出列表过窄：补齐与主界面同款的按最长项定宽逻辑，弹出宽度与闭合框相当",
+            "修复 Windows 版语言/样式下拉弹出列表过高（二三项内容却有十来行）：可见项数=实际项数、按项滚动、关闭滚动条，与 macOS 表现一致",
+            "勾选置顶时主界面不再跳到设置窗前面：改用不抢焦点的显示方式，并把层级与焦点归还给正开着的对话框",
+            "引擎下拉闭合框再加宽 5 像素，弹出列表加宽 15 像素，其余位置不变",
+            "设置窗『保持程序置顶』与日志按钮行之间增加间距",
+            "继续翻译历史更新说明条目（累计 45/83 条已双语）",
+        ],
+        "title_en": "Placeholders follow the UI language · Windows dropdown popup fixes · always-on-top no longer steals focus",
+        "notes_en": [
+            "Placeholder text in the empty source and target areas now switches instantly with the UI language (generic root fix: the traversal retranslate handles every widget with a placeholder rather than single-line inputs only — the source and target areas are multi-line editors and had never been covered)",
+            "Fixed the Settings dropdown popup being too narrow on Windows: it now uses the same longest-item width calculation as the main window, so the popup matches the closed box",
+            "Fixed the language and theme dropdown popups being far too tall on Windows (about ten rows for two or three items): visible items now equal the actual item count, with per-item scrolling and scrollbars disabled, matching macOS",
+            "Enabling always-on-top no longer makes the main window jump in front of the Settings dialog: the window is shown without stealing focus and the dialog gets its stacking order and focus back",
+            "Engine dropdown closed box widened by another 5px and its popup by 15px, with everything else unchanged",
+            "Added spacing between the Keep Window on Top checkbox and the log button row in Settings",
+            "Continued translating historical change log entries (45 of 83 now bilingual)",
+        ],
+    },
+    {
+        "version": "2.13.8",
+        "date": "2026-07-23",
+        "title": "导出文件名统一 EC 前缀 · 导出文字钮空态灰化 · 文案与宽度微调",
+        "notes": [
+            "所有导出文件名统一加 EC 前缀：日志 EC LT、翻译历史 EC TH、原文 EC OT 语言、译文 EC TT 语言、翻译后文件 EC TT 语言 … T",
+            "原文/译文区无文字时，导出文字按钮呈灰色不可点（与导出音频钮一致），有文字即恢复",
+            "引擎下拉框恢复上一版宽度（+10 像素），其余位置不变",
+            "英文文案改为标题式大小写：API Keys (Optional)、Multi-Style Translation、Keep Window on Top",
+            "继续翻译历史更新说明条目（累计 33/82 条已双语）",
+        ],
+        "title_en": "Unified EC filename prefix · export buttons dim when empty · wording and width tweaks",
+        "notes_en": [
+            "All export filenames now carry the EC prefix: log EC LT, translation history EC TH, source EC OT <lang>, target EC TT <lang>, translated file EC TT <lang> ... T",
+            "Export text buttons are grayed out when their area has no text (matching the export audio buttons) and re-enable as soon as text appears",
+            "Engine dropdown restored to the previous width (+10px) with everything else unchanged",
+            "English wording switched to title case: API Keys (Optional), Multi-Style Translation, Keep Window on Top",
+            "Continued translating historical change log entries (33 of 82 now bilingual)",
+        ],
+    },
+    {
+        "version": "2.13.7",
+        "date": "2026-07-22",
+        "title": "单词分区 · 导出日志 · 窗口置顶 · Windows 脚本修复",
+        "notes": [
+            "多风格模式下输入单个词：直译区只保留一个最优译法，其余备选全部归入多风格区",
+            "设置窗新增『导出日志』按钮（查看日志右侧、等宽同风格）：可选路径/文件名/格式，支持 .txt .log .md .json，纯标准库实现",
+            "设置窗新增『保持程序置顶』复选框（多风格与日志行之间），勾选后窗口始终在其它程序之上，设置持久保存、启动自动应用",
+            "修复 Windows 构建脚本乱码报错：脚本内中文注释在 GBK 控制台被误读，导致 setlocal/set 等语句失效、版本号提取失败（产物名丢失变成 .exe 与 -版本-windows.zip）；脚本改为纯 ASCII 并把 chcp 前置",
+            "原文/译文语言下拉各再加宽 10 像素（原文向左、译文向右），引擎下拉相应减 10，总宽守恒、交换钮居中不变",
+            "Windows 版朗读速度滑杆左右滑槽统一为同色，与 macOS 一致",
+        ],
+        "title_en": "Word partition · Export log · Always on top · Windows script fix",
+        "notes_en": [
+            "Single-word input in multi-style mode: the literal zone now keeps only one best translation, with all alternatives moved to the multi-style zone",
+            "New Export Log button in Settings (right of View Log, same width and style): choose path, filename and format — .txt, .log, .md, .json — implemented with the standard library only",
+            "New Keep window on top checkbox in Settings (between multi-style and the log row): keeps the window above other applications; the setting persists and is applied at startup",
+            "Fixed Windows build script failures: Chinese comments inside the script were misread by GBK consoles, breaking setlocal/set statements and version extraction (producing nameless .exe and -version-windows.zip); scripts are now pure ASCII with chcp moved to the top",
+            "Source/target language dropdowns widened by another 10px (source expands left, target right) with the engine dropdown narrowed by 10 — total width preserved, swap button stays centered",
+            "Windows playback-speed slider grooves unified to the same color on both sides, matching macOS",
+        ],
+    },
+    {
+        "version": "2.13.6",
+        "date": "2026-07-21",
+        "title": "极简交换钮结构性居中 + 字幕/音频/文字生命周期铁律",
+        "notes": [
+            "极简界面交换钮居中根治：右组不再整体隐藏，改为隐藏其内容并在最右端放与极简钮完全镜像的隐形占位——左右结构对称，居中由布局数学保证，零校准、平台无关",
+            "字幕铁律：卡拉OK捆绑音频、依附文字，两者都在拖动进度条必有字幕（边界丢失自动从缓存恢复或按朗读范围重建）；任一不在必无字幕",
+            "文字清空钮：清文字同时该侧字幕（边界+高亮）同亡，音频缓存保留可继续播放",
+            "音频清空/文字变化作废音频时：该侧内存边界与卡拉OK高亮同步清除，杜绝旧字幕残留",
+        ],
+        "title_en": "Structural swap centering in minimal mode + karaoke/audio/text lifecycle rules",
+        "notes_en": [
+            "Minimal-mode swap centering solved structurally: the right group's contents hide while an invisible mirror spacer sits at the far right, so centering is guaranteed by layout symmetry — zero calibration, platform-independent",
+            "Karaoke iron rule: subtitles are bound to audio and attached to text — with both present, dragging the progress slider always shows karaoke (lost boundaries auto-restore from cache or rebuild from the spoken span); with either missing, karaoke never shows",
+            "Text clear buttons: clearing text also kills that side's karaoke (boundaries + highlight) while the audio cache remains playable",
+            "Audio clear / text-change invalidation: the side's in-memory boundaries and karaoke highlight are cleared together, eliminating stale-subtitle leftovers",
+        ],
+    },
+    {
+        "version": "2.13.5",
+        "date": "2026-07-20",
+        "title": "首次朗读无字幕修复 + 卡拉OK绑定朗读范围",
+        "notes": [
+            "修复首次点朗读经常无卡拉OK：估算字幕需要音频时长，首播时时长常未加载导致估算被静默放弃且不重试；现在自动重试等待直到时长就绪",
+            "卡拉OK范围永远与朗读范围一一对应：朗读启动时记录实际朗读范围，估算字幕严格在该范围内铺设",
+        ],
+        "title_en": "First-play karaoke fix + karaoke bound to spoken range",
+        "notes_en": [
+            "Fixed karaoke often missing on first play: subtitle estimation needs audio duration, which is often not yet loaded on first playback — the estimator gave up silently without retrying; it now retries until duration is ready",
+            "Karaoke range always maps one-to-one to the spoken range: the actual spoken span is recorded at TTS start and estimated subtitles are laid strictly within it",
+        ],
+    },
+    {
+        "version": "2.13.4",
+        "date": "2026-07-19",
+        "title": "灰色多风格区卡拉OK修复",
+        "notes": [
+            "修复多风格灰色区无卡拉OK：灰字格式此前整体覆盖背景层，重写高亮分层——灰区内的蓝色选区/灰色联动/绿色卡拉OK背景照常显示",
+            "极简界面交换钮位置微调",
+        ],
+        "title_en": "Karaoke fix in the gray multi-style zone",
+        "notes_en": [
+            "Fixed missing karaoke in the gray multi-style zone: the gray-text format used to overwrite background layers; highlighting is now layered so blue selection, gray link and green karaoke backgrounds all render inside the gray zone",
+            "Minor position tweak for the minimal-mode swap button",
+        ],
+    },
+    {
+        "version": "2.13.3",
+        "date": "2026-07-18",
+        "title": "打包版本号自动化 + 多风格朗读分区",
+        "notes": [
+            "修复打包产物版本号错误：三个构建脚本的版本改为自动从 APP_VERSION 提取，单一事实来源",
+            "多风格翻译朗读分区：无选区时点朗读译文只读直译区、卡拉OK只覆盖直译区；有选区仍按选区朗读",
+        ],
+        "title_en": "Build version automation + multi-style TTS scoping",
+        "notes_en": [
+            "Fixed wrong packaged version numbers: all three build scripts now auto-extract the version from APP_VERSION — a single source of truth",
+            "Multi-style TTS scoping: with no selection, reading the translation speaks only the literal section and karaoke covers it alone; with a selection the selection is read as before",
+        ],
+    },
+    {
+        "version": "2.13.2",
+        "date": "2026-07-17",
+        "title": "使用说明命令行文字样式统一",
+        "notes": [
+            "使用说明中去除隔离命令改为普通正文样式（去掉代码块底色与等宽字体），与其它文字一致",
+        ],
+        "title_en": "User guide command text style unified",
+        "notes_en": [
+            "The quarantine-removal command in the user guide now uses plain body text style (code background and monospace font removed) to match surrounding text",
+        ],
+    },
+    {
+        "version": "2.13.1",
+        "date": "2026-07-16",
+        "title": "跟随系统昼夜切换修复 + 分割条居中吸附",
+        "notes": [
+            "修复『跟随系统』在系统昼夜切换时样式不完全跟变：Qt 6.4 没有对应信号导致监听从未挂上，macOS 改用轮询兜底",
+            "原文/译文分割条新增居中吸附：拖到中央附近自动精准均分左右两栏",
+        ],
+        "title_en": "Follow-system day/night fix + splitter center snap",
+        "notes_en": [
+            "Fixed Follow System not fully switching on system day/night change: Qt 6.4 lacks the corresponding signal so the listener never attached; macOS now uses a polling fallback",
+            "Source/target splitter now snaps to exact center when dragged near the middle",
+        ],
+    },
+    {
+        "version": "2.13.0",
+        "date": "2026-07-15",
+        "title": "界面精修里程碑：交换钮居中收官 + 三处细节",
+        "notes": [
+            "原文/译文语言下拉框各加宽 10 像素，文字完整显示，交换钮居中不受影响",
+            "英文关于窗标题下补回一行空行",
+            "翻译历史窗背景跟随深浅主题：浅色模式下立即使用浅色背景",
+        ],
+        "title_en": "UI polish milestone: swap centering finale + three details",
+        "notes_en": [
+            "Source/target language dropdowns widened by 10px each for full text display; the swap button stays centered",
+            "Restored a blank line under the English About title",
+            "Translation history window background now follows the light/dark theme instantly",
+        ],
+    },
+    {
+        "version": "2.12.29",
+        "date": "2026-07-08",
+        "title": "交换钮精确居中(正常+极简)",
+        "notes": [
+            "交换钮用右侧对称占位精确居中，正常与极简模式偏差均≈0",
+            "极简模式保留交换钮并居中",
+        ],
+        "title_en": "Swap button precisely centered (normal + minimal)",
+        "notes_en": [
+            "Swap button precisely centered via a symmetric right-side spacer; near-zero offset in both normal and minimal modes",
+            "Minimal mode keeps the swap button centered",
+        ],
+    },
+    {
+        "version": "2.12.28",
+        "date": "2026-07-08",
+        "title": "交换钮真正居中 + 极简模式保留交换钮",
+        "notes": [
+            "交换钮改用右侧对称占位实现精确居中(不再靠猜margin)，正常/极简模式偏差均≈0",
+            "极简模式保留交换钮并始终居中",
+        ],
+        "title_en": "Swap button truly centered + kept in minimal mode",
+        "notes_en": [
+            "Swap button now centered via a symmetric right-side spacer (no more guessed margins); near-zero offset in both normal and minimal modes",
+            "Minimal mode keeps the swap button, always centered",
+        ],
+    },
+    {
+        "version": "2.12.27",
+        "date": "2026-07-08",
+        "title": "界面细节微调（引擎框/交换钮/滑杆圆球/文档英文化）",
+        "notes": [
+            "英文环境设置窗『Google 云翻译 Key』显示为 Google Cloud Key",
+            "主界面最小宽度缩到880",
+            "交换钮组左移微调，趋向居中",
+            "两条朗读进度条与速度滑杆的圆球改回正圆、亮白色（去掉描边避免椭圆、灰色改白）",
+            "关于窗/更新说明窗标题英文化：About English Coach / Change Log",
+            "英文关于窗删除拼音副标题 Ying Yu Dao Shi",
+            "更新说明自此支持中英双语（按界面语言切换）",
+        ],
+        "title_en": "UI detail tweaks (engine box / swap button / slider knob / doc localization)",
+        "notes_en": [
+            "Settings 'Google Cloud Key' label now shows in English",
+            "Main window minimum width reduced to 880",
+            "Swap button group nudged left toward center",
+            "Playback progress bars and speed slider knobs restored to true circles in bright white (removed border that caused ovals, gray changed to white)",
+            "About / Change Log dialog titles localized: About English Coach / Change Log",
+            "Removed the pinyin subtitle 'Ying Yu Dao Shi' from the English About page",
+            "Change Log now supports bilingual display (follows UI language)",
+        ],
+    },
+    {
+        "version": "2.12.10",
+        "date": "2026-07-08",
+        "title": "删除设置窗多风格说明文字",
+        "notes": [
+            "删除设置窗『（主译文 + 书面/口语/俚语/美英式等辅助译法）』说明文字",
+        ],
+        "title_en": "Removed multi-style description text from Settings",
+        "notes_en": [
+            "Removed the '(main translation + formal/casual/slang/US-UK style variants)' description text from Settings",
+        ],
+    },
+    {
+        "version": "2.12.9",
+        "date": "2026-07-08",
+        "title": "删除设置窗两段引擎说明文字",
+        "notes": [
+            "删除设置窗顶部『Google 免费、无需 Key…』和底部『提示：Google 免费无需 Key…』两段说明文字",
+        ],
+        "title_en": "Removed two engine description paragraphs from Settings",
+        "notes_en": [
+            "Removed the top 'Google is free, no key required...' and bottom 'Tip: Google is free...' description paragraphs from Settings",
+        ],
+    },
+    {
+        "version": "2.12.8",
+        "date": "2026-07-08",
+        "title": "5处修复(含语言切换根治+下拉收口)",
+        "notes": [
+            "主界面最小宽度加回到970",
+            "下拉宽度收口：清理设置窗输入框重复的sizePolicy叠加，主界面下拉恢复2.12.4干净公式(最长内容+52)",
+            "语言切换根治：改为遍历整个窗口所有控件按文字查表双向替换(中英)，覆盖按钮/气球提示/占位符/下拉项/两段说明，不再逐条点名遗漏；处理前后空格",
+            "设置窗『关闭』钮改蓝色主按钮样式(与关于窗一致)",
+            "修复极简界面往返后主窗最小宽度被改成770的bug(现与主窗970一致)",
+        ],
+        "title_en": "Five fixes (language switching root fix + dropdown width cleanup)",
+        "notes_en": [
+            "Main window minimum width restored to 970",
+            "Dropdown width cleanup: removed duplicated sizePolicy stacking on Settings inputs; main window dropdowns restored to the clean 2.12.4 formula (longest content + 52)",
+            "Language switching root fix: now traverses every widget in the window and swaps text via dictionary lookup in both directions (CN/EN), covering buttons, tooltips, placeholders, dropdown items and description paragraphs — no more one-by-one omissions; leading/trailing spaces preserved",
+            "Settings Close button restyled as a blue primary button, matching the About dialog",
+            "Fixed a bug where the main window minimum width became 770 after toggling minimal mode (now consistent at 970)",
+        ],
+    },
+    {
+        "version": "2.12.7",
+        "date": "2026-07-08",
+        "title": "7处界面细节微调",
+        "notes": [
+            "主界面最小宽度减到920",
+            "设置窗下拉恢复正常宽度(min 200)并随窗宽自适应",
+            "语言切换即时生效扩展到设置窗内部(标题/关闭/多风格/两段说明即时重译)",
+            "设置窗改为即时保存：删除保存按钮，只留『关闭』(Close)，所有设置项自动即时保存生效",
+            "显示密钥按钮：文字改『显示密钥』(Show Key)、宽度与查看日志一致(BTN_W)",
+            "极简钮图标改为上下横杠+中间方块(SVG，随主题深浅着色)",
+            "英文模式设置窗两段引擎说明改为指定英文文案",
+        ],
+        "title_en": "Seven UI detail tweaks",
+        "notes_en": [
+            "Main window minimum width reduced to 920",
+            "Settings dropdowns restored to normal width (min 200) and now adapt to window width",
+            "Instant language switching extended to the Settings dialog (title, Close, multi-style and both description paragraphs retranslate immediately)",
+            "Settings now saves instantly: the Save button was removed leaving only Close; every setting persists and takes effect immediately",
+            "Show Key button: text changed to 'Show Key', width matched to the View Log button",
+            "Minimal button icon redesigned as top/bottom bars with a center square (SVG, recolored with the light/dark theme)",
+            "Specified English wording for the two engine description paragraphs in English mode",
+        ],
+    },
+    {
+        "version": "2.12.6",
+        "date": "2026-07-08",
+        "title": "9处界面细节微调",
+        "notes": [
+            "主界面最小宽度减到970",
+            "设置窗下拉恢复正常宽度、并随窗宽拖动自适应",
+            "设置窗所有API Key输入框随窗宽自适应变宽",
+            "语言/样式下拉随窗宽自适应",
+            "显示密钥按钮：文字由『显示API-Key』改『显示密钥』(Show Key)、宽度与查看日志一致",
+            "语言切换更彻底：朗读嗓音下拉、更多tooltip/占位符即时重译",
+            "修复极简钮按下后消失：极简钮独立于左组，切换后始终可见；图标恢复▣",
+            "原文/译文语言下拉框加宽20%，字完整显示",
+            "设置窗两段引擎说明补齐英文翻译",
+        ],
+        "title_en": "Nine UI detail tweaks",
+        "notes_en": [
+            "Main window minimum width reduced to 970",
+            "Settings dropdowns restored to normal width and adapt as the window is resized",
+            "All API key inputs in Settings widen with the window",
+            "Language and theme dropdowns adapt to window width",
+            "Show Key button: renamed from 'Show API Key' to 'Show Key', width matched to the View Log button",
+            "More thorough language switching: TTS voice dropdown and additional tooltips/placeholders retranslate immediately",
+            "Fixed the minimal button disappearing after being pressed: it is now independent of the left group and always visible",
+            "Source/target language dropdowns widened by 20% for full text display",
+        ],
+    },
+    {
+        "version": "2.12.5",
+        "date": "2026-07-08",
+        "title": "7处界面细节微调",
+        "notes": [
+            "正方形按钮圆角：正常态8px，青色按下态放大到10px",
+            "下拉闭合框高度精确对齐正方形按钮(36)，不再偏高",
+            "主界面最小宽度净调整到1020",
+            "设置窗API Key输入框/语言/样式下拉随窗宽自适应；显示API-Key按钮改回固定宽但文字完整",
+            "语言切换即时生效(下拉一选界面文字立即切换，无需保存或重启)",
+            "样式风格切换即时生效(承前版)",
+            "交换钮真居中(极简钮并入左组，左右对称)，同时设置/关于那排贴到最右",
+        ],
+        "title_en": "Seven UI detail tweaks",
+        "notes_en": [
+            "Square button corners: 8px normally, enlarged to 10px in the cyan pressed state",
+            "Dropdown closed-box height aligned exactly with square buttons (36), no longer taller",
+            "Main window minimum width adjusted to 1020",
+            "Settings API key inputs and language/theme dropdowns adapt to window width; the Show API Key button returns to a fixed width with full text",
+            "Instant language switching (selecting in the dropdown switches UI text immediately, no save or restart needed)",
+            "Instant theme switching (carried over from the previous version)",
+            "Swap button truly centered (minimal button merged into the left group for symmetry) while the settings/about row sits flush right",
+        ],
+    },
+    {
+        "version": "2.12.4",
+        "date": "2026-07-08",
+        "title": "12处界面细节微调(基于v25完美版)",
+        "notes": [
+            "正方形按钮圆角加大到10px(与青色按下态一致)；下拉闭合框圆角8px、高36与按钮等高",
+            "载入下一条改用独立右箭头图标(redo)，主题切换不再丢失方向",
+            "朗读速度滑杆左右滑槽与圆球全灰(不蓝)；朗读进度条保持左侧蓝",
+            "载入上一条/下一条之间分组缝隙去掉，统一小缝",
+            "主界面最小宽度加到970，翻译钮居中；交换钮加右侧等宽占位真居中",
+            "左上角极简钮图标换实心方块(线条更清晰)",
+            "翻译引擎/原文/译文下拉框各加宽10px",
+            "设置窗API Key输入框改圆角长条、随窗宽自适应；语言/样式下拉同样跟随窗宽",
+            "显示API-Key按钮文字完整显示(自适应宽+padding)",
+            "样式风格下拉即时生效(选中即切换，无需保存或重启)",
+        ],
+        "title_en": "Twelve UI detail tweaks (based on the v25 reference build)",
+        "notes_en": [
+            "Square button corners enlarged to 10px (matching the cyan pressed state); dropdown closed box uses 8px corners at height 36, level with the buttons",
+            "Load Next now uses a dedicated right-arrow (redo) icon so direction is preserved across theme switches",
+            "Playback-speed slider grooves and knob fully gray (not blue); the playback progress bar keeps its blue left side",
+            "Removed the grouping gap between Load Previous and Load Next in favor of a uniform small gap",
+            "Main window minimum width raised to 970 with the translate button centered; the swap button gets an equal-width right spacer for true centering",
+            "Minimal button icon in the top-left changed to a solid square for sharper lines",
+            "Engine, source and target dropdowns each widened by 10px",
+            "Settings API key inputs restyled as rounded bars that adapt to window width; language and theme dropdowns follow the window width too",
+            "Show API Key button text fully visible (adaptive width plus padding)",
+        ],
+    },
+    {
+        "version": "2.12.3",
+        "date": "2026-07-08",
+        "title": "基于v25完美版微调8处界面细节",
+        "notes": [
+            "正方形按钮恢复正方形(36x36)，圆角与青色按下态一致(8px)",
+            "浅色按钮图标/文字统一深黑、深色统一浅白：图标名登记到按钮，主题切换遍历重着色(不再漏清空/复制/粘贴等)",
+            "朗读速度滑杆左侧滑槽恢复灰色(不再蓝色)",
+            "设置/更新/帮助/关于那排贴最右侧(去掉平衡占位)",
+            "复制粘贴等按钮排统一小缝隙不分组，原文贴左、译文贴右",
+            "主界面最小宽度加宽~100(770->870)，保证翻译钮居中",
+        ],
+        "title_en": "Eight UI detail tweaks based on the v25 reference build",
+        "notes_en": [
+            "Square buttons restored to a true square (36x36) with corners matching the cyan pressed state (8px)",
+            "Light-theme button icons and text unified to deep black and dark-theme to off-white: icon names are registered on each button so theme switching recolors them by traversal (no longer missing Clear, Copy, Paste and others)",
+            "Playback-speed slider left groove restored to gray (no longer blue)",
+            "The Settings/Update/Help/About row sits flush right (balance spacer removed)",
+            "Copy, paste and related button rows use a uniform small gap without grouping; source flush left, target flush right",
+            "Main window minimum width increased by about 100 (770 to 870) to keep the translate button centered",
+        ],
+    },
+    {
+        "version": "2.12.2",
+        "date": "2026-07-08",
+        "title": "主题终极方案落地：原生+绘制精细混合，深浅完美",
+        "notes": [
+            "Mac 最终混合方案(真机验证成功)正式落地主程序：",
+            "下拉闭合框+方按钮+普通按钮+特殊按钮=绘制(深浅两套)；下拉弹出项+气球+滚动条=系统原生",
+            "下拉箭头用V形SVG图片(不再是方块)；弹出项悬停走系统原生蓝条",
+            "按钮淡蓝按下反馈；特殊checkable按钮按下保持青色；翻译钮亮蓝",
+            "深浅切换由pyobjc(AppKit)驱动，切换时重画绘制部分+重生成图标，即时生效",
+        ],
+        "title_en": "Final theming solution: native plus drawn hybrid, perfect in light and dark",
+        "notes_en": [
+            "The macOS hybrid solution (verified on a real machine) is now in the main program",
+            "Drawn: dropdown closed box, square buttons, regular buttons and special buttons (two color sets); native: dropdown popup items, tooltips and scrollbars",
+            "Dropdown arrow uses a chevron SVG image (no longer a square block); popup items use the native blue hover bar",
+            "Light blue press feedback on buttons; checkable special buttons stay cyan while active; the translate button stays bright blue",
+            "Light/dark switching is driven by pyobjc (AppKit); drawn parts are repainted and icons regenerated on switch, taking effect immediately",
+        ],
+    },
+    {
+        "version": "2.12.1",
+        "date": "2026-07-08",
+        "title": "Mac原生+pyobjc深浅 最终方案 + 正方形按钮圆角(QSS配合)",
+        "notes": [
+            "确立最终方案：Mac 控件走系统原生 + pyobjc(AppKit)切深浅/浅/跟随，深浅都完美且即时切换",
+            "正方形/工具按钮：加 objectName=toolbtn + border-radius 圆角QSS(只加圆角与hover蓝框，不设颜色，保留原生深浅跟随)",
+            "翻译大钮 primary、状态栏、激活区蓝框保持设计标识",
+            "非Mac(Windows/Linux)不受影响",
+        ],
+        "title_en": "macOS native + pyobjc theming, final approach, with square button corners via QSS",
+        "notes_en": [
+            "Final approach settled: macOS controls use the native appearance with pyobjc (AppKit) driving dark/light/follow-system — perfect in both modes with instant switching",
+            "Square and tool buttons: objectName=toolbtn plus border-radius QSS (corners and hover outline only, no colors, preserving native light/dark following)",
+            "The primary translate button, status bar and active-area blue outline keep their design identity",
+            "Non-macOS platforms (Windows/Linux) are unaffected",
+        ],
+    },
+    {
+        "version": "2.12.0",
+        "date": "2026-07-08",
+        "title": "主题系统重构：Mac 原生深浅(AppKit驱动)，彻底终结深浅打架",
+        "notes": [
+            "根本方案：Mac 用 pyobjc(AppKit) 的 NSApplication.setAppearance_ 驱动系统原生深浅——这是 Qt6.4.2+BigSur 上唯一可靠方案(setColorScheme 是6.8+才有，本机装不了)",
+            "Mac 上不再自涂 QSS 深色皮肤与调色板：所有原生控件(下拉/气球/按钮/滚动条/标题栏)由系统原生深浅驱动，自动跟随，杜绝之前十几处深浅细节bug的总根源(自涂与原生打架)",
+            "深色/浅色/跟随系统三选项即时生效、无需重启；跟随系统随昼夜自动变",
+            "主题切换后按钮图标按新深浅重新渲染",
+            "非 Mac(Windows/Linux)保持原有 QSS+调色板皮肤不变",
+            "默认主题改为跟随系统",
+            "注意：Mac 需安装 pyobjc-framework-Cocoa(下版加入 requirements 与打包脚本)",
+        ],
+        "title_en": "Theme system rebuilt: native macOS light/dark driven by AppKit",
+        "notes_en": [
+            "Core approach: macOS uses NSApplication.setAppearance_ via pyobjc (AppKit) — the only reliable option on Qt 6.4.2 with Big Sur (setColorScheme requires 6.8+, which cannot be installed on this machine)",
+            "macOS no longer paints its own dark QSS skin or palette: all native controls (dropdowns, tooltips, buttons, scrollbars, title bar) follow the system appearance, eliminating the root cause of a dozen previous light/dark bugs (self-painting fighting the native appearance)",
+            "Dark, Light and Follow System all take effect instantly without restart; Follow System changes automatically with day and night",
+            "Button icons are re-rendered for the new appearance after a theme switch",
+            "Non-macOS platforms keep the existing QSS and palette skin unchanged",
+            "Default theme changed to Follow System",
+            "Note: macOS requires pyobjc-framework-Cocoa (to be added to requirements and the build scripts next version)",
+        ],
+    },
+    {
+        "version": "2.11.3",
+        "date": "2026-07-07",
+        "title": "主界面下拉灰底块/气球方框/浅色按钮图标 三处修复",
+        "notes": [
+            "主界面下拉残留灰背景块：mac 下 listview 与 popup 设透明背景(WA_TranslucentBackground)，彻底走系统原生",
+            "气球提示仍是方块：mac 下调色板跳过 ToolTipBase/ToolTipText，交给系统原生尖角圆角气球(apply_theme 与 main 启动两处都改)",
+            "浅色模式按钮图标仍白色：根因 Icons.icon 固定 #e8e8e8 浅色绘制，改为按当前主题动态取色(浅色用深色#1f1f22)",
+        ],
+        "title_en": "Three fixes: dropdown gray block, tooltip square corners, light-theme button icons",
+        "notes_en": [
+            "Residual gray background block behind main window dropdowns: on macOS the listview and popup are set to a translucent background so they fully use the native appearance",
+            "Tooltips still rendering as squares: on macOS the palette now skips ToolTipBase/ToolTipText, leaving the native rounded tooltip in place (fixed in both apply_theme and startup)",
+            "Button icons still white in light mode: the root cause was Icons.icon hardcoding the light color #e8e8e8; it now picks the color from the current theme (deep #1f1f22 in light mode)",
+        ],
+    },
+    {
+        "version": "2.11.2",
+        "date": "2026-07-07",
+        "title": "找到下拉方框真凶(自定义combo工厂第1734行)",
+        "notes": [
+            "根因：下拉是自定义combo(setView+自定义popup)，方框来自工厂函数里 popup.setStyleSheet(border:1px)——此前所有版本都在改无关的 QComboBox QAbstractItemView，从未碰到这行",
+            "修复：mac 下该 popup 与 listview 一律清空样式(setStyleSheet(''))，回归系统原生圆角无框下拉；其它平台保持深色边框",
+            "tooltip 已确保 mac 下无自定义 QSS",
+        ],
+        "title_en": "Found the real cause of dropdown square borders (custom combo factory)",
+        "notes_en": [
+            "Root cause: dropdowns are custom combos (setView plus a custom popup) and the square border came from popup.setStyleSheet(border:1px) inside the factory function — every previous version had been editing the unrelated QComboBox QAbstractItemView rule and never touched this line",
+            "Fix: on macOS the popup and listview styles are cleared entirely, returning to the native borderless rounded dropdown; other platforms keep the dark border",
+            "Tooltips confirmed free of custom QSS on macOS",
+        ],
+    },
+    {
+        "version": "2.11.1",
+        "date": "2026-07-07",
+        "title": "彻底修复Mac下拉/气球仍有方框(收口全部散落样式定义)",
+        "notes": [
+            "根因：combo/tooltip 样式散布在主窗/设置窗/历史窗共4处，此前只改了1-2处，其余写死样式在Mac上照样生效画出方框",
+            "修复①被错位替换破坏的 _tooltip_css() 函数(内嵌了无效占位符)",
+            "修复②主窗 QToolTip 实为写死样式(未走占位符)，改为 %TOOLTIP% 占位并注入",
+            "修复③历史窗写死的 QToolTip 改为平台函数注入",
+            "四处 combo/tooltip 定义全部收口到 _combo_popup_css()/_tooltip_css()，Mac一律返回空走系统原生(圆角无框下拉、尖角气球)",
+        ],
+        "title_en": "Fully fixed remaining square borders on macOS dropdowns and tooltips",
+        "notes_en": [
+            "Root cause: combo and tooltip styles were scattered across four places (main window, Settings, History); earlier fixes only touched one or two, so the remaining hardcoded styles still drew square borders on macOS",
+            "Fix 1: repaired the _tooltip_css() function that had been broken by a misplaced replacement (it contained a dead placeholder)",
+            "Fix 2: the main window QToolTip was hardcoded rather than using the placeholder; it now uses %TOOLTIP% with proper injection",
+            "Fix 3: the hardcoded QToolTip in the History window now uses the platform function",
+            "All four combo/tooltip definitions consolidated into _combo_popup_css() and _tooltip_css(), which return empty on macOS so the native appearance is used (borderless rounded dropdowns, pointed tooltips)",
+        ],
+    },
+    {
+        "version": "2.11.0",
+        "date": "2026-07-06",
+        "title": "Mac原生下拉/气球 · 多风格标注净化 · 关于使用说明双语 · 极简状态记忆",
+        "notes": [
+            "Mac 下拉列表与气球提示改用系统原生(圆角无框下拉、尖角tooltip、深浅自适应)，复刻滚动条方案；Windows保持自定义样式",
+            "设置窗 Show API Key 按钮改回固定短宽、文字完整；API Key 输入框随窗口放大而变宽",
+            "修复浅色下点查看日志误触多风格复选框(查看日志改独立行容器)",
+            "翻译历史『重新载入』英文模式显示 Reload(补 L()与词条)",
+            "多风格直译区标注强净化：代码层强删 Part 1/第一部分/直译区/----/【..】等，不依赖模型",
+            "朗读范围与卡拉OK字幕范围一致(无选区读全文含多风格区，字幕同步全覆盖)",
+            "关于/使用说明 中英双语(按界面语言切换)；更新说明标题双语框架就位(历史条目英文下版补齐)",
+            "极简界面状态记忆：重启恢复；API-Key 永远默认隐藏",
+        ],
+        "title_en": "Native macOS dropdowns/tooltips · multi-style label cleanup · bilingual docs · minimal state memory",
+        "notes_en": [
+            "macOS dropdowns and tooltips now use the native appearance (borderless rounded lists, pointed tooltips, automatic light/dark), mirroring the scrollbar approach; Windows keeps the custom style",
+            "Settings Show API Key button restored to a fixed short width with full text; API key inputs widen with the window",
+            "Fixed clicking View Log accidentally toggling the multi-style checkbox in light mode (View Log moved to its own row container)",
+            "Translation history Reload button now shows 'Reload' in English mode (L() and dictionary entry added)",
+            "Strong cleanup of multi-style literal-zone labels: Part 1, literal-zone markers, ---- and bracketed tags are stripped in code rather than relying on the model",
+            "Spoken range and karaoke range kept consistent (with no selection the full text including the multi-style zone is read and subtitles cover it all)",
+            "About and User Guide are bilingual (following the UI language); the bilingual framework for the Change Log title is in place (historical entries to be translated next)",
+            "Minimal mode state is remembered across restarts; API keys always default to hidden",
+        ],
+    },
+    {
+        "version": "2.10.0",
+        "date": "2026-07-06",
+        "title": "主题切换彻底化 · 两侧字幕独立 · 去边框 · 英文补全 · 多风格空行分隔",
+        "notes": [
+            "深浅主题切换彻底：热切换时刷新标题栏、下拉弹出列表、已打开设置窗，不再残留深色",
+            "浅色模式：所有青色提亮加饱和(#00b3c6)，与蓝色一致；按钮字/图标转黑",
+            "修复浅色下点查看日志误触多风格复选框（复选框背景透明化）",
+            "下拉列表项外框与气球提示外框隐形（边框设为与背景同色）",
+            "朗读两侧独立：拖动某侧进度条只刷新该侧卡拉OK，不再串到另一侧",
+            "英文补全：占位符改正常句式(Type or paste…)、历史提示、主界面引擎名(ERNIE/Doubao/Qwen/Hunyuan)、晓贝(Xiaobei)、Key提示段落、Reload",
+            "设置窗 Show API Key 按钮文字完整显示；API Key 输入框随窗口放大而变宽",
+            "多风格：直译区与多风格区空行分隔，去掉【直译区】【多风格区】及---标注",
+        ],
+        "title_en": "Thorough theme switching · independent per-side subtitles · borderless · English completion · blank-line separator",
+        "notes_en": [
+            "Theme switching is now thorough: hot switching refreshes the title bar, dropdown popups and any open Settings dialog, leaving no dark remnants",
+            "Light mode: all cyan accents brightened and saturated (#00b3c6) to match the blue; button text and icons turn black",
+            "Fixed clicking View Log accidentally toggling the multi-style checkbox in light mode (checkbox background made transparent)",
+            "Dropdown item outlines and tooltip outlines made invisible (border color matched to the background)",
+            "The two playback sides are independent: dragging one side's progress bar only refreshes that side's karaoke",
+            "English completion: placeholders reworded to natural sentences (Type or paste...), history hints, main window engine names (ERNIE/Doubao/Qwen/Hunyuan), Xiaobei, key hint paragraphs and Reload",
+            "Settings Show API Key button text fully visible; API key inputs widen with the window",
+            "Multi-style: literal and multi-style zones separated by a blank line, with bracketed zone labels and --- markers removed",
+        ],
+    },
+    {
+        "version": "2.9.0",
+        "date": "2026-07-06",
+        "title": "英文全覆盖(引擎/嗓音/Key/文档) · 浅色按钮字色+高饱和蓝 · 状态全记忆 · 多风格空行分隔",
+        "notes": [
+            "English US 全覆盖：翻译钮 Translate、文心一言 ERNIE、豆包 Doubao、通义千问 Qwen、混元 Hunyuan、晓贝 Xiaobei、Reload；设置窗 Key 标签(Baidu AI Studio / Volcengine / Alibaba Cloud Model Studio / Tencent Cloud Hunyuan)、提示段落、更新说明/使用说明/关于文档均英文",
+            "浅色模式：按钮文字与图标转黑；蓝色翻译钮与所有关闭钮提亮到状态栏同款高饱和蓝(#1e88e5)",
+            "设置窗 Show API Key 按钮宽度与查看日志等统一(BTN_W)",
+            "语言与主题真正即时生效不重启；跟随系统随昼夜自动切换",
+            "朗读两排组件统一窄间距紧挨、译文排靠右去空位",
+            "拖动进度滑杆时卡拉OK字幕实时跟随(无关选区)",
+            "多风格：直译区与多风格区改用空行分隔(去掉----标注)；朗读范围与卡拉OK范围一致",
+            "交换钮只交换直译区，多风格灰字区不参与",
+            "全状态记忆：引擎/源语言/目标语言/主题/语言/朗读语速/嗓音/多风格开关，重启后恢复",
+        ],
+        "title_en": "Full English coverage · light-mode button colors · state memory · blank-line separator",
+        "notes_en": [
+            "Full English US coverage: Translate button, ERNIE, Doubao, Qwen, Hunyuan, Xiaobei, Reload; Settings key labels (Baidu AI Studio / Volcengine / Alibaba Cloud Model Studio / Tencent Cloud Hunyuan), hint paragraphs, and the Change Log, User Guide and About documents",
+            "Light mode: button text and icons turn black; the blue translate button and all close buttons brightened to the saturated blue used by the status bar (#1e88e5)",
+            "Settings Show API Key button width unified with View Log and others (BTN_W)",
+            "Language and theme now take effect immediately without restart; Follow System changes automatically with day and night",
+            "The two playback rows use consistent tight spacing with the target row flush right",
+            "Karaoke subtitles follow in real time while dragging the progress slider (regardless of selection)",
+            "Multi-style: literal and multi-style zones separated by a blank line (---- markers removed); spoken range matches karaoke range",
+            "The swap button only swaps the literal zone; the gray multi-style zone is excluded",
+        ],
+    },
+    {
+        "version": "2.8.0",
+        "date": "2026-07-06",
+        "title": "英文全覆盖(含下拉/弹窗)+首字母大写 · 主题立即生效 · 多风格直译区分隔",
+        "notes": [
+            "English US 模式全面覆盖：下拉列表选项、设置/关于/历史弹窗内所有文字均英文，且统一首字母大写(如 View History)",
+            "浅色模式补漏：标题栏随主题变浅、按钮悬停与下拉弹出列表统一浅色配色",
+            "语言与深浅主题改为立即生效：切主题热切换、切语言自动重启；跟随系统在系统昼夜切换时自动跟变",
+            "设置窗『查看日志』上移到多风格行下方；历史弹窗按钮英文不再截断，『载入』改为 Reload",
+            "极简界面图标换为更饱满的 ▣；极简最小窗口高度再压缩至 200",
+            "顶部交换钮真正居中(与翻译钮对齐)；朗读两排组件左右边距与上方对齐",
+            "已有音频缓存时再次点朗读，无论是否有选区都恢复卡拉OK字幕",
+            "多风格翻译分区：上半为逐行直译(黑/白字，参与原文↔译文选区联动)，---- 分隔线下为多风格区(灰字，不参与联动)",
+        ],
+        "title_en": "Full English coverage with title case · instant theme switching · multi-style zone separator",
+        "notes_en": [
+            "Comprehensive English US coverage: dropdown items and all text inside the Settings, About and History dialogs are in English with consistent title case (e.g. View History)",
+            "Light mode gaps closed: the title bar lightens with the theme, and button hover states plus dropdown popups use unified light colors",
+            "Language and theme now take effect immediately: theme switches hot, language triggers an automatic restart; Follow System changes with the system's day/night switch",
+            "Settings View Log moved below the multi-style row; History dialog buttons no longer truncate in English and Load was renamed Reload",
+            "Minimal mode icon changed to a fuller square; minimal window minimum height reduced to 200",
+            "The top swap button is truly centered (aligned with the translate button); the two playback rows share the same left and right margins as the rows above",
+            "With an audio cache present, pressing play again restores karaoke subtitles whether or not there is a selection",
+            "Multi-style zoning: the upper part is the line-by-line literal translation (black/white text, participating in source-target selection linking); below the ---- separator is the multi-style zone (gray text, excluded from linking)",
+        ],
+    },
+    {
+        "version": "2.7.0",
+        "date": "2026-07-05",
+        "title": "界面语言中英切换 · 浅色/深色/跟随系统主题 · 设置窗改版",
+        "notes": [
+            "设置新增『语言』：中文 / English US，选英文后全部界面文字、气球提示、弹窗、状态栏均切换为英文（重启后生效）",
+            "设置新增『样式风格』：浅色 / 深色 / 跟随系统（跟随系统自动检测系统深浅模式，重启后生效）",
+            "设置窗改版：显示API-Key按钮移到Key输入区与多风格选项之间、与输入框左对齐，按下青色显示、弹起灰色隐藏；语言与样式风格在其下方；查看日志移至窗口底部左侧",
+            "极简界面按钮图标改为更简洁的 ▢",
+            "关于页移除电话号码，仅保留网址与邮箱（隐私保护）",
+        ],
+        "title_en": "UI language switching · light/dark/follow-system themes · Settings redesign",
+        "notes_en": [
+            "New Language setting: Chinese or English US — choosing English switches all UI text, tooltips, dialogs and the status bar to English (applies after restart)",
+            "New Theme setting: Light, Dark or Follow System (Follow System detects the OS appearance; applies after restart)",
+            "Settings redesign: the Show API Key button sits between the key inputs and the multi-style option, left-aligned with the inputs, cyan when pressed and gray when hidden; language and theme sit below it; View Log moved to the bottom left",
+            "Minimal mode button icon simplified to an outlined square",
+            "Phone number removed from the About page, leaving only the website and email (privacy)",
+        ],
+    },
+    {
+        "version": "2.6.0",
+        "date": "2026-07-05",
+        "title": "极简界面模式 · 跨侧续播根治 · docx导出修复 · 选区字幕自愈 · 对齐分句扩充",
+        "notes": [
+            "新增极简界面：左上角⛶钮一键切换，只留原文/译文区、翻译钮与状态栏；极简下按钮青色、最小窗口可缩至420x320，再点还原",
+            "跨侧续播从头播根因修复：重播路径内部stop会把刚存的续播位置清零——改为先取位再stop，且只有真停止才归零",
+            "选区朗读偶发无卡拉OK字幕：引擎返回相对选区的词边界时自动平移为全文绝对位置",
+            "修复翻译历史导出docx报错(XML控制字符)：写入前统一净化NULL等非法字符，三处docx写入点全覆盖",
+            "主动/从属区对齐分句标点扩充：新增逗号(，,)与全角空格参与分割，对应精度更高",
+            "正常界面最小宽度720→770（左侧按钮增多后更合适）",
+        ],
+        "title_en": "Minimal UI mode · cross-side resume fix · docx export fix · selection subtitle self-healing",
+        "notes_en": [
+            "New minimal UI: one click on the top-left button leaves only the source/target areas, translate button and status bar; buttons turn cyan and the window can shrink to 420x320; click again to restore",
+            "Root fix for cross-side resume restarting from the beginning: the internal stop inside the replay path was zeroing the just-saved resume position — the position is now read before stopping and only a true stop resets it",
+            "Occasional missing karaoke when reading a selection: word boundaries returned relative to the selection are now shifted to absolute document positions",
+            "Fixed translation history docx export errors (XML control characters): NULL and other illegal characters are sanitized before writing, covering all three docx write points",
+            "Expanded sentence-splitting punctuation for active/passive area alignment: commas and full-width spaces now participate, improving accuracy",
+            "Normal-mode minimum width raised from 720 to 770 to fit the added buttons",
+        ],
+    },
+    {
         "version": "2.5.1",
         "date": "2026-07-04",
         "title": "跨侧续播回位 · 换嗓保字幕保选区(根治) · 光标处粘贴 · 单实例守护",
@@ -291,6 +1378,13 @@ CHANGELOG = [
             "换嗓/引擎重读根治两处：①重读时沿用原选区（此前重新推导误判为读全文并清掉蓝色选区）②为重读而停被误当自然播完、250ms后清绿——preserve期间跳过收尾",
             "粘贴细化：主动区有明确光标位置时粘贴到光标处；从属区且无选区才默认贴到末尾",
             "新增单实例守护（QLockFile）：程序已在运行时再次启动会提示并退出，修复偶发双开",
+        ],
+        "title_en": "Cross-side resume position · voice switch preserves subtitles and selection · paste at cursor · single instance",
+        "notes_en": [
+            "Resuming after pausing on the other side no longer restarts from the beginning: the pause position is stored in that side's cache and restored on replay; continuing on the same side or pressing stop correctly resets it",
+            "Two root fixes for voice/engine re-reads: the original selection is reused (previously re-derivation misread it as full text and cleared the blue selection), and a stop issued for a re-read is no longer mistaken for natural completion that cleared the green highlight 250ms later",
+            "Paste refinement: in the active area with a definite cursor position, paste goes to the cursor; in the passive area with no selection it defaults to the end",
+            "Added a single-instance guard (QLockFile): launching again while running shows a notice and exits, fixing occasional double launches",
         ],
     },
     {
@@ -307,6 +1401,17 @@ CHANGELOG = [
             "修复混合中英文本翻译：自动检测含中日韩字符时显式声明源为中文，Google 不再 en→en 原样返回（『中文』二字现在会被翻译）",
             "底部忙碌进度条改自绘胶囊：滑块滑到两端也保持圆角（Qt原生样式两端变方的限制已绕开）",
         ],
+        "title_en": "Cache replay and true clear · voice switch keeps position · number translation fix · selection-aware copy/paste",
+        "notes_en": [
+            "With an audio cache present, pressing play replays directly (per-side cache hit) instead of regenerating; the clear button now truly clears (the old global cache is cleared too so replay cannot revive it)",
+            "Voice/engine re-reads keep the green karaoke and blue/gray selection in sync with the progress bar; switching voices while playing or paused always triggers regeneration",
+            "Fixed the root cause of forced Chinese/English number translation failing: the target check compared against a Chinese label while the dropdown value was 'English', so it never matched; numbers now output correctly for the chosen target",
+            "Changing the source or target language dropdown forces a re-translation (equivalent to pressing Translate); the main translate button always re-translates",
+            "Decimal support for numbers: 888.89 reads digit by digit (including the point) as well as mathematically",
+            "Selection-aware copy/paste: with a blue/gray selection only that part is copied or replaced; with no selection everything is copied and paste defaults to the end",
+            "Fixed mixed Chinese-English translation: when CJK characters are detected the source is declared as Chinese explicitly, so Google no longer returns en-to-en unchanged",
+            "The bottom busy progress bar is now custom-drawn as a capsule so the slider keeps rounded ends (working around Qt's square-end limitation)",
+        ],
     },
     {
         "version": "2.4.0",
@@ -320,6 +1425,16 @@ CHANGELOG = [
             "新增『载入下一条原文』按钮（上一条右侧，镜像图标），双向循环历史",
             "设置弹窗保存钮改蓝色，取消保持灰色",
             "按钮组间距统一为10px（对标顶排语言框与交换钮间距）",
+        ],
+        "title_en": "Multi-style fixes and word mode · frozen progress bar · load next · button semantics and spacing",
+        "notes_en": [
+            "Root fix for multi-style translation being disabled: a leftover path from a single earlier file import permanently disabled it; it is now disabled only while the source text still matches the imported content",
+            "New word mode for multi-style: entering a single character or word (up to 4 Chinese characters, or one English word) returns several accurate translations, one per line, with no explanations or phonetics; phrases and sentences still use the formal/casual/etc. style breakdown",
+            "Stricter play button color semantics: cyan when an audio cache exists, gray when not; reaching the end or dragging to the far right no longer turns it gray by mistake",
+            "When re-reading after a voice or engine change, the progress bar freezes at the current position and resumes in place once generation completes, instead of jumping back to the start",
+            "New 'Load next source' button (right of Load previous, mirrored icon) for cycling through history in both directions",
+            "Settings Save button turned blue while Cancel stays gray",
+            "Button group spacing unified to 10px, matching the gap between the top language boxes and the swap button",
         ],
     },
     {
@@ -338,6 +1453,17 @@ CHANGELOG = [
             "朗读区新增音频清空钮（原文/译文各一，下载钮右侧）：仅释放该侧音频缓存，朗读钮变灰、下载失效",
             "原文/译文区文字清空钮改为只清文字与导入文件，不再清音频（文字与音频清空分离）",
         ],
+        "title_en": "Root fix for stylesheet-wide failure (the cause of buttons losing styles) · uniform control height · audio and text clearing separated",
+        "notes_en": [
+            "Root cause fixed: the stylesheet is assembled from three parts and placeholder substitution only reached the last one; the leftover placeholders made the whole sheet fail to parse and be discarded — the true cause of the translate button losing its blue and buttons becoming short and misshapen",
+            "The large translate button is blue and rounded again; the cyan play state gets rounded corners; the import button no longer shrinks when it turns cyan",
+            "All dropdowns and buttons raised to a uniform 34px height, icon buttons made square, and the swap button is no longer shorter than its neighbors",
+            "Tooltip frames reduced by about 20% and given rounded corners",
+            "Translation history dialog: View History loses its blue and Close becomes blue, matching the About and User Guide dialogs",
+            "Playback-speed slider is gray on both sides (no longer blue on the left) to distinguish it from the playback progress bar",
+            "Active/passive switching follow-up fix: after switching, the new passive area correctly shows the gray selection (the old logic that wrongly cleared the link was removed)",
+            "With native scrollbars the text area's right padding returns from 20px to 8px, so the scrollbar sits flush right without a gap",
+        ],
     },
     {
         "version": "2.3.0",
@@ -352,6 +1478,16 @@ CHANGELOG = [
             "清空按钮移位：原文清空钮在翻译历史右侧（隔开），译文清空钮在最右侧（隔开）",
             "清空增强：原文清空=清文字+清导入(钮变灰)+译文随清+双侧音频释放(朗读/下载钮变灰)+导出钮隐藏；译文清空=清文字+译文音频释放",
         ],
+        "title_en": "Active-area click switching rebuilt · native capsule scrollbars (macOS/Win11) · root fix for highlight clearing · clear buttons redone",
+        "notes_en": [
+            "Active/passive areas rebuilt: switching happens on mouse press (on text or blank space alike) with only one blue frame; clicking a gray selection in the passive area turns it blue while the previously active blue selection turns gray",
+            "Clicking the currently active area keeps it active and only clears the linked selections on both sides",
+            "Root fix for highlights surviving edits: on a real change the karaoke timer is cut, word boundaries cleared, link debouncing stopped and the alignment table invalidated; expired boundaries trip a fuse so green can no longer be repainted",
+            "Editing text on a side that is currently being read automatically stops playback, since what is being read is already stale",
+            "Scrollbars: macOS and Win11 (Qt 6.7+) use native capsules; Win10 and below plus Linux use the custom style; global styling detoxified (the QWidget rule now uses the palette so it no longer contaminates scrollbars)",
+            "Clear buttons repositioned: the source clear button sits right of Translation History (separated), the target clear button at the far right (separated)",
+            "Clearing enhanced: source clear wipes text, import state (button grays out), the target text as well, releases audio on both sides (play/download gray out) and hides the export button; target clear wipes target text and releases target audio",
+        ],
     },
     {
         "version": "2.2.2",
@@ -362,6 +1498,12 @@ CHANGELOG = [
             "根治：textChanged 处理器入口做文本比对——内容没变（仅格式重绘）直接跳过，一劳永逸消灭此类误伤",
             "选区朗读现在全程保留选区：蓝色底色、卡拉OK范围、边界估算都只在选区内",
         ],
+        "title_en": "Root fix for selection playback failing (highlight feedback loop eliminated)",
+        "notes_en": [
+            "Root cause: stopping or clearing karaoke triggered rehighlight, which fired textChanged and was mistaken for a user edit — wiping the selection, falsely triggering auto-translation, and making offline-voice karaoke scan from the very beginning (appearing to read the whole text)",
+            "Root fix: the textChanged handler now compares text at its entry point and skips immediately when the content is unchanged (a format-only repaint), eliminating this whole class of false positives once and for all",
+            "Selection playback now preserves the selection throughout: the blue background, the karaoke range and boundary estimation all stay within the selection",
+        ],
     },
     {
         "version": "2.2.1",
@@ -370,6 +1512,11 @@ CHANGELOG = [
         "notes": [
             "修复：选中一段文字再点朗读钮，会被『暂停/继续』三态切换拦截而继续播旧音频（v2.1.2 引入）",
             "现在：只要该区有新的选区（与当前朗读内容不同），点朗读钮即停掉旧音频、只朗读选区",
+        ],
+        "title_en": "Fixed selection playback being swallowed by the three-state toggle",
+        "notes_en": [
+            "Fixed: selecting text and pressing play was intercepted by the pause/resume three-state toggle and kept playing the old audio (introduced in v2.1.2)",
+            "Now: whenever the area has a new selection differing from what is currently being read, pressing play stops the old audio and reads only the selection",
         ],
     },
     {
@@ -385,6 +1532,16 @@ CHANGELOG = [
             "修复导出翻译后文件按钮显隐（根因：setPlainText 时序竞争，导入状态改为先记录后填文本）",
             "Mac 使用系统原生胶囊滚动条（无灰槽、自动隐藏）；Windows 保留自定义细样式",
             "最小窗口宽度调整为 720（较原缩小约 400px）",
+        ],
+        "title_en": "Single blue frame for the active area · independent per-side audio cache · highlight clearing and export button fixes · native macOS scrollbars",
+        "notes_en": [
+            "The active area keeps only one blue frame (the second frame caused by :focus was removed) while the passive area uses a gray frame",
+            "Each side caches its playback audio independently: a cyan play button means audio is in memory and downloadable, gray means no audio and no download",
+            "Editing text on a side invalidates that side's audio cache, grays out its play button and disables download; after stopping, the button stays cyan with progress reset if audio is still in memory",
+            "Cross-side playback: pressing play on the other side while one is reading pauses the first side (keeping its progress and cyan resume state) before reading the other",
+            "Fully fixed blue selections and green karaoke not clearing on text changes (root cause: the target area never listened to textChanged, plus an overreaching guard; replaced with a precise _highlighting flag)",
+            "Fixed the export-translated-file button appearing and disappearing incorrectly (root cause: a setPlainText timing race; import state is now recorded before the text is filled)",
+            "macOS uses native capsule scrollbars (no gray trough, auto-hiding) while Windows keeps the custom slim style",
         ],
     },
     {
@@ -402,6 +1559,16 @@ CHANGELOG = [
             "语速气球拖动时持续显示、跟随滑块",
             "进度条/滚动条进一步圆角处理",
         ],
+        "title_en": "Karaoke and stop button fixes · cross-side pause · smaller minimum window · assorted details",
+        "notes_en": [
+            "Fixed karaoke subtitles failing in the source area (a feedback loop where rehighlight fired textChanged and wrongly cleared the highlight)",
+            "Fixed blue selections and green subtitles not clearing on text changes (blue selection clearing added)",
+            "Fixed the stop button not working (it now also stops from the paused state)",
+            "Cross-side playback: pressing play on the other side while one is reading pauses the first side (progress kept, button in cyan resume state) before reading the other",
+            "Settings HY-MT key relabeled as Hunyuan HY-MT Key",
+            "In the About dialog the Chinese and English product names use the same size and color",
+            "Minimum window width reduced substantially (960 to 620)",
+        ],
     },
     {
         "version": "2.1.2",
@@ -418,6 +1585,16 @@ CHANGELOG = [
             "所有滚动条只留胶囊滑块，去掉深灰背景轨道；等待进度条去底槽、圆角胶囊形",
             "朗读按钮悬停三态：朗读原文/译文 → 暂停朗读 → 继续朗读，循环（并修复暂停图标不显示的 bug）",
         ],
+        "title_en": "Labels replaced by tooltips · translate button reliability · three-state play button · smart export button",
+        "notes_en": [
+            "Added a subtitle under English Coach in the About dialog",
+            "Blue selection highlights and green karaoke highlights are cleared automatically when source or target text changes",
+            "Fixed the translate button not responding; pressing translate now aborts any in-flight translation before starting fresh",
+            "All inline text labels removed in favor of hover tooltips (engine, language, voice, text areas, progress bar, speed and more)",
+            "The speed tooltip shows the live value: Speech rate Normal / +20% / -50%",
+            "Engine names shortened (GLM-4-Flash to GLM, HY-MT to Hunyuan); a minimum window width keeps the swap button centered",
+            "Export-translated-file button: hidden normally, appears grayed after a successful import, turns cyan and clickable once translation finishes, and disappears if the source no longer matches the import",
+        ],
     },
     {
         "version": "2.1.1",
@@ -432,6 +1609,16 @@ CHANGELOG = [
             "翻译历史按钮改名：检查历史 / 下载文档",
             "文本框滚动条改 mac 风格细药丸、不再挡字",
             "交换钮用网格强制窗口居中；下拉框留白压到最小；原文语言/译文语言改名",
+        ],
+        "title_en": "PDF export fix · spaces in filenames · progress bar and scrollbar refinements · centered swap button",
+        "notes_en": [
+            "Fixed a PDF export error (the reportlab.pdfbase.pdfmetrics import path)",
+            "All export filenames now use spaces instead of underscores, e.g. EC ZH XiaoXiao 2026-06-30 013733.mp3",
+            "Status bar progress bar restyled as a minimal pill (no outer frame, thinner, translucent trough, cyan block)",
+            "Dropping a file anywhere on a text box imports its content (instead of pasting the filename)",
+            "Source and target playback progress bars fully separated so dragging one does not affect the other",
+            "Translation history buttons renamed to View History and Download Document",
+            "Text box scrollbars restyled as slim macOS-style pills that no longer cover text",
         ],
     },
     {
@@ -453,6 +1640,16 @@ CHANGELOG = [
             "拖拽文件到窗口=导入文件内容；原文区右内边距加大，滚动条不再挡字",
             "按钮宽度统一（显示隐藏为准），所有 Close 改『关闭』；标题改 English Coach",
         ],
+        "title_en": "Two-way selection linking with active/passive areas · layout reshuffle · file import and export completed",
+        "notes_en": [
+            "Two-way selection linking: selecting in either the source or target area locates the counterpart (based on the stored sentence mapping), so target-area selections finally link back to the source",
+            "Active/passive logic: the area you select in becomes active (blue frame, blue background) and the other becomes passive (gray selection background); clicking the passive area switches roles",
+            "The status bar 'Generating audio' notice moved to the message area so it alternates with 'Translation complete' instead of overlapping (correcting the previous implementation)",
+            "Progress bar restyled as a pill: thin dark-gray outline, transparent surroundings, cyan scrolling block",
+            "First row reshuffled: engine, source language, swap (centered), target language, settings group (right)",
+            "Action row reshuffled: source, copy/paste/clear, export source plus import file, previous plus history, translate, export target plus export file, target",
+            "Export filename rules OT/TT_language_datetime and history TH_datetime, with the save path remembered",
+        ],
     },
     {
         "version": "2.0.0",
@@ -471,6 +1668,13 @@ CHANGELOG = [
             "设置窗取消/保存按钮统一右对齐",
             "模型目录更名为 EnglishCoach Models/Argos、EnglishCoach Models/Kokoro",
         ],
+        "title_en": "Version 2.0 overhaul: file import and export · playback split into source and target groups · assorted fixes",
+        "notes_en": [
+            "Fixed Argos offline translation degenerating into repeated characters (switched to sentence-by-sentence translation with a repetition-collapsing fallback)",
+            "Playback controls split into source and target groups, moved between the copy/paste row and the voice row, with buttons changed to plain square icons",
+            "New file import (txt/docx/pdf, drag and drop supported): content fills the source area and is translated automatically, turning the button cyan",
+            "New export of the current source or target text (txt/md/docx/json/pdf)",
+        ],
     },
     {
         "version": "1.9.6",
@@ -485,6 +1689,16 @@ CHANGELOG = [
             "Mac 合成进度条左移，右侧留约 10% 空隙，构图匀称",
             "Windows 嗓音下拉滚轮不再滚出末尾空行",
         ],
+        "title_en": "Selection linking redone (sentence-level alignment) · playback interaction fixes · status bar and dropdown fixes",
+        "notes_en": [
+            "Selection linking redesigned: translation builds a sentence-by-sentence source-to-target mapping, so a selection highlights every related sentence (selecting everything lights up everything)",
+            "The interface stays put during synthesis: blue and gray selection backgrounds remain visible while audio is generated",
+            "Changing the playback engine or voice no longer sends the progress bar back to the start, and the button stays cyan in its resume state without flickering",
+            "Pressing swap during playback immediately stops playback, clears the audio cache and re-translates automatically",
+            "The status bar 'Generating audio' notice now uses white text on blue, matching the other messages",
+            "On macOS the synthesis progress bar shifts left, leaving about 10% clearance on the right for a balanced layout",
+            "The Windows voice dropdown no longer scrolls past the last item into blank space",
+        ],
     },
     {
         "version": "1.9.5",
@@ -493,6 +1707,11 @@ CHANGELOG = [
         "notes": [
             "重绘应用图标：线条更圆润饱满，接近原生质感",
             "GPU 版图标补回 A/文 标牌（青绿底 + 闪电，与 CPU 版区分）",
+        ],
+        "title_en": "Updated application icon",
+        "notes_en": [
+            "Application icon redrawn with rounder, fuller strokes for a more native feel",
+            "The GPU edition icon regains its A/文 badge (teal background with a lightning bolt, distinguishing it from the CPU edition)",
         ],
     },
     {
@@ -509,6 +1728,16 @@ CHANGELOG = [
             "合成中『正在生成音频』文字持续到结束，进度条约占窗口 40% 居中偏右、右侧留白",
             "朗读中点交换内容会停止当前朗读，避免青绿字幕错位到对面",
         ],
+        "title_en": "Interruptible playback · selection linking no longer translates · GPU icon · packaging names · assorted fixes",
+        "notes_en": [
+            "New interruptible playback: pressing stop during synthesis aborts it at a segment boundary and shows a 'Stopping...' notice",
+            "Selection linking now maps by positional ratio and never calls the translation engine (selecting target text no longer triggers auto-translation)",
+            "New dedicated icon for the GPU edition (teal background with a lightning bolt)",
+            "macOS packages as English Coach.app; Windows packages as a folder named English Coach containing English Coach.exe (same for the GPU edition)",
+            "Selections are forced to a blue background (fixing green selections on some systems)",
+            "Chinese voice dropdown widened (no longer truncated on Windows), with trailing blank rows and excess scrolling removed",
+            "During synthesis the 'Generating audio' text persists until completion, with the progress bar occupying about 40% of the window, centered slightly right with clearance on the right",
+        ],
     },
     {
         "version": "1.9.3",
@@ -522,6 +1751,15 @@ CHANGELOG = [
             "翻译按钮用网格真正居中，不再因左侧按钮增多而偏右",
             "合成进度：文字并入左侧状态栏，进度条加长放右侧",
         ],
+        "title_en": "Fixed truncated Chinese offline playback · stable target-area selections · assorted UI improvements",
+        "notes_en": [
+            "Fixed long Chinese text being truncated during offline playback (text is now split at punctuation and synthesized in segments, avoiding Kokoro's silent token-limit truncation)",
+            "Selection linking changed to source-to-target only, so selections in the target area are no longer reset by refreshes",
+            "Translation history files changed to plain text",
+            "Translation history button icon changed to a list-lines style, distinguishing it from the change log",
+            "The translate button is now truly centered using a grid, instead of drifting right as buttons were added on the left",
+            "Synthesis progress: the text merged into the status bar on the left with a longer progress bar on the right",
+        ],
     },
     {
         "version": "1.9.2",
@@ -529,6 +1767,10 @@ CHANGELOG = [
         "title": "修复新环境 ctranslate2 因 setuptools 过新缺 pkg_resources",
         "notes": [
             "构建脚本在装 ctranslate2 前固定 setuptools<81，解决新版移除 pkg_resources 导致 Argos 离线翻译导入失败",
+        ],
+        "title_en": "Fixed ctranslate2 failing in new environments due to a too-new setuptools missing pkg_resources",
+        "notes_en": [
+            "The build scripts now pin setuptools below 81 before installing ctranslate2, resolving Argos offline translation import failures caused by newer releases removing pkg_resources",
         ],
     },
     {
@@ -538,6 +1780,11 @@ CHANGELOG = [
         "notes": [
             "修复 Build Windows GPU.bat 因换行符为 LF、含中文注释导致命令被截断、无法运行",
             "所有 .bat 脚本统一为纯 ASCII + CRLF 换行（GBK 控制台安全）",
+        ],
+        "title_en": "Fixed the Windows GPU build script failing to run (line endings and encoding)",
+        "notes_en": [
+            "Fixed Build Windows GPU.bat failing to run because LF line endings combined with Chinese comments truncated commands",
+            "All .bat scripts standardized to pure ASCII with CRLF line endings (safe for GBK consoles)",
         ],
     },
     {
@@ -556,6 +1803,16 @@ CHANGELOG = [
             "新增 Windows GPU 加速打包脚本（EnglishCoach-GPU 环境 + CUDA），Kokoro 自动用 GPU",
             "构建脚本更名 Build MacOS.sh / Build Windows.bat / Build Windows GPU.bat",
         ],
+        "title_en": "Flicker-free translate button · history in Markdown · progress bar improvements · GPU build script",
+        "notes_en": [
+            "The translate button's label no longer changes (no flicker); status messages moved to the bottom status bar",
+            "Translation history switched to readable Markdown text (clear in any text editor or browser, no more garbled characters)",
+            "Audio synthesis progress now shows 'Generating audio...' with a longer bar, text on the left and bar on the right, evenly spaced",
+            "Previous and History buttons shrunk to match copy and paste, with unified spacing; the undo icon changed to a counter-clockwise arrow",
+            "Button tooltip font size reduced; hover tooltips inside the history dialog enlarged to body text size",
+            "Dragging the progress slider while paused updates the cyan read position live (refreshing before you release)",
+            "The speaker icon inverts in sync when the play button is active",
+        ],
     },
     {
         "version": "1.8.1",
@@ -569,6 +1826,16 @@ CHANGELOG = [
             "历史弹窗：按钮改为『查看历史文档/重新载入/关闭』三等宽，预览限宽无横向滚动条",
             "上一条原文按钮换更大图标",
             "设置：显示隐藏与查看日志按钮等宽；取消/保存改中文并统一取消在左保存在右",
+        ],
+        "title_en": "Chinese offline playback fix · position-weighted selection linking · synthesis progress · assorted polish",
+        "notes_en": [
+            "Fixed Chinese offline playback missing pypinyin and related dependencies (now bundled)",
+            "Removed the Bella+Sarah blended voice, which returned 404 (no such prebuilt file on Hugging Face)",
+            "Selection linking gained position weighting and paragraph awareness: identical words are matched by proximity, so results are no longer wildly off",
+            "The status bar reports slow speech synthesis, showing a busy progress bar after about one second",
+            "History dialog: buttons changed to three equal-width actions (View History Document / Reload / Close) with a width-limited preview and no horizontal scrollbar",
+            "Larger icon for the previous-source button",
+            "Settings: Show/Hide and View Log buttons made equal width; Cancel and Save relabeled in Chinese and consistently ordered with Cancel left, Save right",
         ],
     },
     {
@@ -584,6 +1851,16 @@ CHANGELOG = [
             "Windows 应用图标改回铺满尺寸（不再显小）；macOS 图标不变",
             "选区联动匹配更智能：英文吸附到整词，不停在半个单词中间",
         ],
+        "title_en": "Translation history · logging · fixed Kokoro missing ordered_set · Windows icon",
+        "notes_en": [
+            "Fixed Kokoro missing the ordered_set dependency, which made offline playback unavailable (now bundled)",
+            "New translation history: Previous Source and History buttons added right of the source area's delete key",
+            "The history dialog groups entries by day, shows an opening snippet for each, highlights on hover in blue with a full-text tooltip, and loads plus translates the entry you pick",
+            "New logging: errors are written to the user data directory, with a View Log button added to Settings",
+            "History and logs are stored together in the system user data directory (%APPDATA% on Windows, Application Support on macOS)",
+            "The Windows application icon fills its canvas again (no longer appearing small); the macOS icon is unchanged",
+            "Smarter selection linking: English snaps to whole words instead of stopping mid-word",
+        ],
     },
     {
         "version": "1.7.1",
@@ -595,6 +1872,14 @@ CHANGELOG = [
             "灰色联动区朗读时保持灰色，读到处变青色，读完恢复灰色（不再变蓝、不消失）",
             "下载音频记住上次选择的格式（wav/mp3）作为默认",
             "交换原文译文时，选区随之继承到新原文区并自动联动新译文区",
+        ],
+        "title_en": "Fixed Kokoro being unavailable on external drives · playback highlight and selection linking improvements",
+        "notes_en": [
+            "Fixed Kokoro being unavailable for offline playback when conda lives on an external SSD and macOS denied reading the timezone file (Operation not permitted); the system timezone library is now used, with guidance for the permission setting",
+            "Playback highlighting no longer changes the text color (black to white) and only changes the background, for a cleaner look",
+            "The gray linked area stays gray while being read, turning cyan at the reading position and returning to gray afterwards (no longer turning blue or disappearing)",
+            "Audio download remembers the last chosen format (wav/mp3) as the default",
+            "Swapping source and target carries the selection into the new source area and links it to the new target area automatically",
         ],
     },
     {
@@ -611,6 +1896,16 @@ CHANGELOG = [
             "Key 标签简化（GPT/Gemini/GLM/豆包/HY-MT）",
             "构建脚本加固：醒目确认并强制校验 conda 环境，杜绝误装到 base",
         ],
+        "title_en": "Kokoro bundling completed · better audio quality · selectable audio format · Settings improvements",
+        "notes_en": [
+            "Kokoro offline playback dependencies pinned to Big Sur-compatible versions (torch 2.2.2, transformers 4.40.2 and the spaCy English model)",
+            "Default English offline voice changed to Heart (the most human-sounding in blind testing), with Nova and a Bella+Sarah blend added",
+            "Audio downloads can be wav (lossless) or mp3 (compressed), converted on demand",
+            "Argos offline model cache moved to an EnglishCoach-models/argos subdirectory (Windows and macOS)",
+            "Help documentation gained system requirements (macOS/Windows versions, disk space, unblocking unsigned apps) to make sharing easier",
+            "Settings: key inputs width-limited with right clearance, Show/Hide button centered, scrollbars no longer covering text, and unified blue dropdown hover",
+            "Key labels simplified (GPT/Gemini/GLM/Doubao/HY-MT)",
+        ],
     },
     {
         "version": "1.6.0",
@@ -626,6 +1921,12 @@ CHANGELOG = [
             "引擎名简化：GPT / Gemini / GLM-4-Flash / 豆包 / HY-MT 等",
             "界面标签去掉冒号；『进度』改为『朗读进度』",
             "设置：显示隐藏按钮缩短、窗口变窄并自动换行、多风格翻译默认开启",
+        ],
+        "title_en": "Fixed crashes and Kokoro bundling · replay cache · assorted UI improvements",
+        "notes_en": [
+            "Fixed a crash when selecting text (selection linking refreshed highlights across threads; now protected by a lock)",
+            "Fixed Kokoro bundling missing language_tags and other data, which made offline playback unavailable",
+            "Pressing play again with nothing changed replays the already-generated audio instead of re-synthesizing",
         ],
     },
     {
@@ -644,6 +1945,16 @@ CHANGELOG = [
             "更改翻译引擎后自动触发翻译",
             "Kokoro 离线朗读报错时显示真实原因，便于排查",
         ],
+        "title_en": "Selection linking · new official Google engine · playback and UI polish",
+        "notes_en": [
+            "New selection linking: select text on one side and the closest matching range is highlighted in gray on the other side after a temporary translation, ready to be read aloud",
+            "New 'Google -API-Key online' official Cloud Translation Basic v2 engine (the free version is unchanged)",
+            "Help documentation now covers each engine's model, pricing and reliability to make choosing easier",
+            "Increased karaoke subtitle lead time, fixing lag that had reappeared",
+            "Source-area selection playback highlighting now matches the target area; after reading, a normal blue selection remains (cancelable and reselectable as usual)",
+            "The play button takes a teal background while reading, keeps it while paused, and returns to normal on stop or completion",
+            "Only changing the voice for the language currently being read interrupts playback (changing the other language's voice does not)",
+        ],
     },
     {
         "version": "1.4.0",
@@ -654,6 +1965,13 @@ CHANGELOG = [
             "所有 LLM 引擎统一走 OpenAI 兼容接口，设置中分别填 Key",
             "新增『多风格翻译』开关：选用 LLM 引擎时，主译文不变，下方附书面/口语/俚语/美式英式等多种辅助译法",
             "设置页 Key 较多，改为可滚动",
+        ],
+        "title_en": "Eight new LLM translation engines · multi-style translation",
+        "notes_en": [
+            "Added eight large-model engines: OpenAI GPT, Google Gemini, Claude, Zhipu GLM-4-Flash, ERNIE, Doubao, Qwen and Kimi (all require an API key)",
+            "All LLM engines use the OpenAI-compatible interface, with separate keys entered in Settings",
+            "New multi-style translation toggle: with an LLM engine the main translation is unchanged and formal, casual, slang, US and UK variants are appended below",
+            "The Settings page became scrollable to accommodate the many keys",
         ],
     },
     {
@@ -670,6 +1988,16 @@ CHANGELOG = [
             "保存音频记住上次目录；离线为 wav、在线为 mp3，文件名 EC_语种_嗓音_日期_时间",
             "关于页：联系方式一行、版权用标准英文写法",
         ],
+        "title_en": "New Kokoro local offline playback · online/offline labels for engines and voices · assorted fixes",
+        "notes_en": [
+            "New Kokoro local offline playback engine: no internet required, runs on CPU, with native alignment timestamps for more accurate karaoke",
+            "Voices labeled by source: edge-tts marked 'online' and Kokoro marked 'offline local'",
+            "Engines labeled by connectivity: Google, DeepL, DeepSeek and Hunyuan online, Argos local offline",
+            "Fixed the source area lacking the teal overlay during selection playback; fixed blue selections being uncancelable after playback finished",
+            "Playback failures no longer trigger repeated popups and now suggest switching to an offline voice",
+            "Subtitles gained lead-time compensation for tighter sync; selection playback advances subtitles only within the selection",
+            "Saving audio remembers the last directory; offline saves as wav and online as mp3, named EC_language_voice_date_time",
+        ],
     },
     {
         "version": "1.2.2",
@@ -680,6 +2008,13 @@ CHANGELOG = [
             "修复选区朗读时字幕仍从全文头走到尾的问题，现在只在选区内推进",
             "关于页：网址与邮箱一行、两个电话另起一行，版权恢复 © 符号",
             "关于页主标题下方空行高度与其它文档一致",
+        ],
+        "title_en": "Subtitle lead compensation · selection subtitles stay in the selection · About page layout",
+        "notes_en": [
+            "Karaoke subtitles gained lead-time compensation for tighter audio sync (no longer half a beat behind in either language)",
+            "Fixed subtitles running from the start of the whole text during selection playback; they now advance only within the selection",
+            "About page: website and email on one line with phone numbers on the next, and the copyright symbol restored",
+            "The blank line under the About page's main title now matches the other documents",
         ],
     },
     {
@@ -693,6 +2028,15 @@ CHANGELOG = [
             "保存音频记住上次保存目录；文件名改为 EC_语种_嗓音_日期_时间（中文嗓音用拼音）",
             "标题字号略增大（仍克制）；原文/译文区字号再放大",
             "关于页联系方式与版权信息更新",
+        ],
+        "title_en": "More accurate karaoke · selection playback restored · audio naming improvements",
+        "notes_en": [
+            "Karaoke highlighting now syncs to the player's real position for better accuracy (correct position while paused)",
+            "Restored reading a selection aloud: the selection shows a blue background, turns teal at the reading position and returns to blue when finished",
+            "Playback highlight color shifted toward a softer, less saturated teal",
+            "Saving audio remembers the last directory; filenames changed to EC_language_voice_date_time (Chinese voices use pinyin)",
+            "Title font size increased slightly (still restrained); source and target area fonts enlarged further",
+            "About page contact details and copyright information updated",
         ],
     },
     {
@@ -708,6 +2052,14 @@ CHANGELOG = [
             "原文/译文区字号放大一号，更醒目",
             "文档主标题下方增加空行，排版更匀称",
         ],
+        "title_en": "Karaoke highlighting driven by an independent clock · symbol translation · assorted UI improvements",
+        "notes_en": [
+            "Karaoke highlighting now runs on a fully independent clock, decoupled from player state, for stable word-by-word highlighting on both platforms",
+            "When word boundaries are unavailable, timing is estimated by character ratio so highlighting still works",
+            "New punctuation and symbol translation: a period becomes 'dot' and a full-width parenthesis becomes 'left parenthesis', with a built-in dictionary covering what engines cannot",
+            "Single English words and very short text are now translated as far as possible",
+            "Removed the redundant scrollbar from Windows dropdown popups",
+        ],
     },
     {
         "version": "1.1.9",
@@ -718,6 +2070,12 @@ CHANGELOG = [
             "朗读时逐词背景变青绿，随进度递增，读完恢复",
             "下拉列表去掉底部多余空白，外边框单层均匀，行距匀称",
         ],
+        "title_en": "Karaoke highlighting moved to low-level formatting (fixing macOS) · balanced dropdown layout",
+        "notes_en": [
+            "Karaoke highlighting now uses QSyntaxHighlighter-level formatting, fixing highlights not appearing at all on macOS Big Sur",
+            "While reading, each word's background turns teal in turn, advancing with progress and restoring when finished",
+            "Dropdown lists lost their trailing blank space, with a single even outer border and balanced line spacing",
+        ],
     },
     {
         "version": "1.1.8",
@@ -727,6 +2085,12 @@ CHANGELOG = [
             "下拉列表选项行距加大，文字不再重叠；弹窗去掉底部缝隙",
             "文档标题改用更可靠的方式渲染，确实缩小到接近正文",
             "设置中 Save 与 Cancel 按钮等宽",
+        ],
+        "title_en": "Larger dropdown line spacing · document titles genuinely smaller · equal-width buttons",
+        "notes_en": [
+            "Dropdown item line spacing increased so text no longer overlaps, and the popup's bottom gap removed",
+            "Document titles now render through a more reliable method and are genuinely reduced to near body-text size",
+            "Save and Cancel buttons in Settings made equal width",
         ],
     },
     {
@@ -739,6 +2103,13 @@ CHANGELOG = [
             "下拉弹出列表去掉上下白边、深色背景",
             "暂停/继续时高亮位置正确衔接",
         ],
+        "title_en": "Karaoke highlighting driven by a wall clock · smaller document titles · popup white edges removed",
+        "notes_en": [
+            "Word-by-word karaoke highlighting now runs on an independent clock instead of the player position, so it advances on macOS too",
+            "Document titles (About, Change Log, Help) use a more reliable font-size mechanism and are genuinely close to body text",
+            "Dropdown popups lost their top and bottom white edges and use a dark background",
+            "Highlight position resumes correctly when pausing and continuing",
+        ],
     },
     {
         "version": "1.1.6",
@@ -750,6 +2121,14 @@ CHANGELOG = [
             "下载按钮换成更直观的下载图标",
             "下拉弹出列表加宽，完整显示选项、两侧留空隙、去掉上下白边",
             "修复窗口缩到最小时顶部控件与设置图标重叠",
+        ],
+        "title_en": "Download error fix · wider dropdown popups · no overlap when narrowed",
+        "notes_en": [
+            "Fixed a read-only file system error on the second audio download: files now default to the Downloads folder",
+            "Downloads are named automatically as EnglishCoach_date_number.mp3 with an incrementing number",
+            "Download button replaced with a more intuitive download icon",
+            "Dropdown popups widened to show options in full with clearance on both sides and no top or bottom white edges",
+            "Fixed top controls overlapping the settings icon when the window is at its minimum size",
         ],
     },
     {
@@ -765,6 +2144,15 @@ CHANGELOG = [
             "按钮文案精简：朗读原文 / 朗读译文 / 停止朗读，播放时显示 暂停/继续朗读",
             "下拉框去掉选中对号、加蓝色高亮（含 macOS），并尽量收窄",
         ],
+        "title_en": "Crash fix · faster in-memory playback · karaoke and audio download",
+        "notes_en": [
+            "Fixed crashes when repeatedly reading, dragging or quitting (playback threads now retire and are reclaimed safely)",
+            "Playback moved to memory instead of generating a temporary mp3, so it starts faster",
+            "Fixed word-by-word karaoke highlighting (timeline conversion corrected plus higher refresh rate)",
+            "Changing parameters while reading leaves the progress bar at its current position instead of resetting it",
+            "New Download Audio button: an mp3 file is generated and saved only when clicked",
+            "Button labels simplified to Read Source / Read Target / Stop, showing Pause and Resume during playback",
+        ],
     },
     {
         "version": "1.1.4",
@@ -776,6 +2164,14 @@ CHANGELOG = [
             "修复窗口过宽且无法缩窄：朗读控件分两行排布，窗口可自由调窄",
             "下拉框完整显示且不过度拉伸；悬停项目显示蓝色高亮",
             "文档标题字号确认缩小到接近正文",
+        ],
+        "title_en": "Karaoke highlighting fix · window can be narrowed · progress bar no longer resets",
+        "notes_en": [
+            "Fixed word-by-word karaoke highlighting not working: a high-frequency timer now drives it so highlights advance smoothly with the audio",
+            "Changing settings while reading leaves the progress bar at its current position instead of jumping back to the start",
+            "Fixed the window being too wide and impossible to narrow: playback controls now span two rows so the window resizes freely",
+            "Dropdowns display in full without over-stretching, and hovered items show a blue highlight",
+            "Document title font size confirmed reduced to near body text",
         ],
     },
     {
@@ -792,6 +2188,15 @@ CHANGELOG = [
             "更新/使用/关于文档标题字号再缩小一号",
             "macOS 程序图标四周留白，显示更精致协调",
         ],
+        "title_en": "Karaoke-style playback highlighting · progress bar · selection playback",
+        "notes_en": [
+            "While reading, content already spoken is highlighted word by word in teal using real word-level timestamps, like music video subtitles",
+            "Selecting text and pressing play reads only the selection",
+            "New playback progress bar that can be dragged to change position in real time",
+            "The play button became a three-state toggle: Play, Pause and Resume",
+            "Changing voice or speed while reading automatically re-reads with the new settings and returns to roughly the same position",
+            "All dropdowns widened further, with a blue highlight on hovered items",
+        ],
     },
     {
         "version": "1.1.2",
@@ -800,6 +2205,11 @@ CHANGELOG = [
         "notes": [
             "修复 Argos 离线翻译时好时坏的问题：翻译前确保模型已就绪并自动重试",
             "下拉框右侧箭头改为扁平尖角号（V 形），无边框",
+        ],
+        "title_en": "Fixed intermittent Argos translation failures · chevron dropdown arrow",
+        "notes_en": [
+            "Fixed Argos offline translation working only intermittently: the model is now confirmed ready before translating, with automatic retries",
+            "The dropdown arrow on the right became a flat chevron (V shape) without a border",
         ],
     },
     {
@@ -815,6 +2225,15 @@ CHANGELOG = [
             "下拉框与滑竿的尖角图标改为扁平无边框风格",
             "修复 Windows 状态栏右下角灰色拖拽块",
         ],
+        "title_en": "Separate Chinese and English voices · interface and styling improvements",
+        "notes_en": [
+            "Playback voices split into separate English Voice and Chinese Voice dropdowns, selected automatically by the text's language",
+            "English voices are no longer forced to read Chinese, avoiding nonsensical fallbacks; both voice choices are remembered",
+            "First row labels changed to Target Language and Translation Engine",
+            "Removed the word Readme from the User Guide",
+            "Change Log, User Guide and About titles reduced by one more size step",
+            "Chevron icons on dropdowns and sliders changed to a flat, borderless style",
+        ],
     },
     {
         "version": "1.1.0",
@@ -825,6 +2244,13 @@ CHANGELOG = [
             "原文 / 译文操作按钮顺序调整为：复制、粘贴、删除",
             "编译脚本支持公共模型仓库（~/EnglishCoach-models）：模型下载一次，所有版本复用",
             "模型下载改用 HTTP/1.1，规避 argos-net 的 HTTP/2 中断问题",
+        ],
+        "title_en": "Wider dropdowns · button order adjusted · shared model repository",
+        "notes_en": [
+            "Source/target language, engine and voice dropdowns widened precisely to their longest content so text displays in full",
+            "Source and target action buttons reordered to Copy, Paste, Delete",
+            "Build scripts support a shared model repository (~/EnglishCoach-models): models download once and are reused by every build",
+            "Model downloads switched to HTTP/1.1 to work around HTTP/2 interruptions from argos-net",
         ],
     },
     {
@@ -837,6 +2263,14 @@ CHANGELOG = [
             "彻底移除 PyTorch 依赖（通过兼容层让 Argos 在无 torch 环境运行）",
             "兼容 macOS Big Sur 等较老系统的依赖版本组合",
             "断网时也能用 Argos 完成中英翻译",
+        ],
+        "title_en": "Argos offline translation fully working · bundled Chinese-English models",
+        "notes_en": [
+            "Argos offline translation is now fully functional for Chinese-English in both directions, with no network and no key required",
+            "Chinese-English offline models are bundled, so they work on install with no runtime download",
+            "PyTorch dependency removed entirely (a compatibility layer lets Argos run without torch)",
+            "Dependency versions chosen for compatibility with older systems such as macOS Big Sur",
+            "Argos can complete Chinese-English translation even with no internet connection",
         ],
     },
     {
@@ -851,6 +2285,15 @@ CHANGELOG = [
             "编译脚本新增 argostranslate 导入校验，装不上会提前明确报错",
             "下拉框加宽，自动检测等文字显示完整",
             "关于页邮箱与网址并列显示",
+        ],
+        "title_en": "Interface rearranged · automatic playback retry · clearer Argos errors",
+        "notes_en": [
+            "Top row rearranged: source/target languages and engine on the left, Settings/Change Log/Help/About on the right",
+            "Source and target titles plus the Paste/Copy/Delete buttons moved down to the same row as the large Translate button",
+            "Failed speech synthesis retries silently up to three times before showing a message",
+            "Argos load failures now show the real cause, distinguishing running from source versus a missing bundled package",
+            "Build scripts gained an argostranslate import check that fails early and clearly if installation went wrong",
+            "Dropdowns widened so entries like Auto Detect display in full",
         ],
     },
     {
@@ -868,6 +2311,15 @@ CHANGELOG = [
             "帮助与更新说明的标题字号缩小，更协调",
             "关于页开发者信息追加邮箱 vfx@Strilen.com",
         ],
+        "title_en": "Fixed Chinese playback and offline translation · assorted UI improvements",
+        "notes_en": [
+            "Fixed Chinese playback failing entirely: a Chinese voice is now selected automatically for Chinese text, and three Chinese voices were added",
+            "Fixed errors translating English to Chinese with Argos by using the correct translation path and handling English as a pivot",
+            "Argos Chinese-English models are bundled with the program, so offline translation works right after install with no download",
+            "Removed the Youdao playback engine and the switch-voice-on-failure prompt (no longer needed)",
+            "Changing voice or speed during playback takes effect immediately, re-reading the current pane with the new settings",
+            "New Paste button in the source and target areas",
+        ],
     },
     {
         "version": "1.0.6",
@@ -879,6 +2331,12 @@ CHANGELOG = [
             "翻译引擎增至 5 个：Google（默认）、DeepL、DeepSeek、Argos、混元",
             "同时提供 macOS 与 Windows 两套编译脚本",
         ],
+        "title_en": "New Argos offline and Hunyuan engines · builds for both platforms",
+        "notes_en": [
+            "New Argos (offline) engine: entirely local, no key and no network required (language models are downloaded on first use)",
+            "New Hunyuan HY-MT engine: Tencent Hunyuan online translation (requires a Tencent Cloud key)",
+            "Translation engines increased to five: Google (default), DeepL, DeepSeek, Argos and Hunyuan",
+        ],
     },
     {
         "version": "1.0.5",
@@ -889,6 +2347,13 @@ CHANGELOG = [
             "微软 edge-tts 仍为默认，音质更佳、嗓音更多",
             "某嗓音合成失败时，弹出列表让你改选其它嗓音并立即重试",
             "朗读改用流式/二进制写入，更稳定",
+        ],
+        "title_en": "New Youdao playback engine · switch voices after a failure",
+        "notes_en": [
+            "New Youdao voices for playback (free in China, no key required) as an alternative to Microsoft edge-tts",
+            "Microsoft edge-tts remains the default, with better audio quality and more voices",
+            "When a voice fails to synthesize, a list appears so you can pick another and retry immediately",
+            "Playback switched to streaming/binary writing for better stability",
         ],
     },
     {
@@ -903,6 +2368,15 @@ CHANGELOG = [
             "朗读改用流式合成，更稳定；嗓音失效时给出明确提示",
             "移除「开发者介绍」页，作者信息并入「关于」（开发者：Strilen Liu）",
         ],
+        "title_en": "Compatibility with older macOS · interface and interaction improvements",
+        "notes_en": [
+            "Compatible with macOS Big Sur: using PyQt6 6.4.x resolves a missing IOKit symbol that prevented startup",
+            "New translate-as-you-type: translation runs automatically about 0.8 seconds after you stop typing (the manual Translate button remains)",
+            "Left and right panes spaced apart so they no longer overlap; the gap between Copy and Delete tightened",
+            "The Google entry in the engine dropdown no longer shows a (Free) suffix",
+            "Playback switched to streaming synthesis for stability, with a clear message when a voice is unavailable",
+            "Removed the Developer page; author information merged into About (developer: Strilen Liu)",
+        ],
     },
     {
         "version": "1.0.3",
@@ -915,6 +2389,14 @@ CHANGELOG = [
             "启动异常时弹窗显示具体错误，便于排查",
             "全新应用图标：构图居中、字形圆润、双色配色",
         ],
+        "title_en": "Fixed the window not appearing · macOS Big Sur compatibility · new icon",
+        "notes_en": [
+            "Fixed the packaged app showing no error but no window either (the window is now forced to the front and takes focus)",
+            "Audio backend initialization failure no longer blocks the main window from starting (playback degrades gracefully)",
+            "Compatible with macOS 11 Big Sur: builds now target a minimum system version of 11.0",
+            "Startup errors are shown in a dialog with the specific cause, making diagnosis easier",
+            "New application icon: centered composition, rounded letterforms and a two-color scheme",
+        ],
     },
     {
         "version": "1.0.2",
@@ -925,6 +2407,12 @@ CHANGELOG = [
             "新增应用图标（A/文 + 翻开的书），编译后 .app / Dock 显示专属图标",
             "窗口与任务栏同步使用新图标",
         ],
+        "title_en": "Switched to PyInstaller packaging and added an application icon",
+        "notes_en": [
+            "macOS packaging moved to PyInstaller, which handles PyQt6's Qt plugins more reliably and resolves the persistent startup crashes",
+            "New application icon (A/文 with an open book), shown for the built .app and in the Dock",
+            "The window and taskbar use the new icon as well",
+        ],
     },
     {
         "version": "1.0.1",
@@ -934,6 +2422,12 @@ CHANGELOG = [
             "修复 py2app 打包后出现「Launch error」无法启动的问题",
             "打包时完整收录 PyQt6 插件（cocoa 平台、SVG、多媒体），解决 Qt 无法初始化",
             "编译脚本加入 conda 环境自动激活",
+        ],
+        "title_en": "Fixed the macOS packaged app crashing at startup",
+        "notes_en": [
+            "Fixed the Launch error that prevented the py2app build from starting",
+            "Builds now include the full set of PyQt6 plugins (cocoa platform, SVG, multimedia), resolving Qt initialization failures",
+            "Build script now activates the conda environment automatically",
         ],
     },
     {
@@ -947,6 +2441,15 @@ CHANGELOG = [
             "新增「版本更新说明与管理」面板",
             "新增「关于」「Readme / 帮助」「开发者介绍」页面",
             "内置 SVG 图标系统",
+        ],
+        "title_en": "First release",
+        "notes_en": [
+            "New translation feature: Google's free engine by default (no key required), with DeepL and DeepSeek as alternatives",
+            "Translation supports Chinese-English in both directions plus auto-detection, with one-click swapping",
+            "New playback feature: online speech synthesis via edge-tts with multiple voices and adjustable speed",
+            "New change log and version management panel",
+            "New About, Readme/Help and Developer pages",
+            "Built-in SVG icon system",
         ],
     },
 ]
@@ -1034,6 +2537,9 @@ class Icons:
         "undo": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
                   stroke-linecap="round" stroke-linejoin="round">
                   <path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>""",
+        "redo": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 14 20 9l-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>""",
         "download": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
                   stroke-linecap="round" stroke-linejoin="round">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -1041,7 +2547,9 @@ class Icons:
     }
 
     @classmethod
-    def icon(cls, name: str, color: str = "#e8e8e8") -> QIcon:
+    def icon(cls, name: str, color: str = None) -> QIcon:
+        if color is None:
+            color = "#1f1f22" if _theme_is_light() else "#e8e8e8"
         svg = cls._DEFS.get(name, "").format(c=color).encode("utf-8")
         pm = QPixmap()
         pm.loadFromData(svg, "SVG")
@@ -1093,8 +2601,13 @@ HUNYUAN_ENDPOINT = "https://api.hunyuan.cloud.tencent.com/v1/chat/completions"
 LLM_ENGINES = {
     ENGINE_DEEPSEEK: {
         "endpoint": "https://api.deepseek.com/chat/completions",
-        "model": "deepseek-chat", "key_name": "deepseek", "auth": "bearer",
+        # deepseek-chat 已于 2026-07-24 15:59 UTC 停用，须用显式的 V4 名称。
+        # deepseek-v4-flash 是原 deepseek-chat 对应的经济档；翻译任务不需要
+        # 思考模式，用 extra 显式关闭以省时省钱（v4-flash 默认开启思考）。
+        "endpoint_v4": True,
+        "model": "deepseek-v4-flash", "key_name": "deepseek", "auth": "bearer",
         "label": "DeepSeek",
+        "extra": {"thinking": {"type": "disabled"}},
     },
     ENGINE_OPENAI: {
         "endpoint": "https://api.openai.com/v1/chat/completions",
@@ -1143,6 +2656,41 @@ LLM_ENGINES = {
         "model": "hunyuan-turbo", "key_name": "hunyuan", "auth": "bearer",
         "label": "HunYuan",
     },
+    '翻译': 'Translate',
+    '文心一言': 'ERNIE',
+    '豆包': 'Doubao',
+    '字节豆包': 'Doubao',
+    '通义千问': 'Qwen',
+    '混元': 'Hunyuan',
+    '晓贝': 'Xiaobei',
+    '查看历史': 'View History',
+    '文心一言 Key:': 'ERNIE Key:',
+    '豆包 Key:': 'Doubao Key:',
+    '通义千问 Key:': 'Qwen Key:',
+    '混元 HY-MT Key:': 'Hunyuan HY-MT Key:',
+    '百度千帆 Key': 'Baidu AI Studio API Key',
+    '火山引擎 Key': 'Volcengine API Key',
+    '阿里百炼 sk-...': 'Alibaba Cloud Model Studio API Key sk-...',
+    '腾讯云混元 sk-...': 'Tencent Cloud Hunyuan sk-...',
+    '显示API-Key': 'Show API Key',
+    '显示密钥': 'Show Key',
+    '查看日志': 'View Log',
+    '语言': 'Language',
+    '样式风格': 'Theme',
+    '深色': 'Dark',
+    '浅色': 'Light',
+    '跟随系统': 'Follow System',
+    '设置': 'Settings',
+    '多风格翻译（LLM 引擎）': 'Multi-Style (LLM Engines)',
+    'Google免费、无需Key、即开即用；DeepL/Google云需在下方填Key；Argos为纯离线引擎': 'Google: free, no key, ready to use. DeepL / Google Cloud need keys below. Argos runs fully offline.',
+    '（主译文 + 书面/口语/俚语/美英式等多种风格辅助译法，仅大模型引擎有效）': '(Main translation + formal / casual / slang / US-UK style variants; LLM engines only)',
+    '提示：Google免费无需Key；Argos纯离线；其余引擎需在上方填入对应 API Key': 'Tip: Google is free and key-less; Argos is fully offline; other engines need their API key above.',
+    '免费版Key以...': 'Free-tier key starts with ...',
+    'Google云翻译API Key': 'Google Cloud Translation API Key',
+    '免费版 Key 以 :fx 结尾': 'Free-tier key ends with :fx',
+    'Google 云翻译 Key (AIza...)': 'Google Cloud Translation Key (AIza...)',
+    '（主译文 + 书面/口语/俚语/美英式等辅助译法）': '(Main + formal/casual/slang/US-UK style variants)',
+    '点选一条记录后『载入并翻译』；悬停可见全文。': 'Click a record to Load & Translate; hover to see full text.',
 }
 
 # 所有引擎的显示顺序
@@ -1360,25 +2908,30 @@ class TranslateWorker(QThread):
             _is_word = _no_sep and ((_has_cjk and len(_t) <= 4)
                                     or (not _has_cjk and len(_t) <= 24))
             if _is_word:
-                # 单字/单词：给多种准确译法，每行一个，无解释无音标
+                # 单字/单词：第一部分只给唯一最优译法，其余备选放到多风格区
                 system = (
                     "你是一名精通中英互译的词典专家。用户给出一个字或词，"
-                    "请给出它在" + tgt_name + "中的多种准确译法。\n"
-                    "输出规则：每行一个译法，只写译文本身；不要编号、解释、"
-                    "音标、风格标注或任何多余文字；按常用程度从高到低排序，"
-                    "给出 3-8 个。")
+                    "请给出它在" + tgt_name + "中的译法。\n"
+                    "输出严格分两部分（不要任何额外说明）：\n"
+                    "第一部分：只有一行，写最常用、最贴切的那一个最优译法，"
+                    "只写译文本身，不要编号、解释、音标或任何标注。\n"
+                    "然后输出一个空行作为分隔（该空行不含任何文字或符号）\n"
+                    "第二部分：其余备选译法，每行一个，格式『风格名：译文』或"
+                    "『用法：译文』，按常用程度从高到低排序，给出 2-7 个；"
+                    "不要重复第一部分那个译法，不要解释。")
                 user = _t
                 return (self._call_anthropic(cfg, key, system, user, 1.0)
                         if cfg["auth"] == "anthropic"
                         else self._call_openai_compat(cfg, key, system, user, 1.0))
             system = (
                 "你是一名精通中英互译的语言老师。请把用户给的文本翻译成" + tgt_name +
-                "，并提供多种风格的译法，帮助语言学习者理解不同语境下的表达。\n"
-                "输出严格遵循以下格式（不要任何额外说明）：\n"
-                "第一行：最推荐、最自然通用的译文（不加任何前缀标注）\n"
-                "随后每行一个其它风格译法，格式为『【风格】译文』，风格如："
-                "正式书面、口语随意、美式、英式、俚语、网络用语、生僻文雅等，"
-                "只给适用于该文本的 2-5 种，不要硬凑。")
+                "。输出严格分两部分（不要任何额外说明）：\n"
+                "第一部分：逐行对应的准确直译——原文有几行就输出几行，"
+                "每行只有译文本身，不加任何标注，风格与普通翻译引擎一致。\n"
+                "然后输出一个空行作为分隔（该空行不含任何文字或符号）\n"
+                "第二部分：每行一个，格式『风格名：译文』，"
+                "风格如 正式书面、口语随意、美式、英式、俚语 等，"
+                "只给适用的 2-5 种，不要硬凑，不要解释。")
             user = f"请翻译为{tgt_name}：\n{self.text}"
             temperature = 1.0
         else:
@@ -1394,14 +2947,18 @@ class TranslateWorker(QThread):
         return self._call_openai_compat(cfg, key, system, user, temperature)
 
     def _call_openai_compat(self, cfg, key, system, user, temperature):
+        _body = {"model": cfg["model"],
+                 "messages": [{"role": "system", "content": system},
+                              {"role": "user", "content": user}],
+                 "temperature": temperature, "stream": False}
+        _extra = cfg.get("extra")
+        if _extra:
+            _body.update(_extra)   # 如 DeepSeek 的 thinking=disabled
         resp = requests.post(
             cfg["endpoint"],
             headers={"Authorization": f"Bearer {key}",
                      "Content-Type": "application/json"},
-            json={"model": cfg["model"],
-                  "messages": [{"role": "system", "content": system},
-                               {"role": "user", "content": user}],
-                  "temperature": temperature, "stream": False},
+            json=_body,
             timeout=60,
         )
         if resp.status_code != 200:
@@ -1567,9 +3124,195 @@ def _text_is_chinese(text):
     return any("\u4e00" <= c <= "\u9fff" for c in text)
 
 
-def fit_combo_width(combo):
+def _install_combo_wheel_guard(combo):
+    """让 QComboBox 未获焦点时不响应滚轮(避免滚动页面时误改选项)。
+    做法：装事件过滤器，Wheel 事件在未聚焦时忽略并上抛给父控件。"""
+    try:
+        from PyQt6.QtCore import QObject, QEvent
+        from PyQt6.QtWidgets import QComboBox as _QCB
+
+        class _WheelGuard(QObject):
+            def eventFilter(self, obj, ev):
+                try:
+                    if ev.type() == QEvent.Type.Wheel:
+                        if not obj.hasFocus():
+                            ev.ignore()
+                            return True   # 拦下：不改选项，交给父级滚动
+                except Exception:
+                    pass
+                return False
+
+        g = _WheelGuard(combo)
+        combo.installEventFilter(g)
+        combo._wheel_guard = g            # 保持引用
+        # 同时让它默认不通过滚轮获得焦点(点击/Tab 才聚焦)
+        from PyQt6.QtCore import Qt as _Qt
+        combo.setFocusPolicy(_Qt.FocusPolicy.StrongFocus)
+    except Exception:
+        pass
+
+
+def _pin_popup_to_top(combo):
+    """【仅用于设置窗的语言/主题下拉】弹出后把列表滚动位置归零。
+    这两个下拉的弹出高度正好等于项数，本来就不需要滚动；但选中最后一项时
+    Qt 会 scrollTo 让当前项可见，可能把视图滚下一行。而弹出的滚动条是关闭的、
+    滚轮也被忽略，滚下去就卡住回不来 —— 于是显示成 items[1..N-1] 加一行空白，
+    正是"整体向上串了一行、最后一项空白"的现象。归零即可复原。
+    不改任何弹出机制，也不影响其它任何下拉。"""
+    import sys as _sp
+    if _sp.platform == "darwin" or combo is None:
+        return                      # mac 走系统原生、现状完美，不做任何处理
+    try:
+        _orig = combo.showPopup
+
+        def _show(_c=combo, _o=_orig):
+            _o()
+            try:
+                v = _c.view()
+                if v is not None:
+                    sb = v.verticalScrollBar()
+                    if sb is not None:
+                        sb.setValue(0)
+                    v.scrollToTop()
+            except Exception:
+                pass
+        combo.showPopup = _show
+    except Exception:
+        pass
+
+
+def _ensure_combo_items(combo, want):
+    """仅在项【真的少了】时才重建，保留当前选择。
+    只按身份值(userData)判断，不看显示文字——文字会随界面语言变化，
+    拿文字比对会在每次重译时误触发重建，反而扰乱下拉。用于语言/主题下拉。"""
+    if combo is None:
+        return
+    try:
+        have = [combo.itemData(i) for i in range(combo.count())]
+        want_data = [d for _t, d in want]
+        if len(have) == len(want_data) and all(d in have for d in want_data):
+            return          # 项齐全，什么都不做（不碰下拉，零副作用）
+        cur = combo.currentData()
+        combo.blockSignals(True)
+        combo.clear()
+        for _t, _d in want:
+            combo.addItem(_t, _d)
+        _i = combo.findData(cur) if cur is not None else -1
+        combo.setCurrentIndex(_i if _i >= 0 else 0)
+        combo.blockSignals(False)
+    except Exception:
+        try:
+            combo.blockSignals(False)
+        except Exception:
+            pass
+
+
+def _combo_popup_container_css():
+    """下拉弹出容器的背景/边框，按当前深浅。与 _win_hybrid_qss 的下拉配色保持一致。
+    工厂函数与主题热切换共用本函数——弹出背景此前只在下拉创建时设一次、切主题从不更新，
+    导致切到浅色后弹出仍是黑底，而项目文字已变深色 => 深字黑底看不见 => 看似"丢了一项"。"""
+    if _theme_is_light():
+        return "background:#ffffff; border:1px solid #c4c4c8;"
+    return "background:#2d2d30; border:1px solid #3a3a3a;"
+
+
+def _refresh_combo_popups(root):
+    """按当前深浅刷新 root 下所有下拉的弹出容器配色(非 mac；mac 走系统原生不设样式)。"""
+    import sys as _s
+    if _s.platform == "darwin" or root is None:
+        return
+    try:
+        from PyQt6.QtWidgets import QComboBox
+        css = _combo_popup_container_css()
+        for cb in root.findChildren(QComboBox):
+            try:
+                v = cb.view()
+                if v is None:
+                    continue
+                pop = v.parent()
+                if pop is not None:
+                    pop.setStyleSheet(css)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _apply_combo_popup_style(combo):
+    """给下拉应用与主界面同款的弹出view处理，使QSS的item:hover悬停高亮生效。
+    mac下用自定义view+半透明，让 QComboBox QAbstractItemView::item:hover 规则作用到弹出列表。
+
+    弹出宽度锚点 = "mac 悬停蓝条"的自然宽度：最长项文字 + QSS内边距(7px 14px→左右28)
+    + 边框 + 勾号余量。不跟随被表单拉伸的闭合框。
+
+    v2.14.3 重写要点（修复 Windows 点击无效 / 文字截断 …）：
+      * 不再猴子补丁 combo.showPopup —— 重复应用会层层包裹，
+        Windows 上导致弹出失败(点击没反应)；改用 view 的 minimumWidth，
+        由 Qt 自己在弹出时排版。
+      * 不再用 setFixedWidth —— 那是永久锁死，之后任何重新布局
+        (语言切换、主题热切换)都无法调整，是"越改越窄、字显示不全"的元凶。
+      * 宽度计算补齐 padding/边框/勾号，不再只算纯文字宽。
+    """
+    from PyQt6.QtWidgets import QFrame, QListView
+    from PyQt6.QtCore import Qt
+    lv = QListView()
+    lv.setFrameShape(QFrame.Shape.NoFrame)
+    lv.setUniformItemSizes(True)
+    lv.setSpacing(0)
+    lv.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    lv.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    lv.setAutoScroll(False)
+    lv.setVerticalScrollMode(QListView.ScrollMode.ScrollPerItem)
+    combo.setView(lv)
+    combo.setMaxVisibleItems(max(1, combo.count()))
+    lv.wheelEvent = lambda e: e.ignore()
+    # 闭合框滚轮拦截：设置窗里用滚轮滚动内容时，鼠标划过下拉框常误改选项。
+    # 让下拉框只在"已获得焦点"时才响应滚轮；未聚焦时把滚轮事件让给父级(滚动区)。
+    _install_combo_wheel_guard(combo)
+    # mac：弹出容器与列表都走系统原生（透明背景），保留悬停蓝条与圆角。
+    # 注意这段必须在本函数内 —— 它引用 lv，v2.14.3 重写时被遗落到函数外，
+    # 导致 mac 上一进设置窗就抛 NameError: name 'lv' is not defined 而闪退。
+    popup = combo.view().parent()
+    if popup is not None:
+        popup.setContentsMargins(0, 0, 0, 0)
+        import sys as _sys
+        if _sys.platform == "darwin":
+            lv.setStyleSheet("")
+            lv.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            lv.viewport().setAutoFillBackground(False)
+            popup.setStyleSheet("")
+            popup.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    _fit_combo_popup_width(combo)
+
+
+def _fit_combo_popup_width(combo):
+    """按最长项内容设置弹出列表宽度（可反复调用：语言切换后重算）。
+    用 minimumWidth 而非 setFixedWidth —— 后者永久锁死，无法再调整。"""
+    try:
+        from PyQt6.QtGui import QFontMetrics as _FM
+        fm = _FM(combo.font())
+        w = 0
+        for i in range(combo.count()):
+            w = max(w, fm.horizontalAdvance(combo.itemText(i)))
+        if w <= 0:
+            return
+        # 文字 + 左右内边距(QSS: padding 7px 14px) + 边框 + 勾号/余量
+        pw = w + 28 + 4 + 12
+        v = combo.view()
+        v.setMinimumWidth(pw)
+        v.setMaximumWidth(16777215)      # 解除任何历史遗留的宽度锁
+        cont = v.parentWidget()
+        if cont is not None:
+            cont.setMinimumWidth(pw)
+            cont.setMaximumWidth(16777215)
+    except Exception:
+        pass
+
+
+def fit_combo_width(combo, extra=0, popup_extra=0):
     """按最长项设为固定显示宽度。弹出列表比按钮略宽、完整显示、
-    行距适中、无多余空白、边框均匀。"""
+    行距适中、无多余空白、边框均匀。
+    extra=闭合框(第一部分)额外加宽；popup_extra=弹出列表(第二部分)额外加宽。"""
     from PyQt6.QtGui import QFontMetrics
     from PyQt6.QtWidgets import QFrame, QListView
     fm = QFontMetrics(combo.font())
@@ -1577,8 +3320,8 @@ def fit_combo_width(combo):
     for i in range(combo.count()):
         widest = max(widest, fm.horizontalAdvance(combo.itemText(i)))
     # 留足右侧下拉箭头 + 最小内边距（尽量紧凑，给交换钮居中腾空间）
-    combo.setFixedWidth(widest + 42)
-    combo.setFixedHeight(34)   # 统一控件高度，与按钮等高
+    combo.setFixedWidth(widest + 52 + extra)   # +52基础，extra额外加宽
+    combo.setFixedHeight(36)   # 与正方形按钮等高
     lv = QListView()
     lv.setFrameShape(QFrame.Shape.NoFrame)
     lv.setUniformItemSizes(True)
@@ -1589,18 +3332,25 @@ def fit_combo_width(combo):
     lv.setAutoScroll(False)
     lv.setVerticalScrollMode(QListView.ScrollMode.ScrollPerItem)
     combo.setView(lv)
-    combo.view().setMinimumWidth(widest + 56)
+    combo.view().setMinimumWidth(widest + 56 + popup_extra)
     # 关键：可见项数 = 实际项数，杜绝末尾空行 + 可滚动
     combo.setMaxVisibleItems(max(1, combo.count()))
     # 拦截弹出列表的滚轮事件，避免滚出多余空行
     lv.wheelEvent = lambda e: e.ignore()
-    # 弹出容器：深色背景 + 单层均匀边框，避免双层错位与多余空白
+    # 弹出容器：mac 走系统原生（圆角无框、深浅自适应）；其它平台深色单层边框
     popup = combo.view().parent()
     if popup is not None:
         popup.setContentsMargins(0, 0, 0, 0)
-        popup.setStyleSheet(
-            "background:#2d2d30; border:1px solid #3a3a3a;")
-
+        import sys
+        if sys.platform == "darwin":
+            # mac：清空样式并让视图背景透明，回归系统原生下拉（圆角无框、无灰底块）
+            lv.setStyleSheet("")
+            lv.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            lv.viewport().setAutoFillBackground(False)
+            popup.setStyleSheet("")
+            popup.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        else:
+            popup.setStyleSheet(_combo_popup_container_css())
 
 def _split_for_tts(text, max_len=120):
     """把长文本按标点切成句子片段，每段不超过 max_len 字符，
@@ -1858,6 +3608,18 @@ def _get_kokoro_pipeline(lang_code="a"):
             if _os.path.isdir(bundled):
                 _os.environ.setdefault("HF_HUB_OFFLINE", "1")
                 _os.environ.setdefault("HF_HOME", bundled)
+        # 中国大陆：huggingface.co 被封，Kokoro 首次下载模型会失败。
+        # 若用户未自行设置 HF_ENDPOINT，且系统区域/语言为中国大陆，则默认走
+        # hf-mirror.com 公益镜像，无需 VPN 即可下载（用户可用环境变量覆盖）。
+        try:
+            if not _os.environ.get("HF_ENDPOINT"):
+                import locale as _loc
+                _lang = (_loc.getdefaultlocale()[0] or "")
+                _tz = _os.environ.get("TZ", "")
+                if _lang.lower().startswith("zh_cn") or "Shanghai" in _tz:
+                    _os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+        except Exception:
+            pass
         from kokoro import KPipeline
         # 有 CUDA GPU 则用 GPU 加速，否则 CPU（CUDA 版 torch 无卡时自动回退）
         device = None
@@ -1917,17 +3679,10 @@ class SettingsDialog(QDialog):
     def __init__(self, settings: QSettings, parent=None):
         super().__init__(parent)
         self.settings = settings
-        self.setWindowTitle("设置")
+        self.setWindowTitle(L("设置"))
         self.setMinimumWidth(440)
         self.resize(460, 640)
-        # 让设置窗内的下拉与主界面一致：悬停/选中蓝色高亮
-        self.setStyleSheet("""
-            QComboBox QAbstractItemView { background:#2d2d30; outline:none; border:none;
-                selection-background-color:#0e639c; selection-color:white; }
-            QComboBox QAbstractItemView::item { padding:7px 14px; border:none; }
-            QComboBox QAbstractItemView::item:selected { background:#0e639c; color:white; }
-            QComboBox QAbstractItemView::item:hover { background:#0e639c; color:white; }
-        """)
+        self._apply_own_combo_style()
 
         outer = QVBoxLayout(self)
         # 内容较多，放进滚动区
@@ -1942,43 +3697,43 @@ class SettingsDialog(QDialog):
         outer.addWidget(scroll, 1)
 
         # —— 默认翻译引擎 ——
-        eng_label = QLabel("默认翻译引擎")
+        eng_label = QLabel(L("默认翻译引擎"))
         eng_label.setStyleSheet("font-weight:bold; color:#7bbcff; margin-top:4px;")
         layout.addWidget(eng_label)
 
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(ALL_ENGINES)
-        self.engine_combo.setCurrentText(
+        _combo_fill(self.engine_combo, ALL_ENGINES)
+        _combo_select_data(self.engine_combo, 
             settings.value("engine", ENGINE_GOOGLE))
+        self.engine_combo.setFixedHeight(36)   # 与主界面下拉等高
+        _apply_combo_popup_style(self.engine_combo)
         layout.addWidget(self.engine_combo)
 
-        eng_tip = QLabel("Google 免费、无需 Key、即开即用（推荐）。"
-                         "Argos 纯离线。其余 LLM 引擎需填对应 Key，并可开启多风格翻译。")
-        eng_tip.setWordWrap(True)
-        eng_tip.setStyleSheet("color:#888; font-size:12px; margin-bottom:8px;")
-        layout.addWidget(eng_tip)
 
         # —— 备选引擎 Key ——
-        key_label = QLabel("备选引擎 API Key（可选）")
+        key_label = QLabel(L("备选引擎 API Key（可选）"))
         key_label.setStyleSheet("font-weight:bold; color:#7bbcff; margin-top:6px;")
         layout.addWidget(key_label)
 
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
         self.deepl_edit = QLineEdit(settings.value("deepl_key", ""))
         self.deepl_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.deepl_edit.setPlaceholderText("免费版 Key 以 :fx 结尾")
-        self.deepl_edit.setMaximumWidth(240)
+        self.deepl_edit.setPlaceholderText(L("免费版 Key 以 :fx 结尾"))
+        from PyQt6.QtWidgets import QSizePolicy as _SP
+        self.deepl_edit.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
+        self.deepl_edit.setMinimumWidth(220)
         form.addRow("DeepL Key:", self.deepl_edit)
 
         self.google_api_edit = QLineEdit(settings.value("google_api_key", ""))
         self.google_api_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.google_api_edit.setPlaceholderText("Google 云翻译 Key (AIza...)")
-        self.google_api_edit.setMaximumWidth(240)
-        form.addRow("Google 云翻译 Key:", self.google_api_edit)
+        self.google_api_edit.setPlaceholderText(L("Google 云翻译 Key (AIza...)"))
+        self.google_api_edit.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
+        self.google_api_edit.setMinimumWidth(220)
+        form.addRow(L("Google 云翻译 Key") + ":", self.google_api_edit)
 
         # 各 LLM 引擎的 Key 输入框（动态生成）
         self._key_edits = {}   # key_name -> QLineEdit
@@ -1988,74 +3743,167 @@ class SettingsDialog(QDialog):
             ("gemini", "Gemini Key:", "AIza..."),
             ("claude", "Claude Key:", "sk-ant-..."),
             ("glm", "GLM Key:", "xxxxxxxx.xxxxxxxx"),
-            ("ernie", "文心一言 Key:", "百度千帆 Key"),
-            ("doubao", "豆包 Key:", "火山引擎 Key"),
-            ("qwen", "通义千问 Key:", "阿里百炼 sk-..."),
+            ("ernie", L("文心一言 Key:"), L("百度千帆 Key")),
+            ("doubao", L("豆包 Key:"), L("火山引擎 Key")),
+            ("qwen", L("通义千问 Key:"), L("阿里百炼 sk-...")),
             ("kimi", "Kimi Key:", "sk-..."),
-            ("hunyuan", "混元 HY-MT Key:", "腾讯云混元 sk-..."),
+            ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
         ]
         for kn, label, ph in _llm_key_rows:
             e = QLineEdit(settings.value(f"{kn}_key", ""))
             e.setEchoMode(QLineEdit.EchoMode.Password)
             e.setPlaceholderText(ph)
-            e.setMaximumWidth(240)        # 限宽，右侧留白，匀称
+            e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
+            e.setMinimumWidth(220)
             form.addRow(label, e)
             self._key_edits[kn] = e
         # 兼容旧引用
         self.deepseek_edit = self._key_edits["deepseek"]
         self.hunyuan_edit = self._key_edits["hunyuan"]
 
+        # 显示API-Key（与输入框左对齐；按下=显示且青色，弹起=隐藏灰色）
+        self.show_keys_btn = QPushButton(L("显示密钥"))
+        self.show_keys_btn.setCheckable(True)
+        # 固定宽度(不随窗宽变)，但取按内容所需宽度确保文字完整
+        self.show_keys_btn.setFixedWidth(BTN_W)
+        self.show_keys_btn.toggled.connect(self._on_show_keys)
+        form.addRow("", self.show_keys_btn)
+
+        # 界面语言 / 样式风格（重启后生效）
+        self.lang_combo = QComboBox()
+        # 用 userData 存身份值(中文/English US)，显示文字与身份彻底解耦：
+        # 即便界面重译改了显示文字，读 currentData() 仍拿到稳定身份，且构造时
+        # 固定两项、不依赖任何文本匹配 -> 从根上杜绝"切换后丢项"。
+        self.lang_combo.addItem("中文", "中文")
+        self.lang_combo.addItem("English US", "English US")
+        self.lang_combo.setProperty("no_retranslate", True)
+        _lang_cur = settings.value("ui_lang", "中文")
+        _lang_idx = self.lang_combo.findData(_lang_cur)
+        self.lang_combo.setCurrentIndex(_lang_idx if _lang_idx >= 0 else 0)
+        from PyQt6.QtWidgets import QSizePolicy as _SPl
+        self.lang_combo.setFixedHeight(36)
+        _apply_combo_popup_style(self.lang_combo)
+        _pin_popup_to_top(self.lang_combo)
+        self.lang_combo.setSizePolicy(_SPl.Policy.Expanding, _SPl.Policy.Fixed)
+        self.lang_combo.setMinimumWidth(200)
+        form.addRow(L("语言") + ":", self.lang_combo)
+
+        def _lang_live(_=None):
+            v = self.lang_combo.currentData() or self.lang_combo.currentText()
+            self.settings.setValue("ui_lang", v)
+            global _UI_LANG_CACHE
+            _UI_LANG_CACHE = v
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "retranslate_ui"):
+                _p.retranslate_ui()
+            if hasattr(self, "_retranslate_self"):
+                self._retranslate_self()
+        self.lang_combo.currentIndexChanged.connect(_lang_live)
+
+        self.theme_combo = QComboBox()
+        _combo_fill(self.theme_combo, ["深色", "浅色", "跟随系统"])
+        _combo_select_data(self.theme_combo, settings.value("ui_theme", "跟随系统"))
+        self.theme_combo.setFixedHeight(36)
+        _apply_combo_popup_style(self.theme_combo)
+        _pin_popup_to_top(self.theme_combo)
+        self.theme_combo.setSizePolicy(_SPl.Policy.Expanding, _SPl.Policy.Fixed)
+        self.theme_combo.setMinimumWidth(200)
+        form.addRow(L("样式风格") + ":", self.theme_combo)
+
+        def _theme_live(_=None):
+            v = self.theme_combo.currentData() or "深色"
+            self.settings.setValue("ui_theme", v)
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "apply_theme"):
+                _p.apply_theme()
+            self._apply_own_combo_style()   # 设置窗自己的下拉也即时切换深浅
+        self.theme_combo.currentIndexChanged.connect(_theme_live)
+
         # 多风格翻译开关（默认勾选）
-        self.multi_style_chk = QCheckBox("LLM 引擎多风格翻译")
+        self.multi_style_chk = QCheckBox(L("LLM 引擎多风格翻译"))
+        self.multi_style_chk.toggled.connect(
+            lambda v: self.settings.setValue("multi_style", "true" if v else "false"))
         self.multi_style_chk.setChecked(settings.value("multi_style", "true") == "true")
         form.addRow("", self.multi_style_chk)
-        ms_tip = QLabel("（主译文 + 书面/口语/俚语/美英式等辅助译法）")
-        ms_tip.setWordWrap(True)
-        ms_tip.setStyleSheet("color:#888; font-size:11px;")
-        form.addRow("", ms_tip)
+        # 保持程序置顶（在多风格与日志行之间）
+        self.on_top_chk = QCheckBox(L("保持程序置顶"))
+        self.on_top_chk.setChecked(settings.value("always_on_top", "false") == "true")
+
+        def _on_top_live(v):
+            # 槽函数必须自己吞掉异常：PyQt6 对槽里未捕获的异常直接 abort()，
+            # 表现为"一点设置就闪退"(崩溃栈 pyqt6_err_print -> qAbort)。
+            try:
+                self.settings.setValue("always_on_top", "true" if v else "false")
+                _p = self.parent()
+                if _p is not None and hasattr(_p, "apply_always_on_top"):
+                    _p.apply_always_on_top(bool(v))
+            except Exception:
+                _log_exc("on_top_live")
+        self.on_top_chk.toggled.connect(_on_top_live)
+        form.addRow("", self.on_top_chk)
+        _gap = QWidget(); _gap.setFixedHeight(10)   # 与日志行隔开一点距离
+        form.addRow("", _gap)
+
+        log_btn = QPushButton(L("查看日志"))
+        log_btn.setFixedWidth(BTN_W)
+        log_btn.clicked.connect(self._open_log)
+        exp_log_btn = QPushButton(L("导出日志"))
+        exp_log_btn.setFixedWidth(BTN_W)          # 与查看日志等宽同风格
+        exp_log_btn.clicked.connect(self._export_log)
+        _logrow = QHBoxLayout(); _logrow.setContentsMargins(0, 0, 0, 0)
+        _logrow.setSpacing(8)
+        _logrow.addWidget(log_btn); _logrow.addWidget(exp_log_btn); _logrow.addStretch(1)
+        _logw = QWidget(); _logw.setLayout(_logrow)
+        form.addRow("", _logw)
+
 
         layout.addLayout(form)
 
-        show_chk = QPushButton("显示/隐藏")
-        show_chk.setCheckable(True)
-        show_chk.setFixedWidth(BTN_W)
-        show_chk.toggled.connect(self._toggle_echo)
-        _show_row = QHBoxLayout()
-        _show_row.setSpacing(8)   # 收紧间距（对标主界面下拉与交换钮的距离）
-        _show_row.addStretch()
-        _show_row.addWidget(show_chk)
-        # 查看日志按钮
-        log_btn = QPushButton("查看日志")
-        log_btn.setFixedWidth(BTN_W)
-        log_btn.clicked.connect(self._open_log)
-        _show_row.addWidget(log_btn)
-        _show_row.addStretch()
-        layout.addLayout(_show_row)
 
-        tip = QLabel("提示：Google 免费无需 Key；Argos 纯离线无需 Key 与联网；"
-                     "其余 LLM 引擎需各自 API Key。勾选『多风格翻译』后，"
-                     "选用 LLM 引擎时会在主译文下给出多种风格译法。"
-                     "朗读 edge-tts 无需 Key。Key 仅保存在本机，不上传。")
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color:#888; font-size:12px; margin-top:8px;")
-        layout.addWidget(tip)
-
-        # 取消在左、保存在右，统一宽度，靠右对齐，间距收紧
+        # 所有设置即时保存生效，只保留"关闭"按钮
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        cancel_btn = QPushButton("取消")
-        save_btn = QPushButton("保存")
-        cancel_btn.clicked.connect(self.reject)
-        save_btn.clicked.connect(self.save)
-        save_btn.setDefault(True)
-        save_btn.setStyleSheet("QPushButton{background:#0e639c;border:none;border-radius:5px;color:white;}"\
-            "QPushButton:hover{background:#1177bb;}")
-        for b in (cancel_btn, save_btn):
-            b.setFixedWidth(BTN_W)
+        close_btn = QPushButton(L("关闭"))
+        close_btn.setFixedWidth(BTN_W)
+        close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
+            "QPushButton:hover{background:#2b95ef;}")
+        def _close_and_save():
+            self._persist_keys()
+            self.accept()
+        close_btn.clicked.connect(_close_and_save)
+        self._close_btn = close_btn
+        def _retranslate_self():
+            to_lang = _ui_lang()
+            retranslate_widget_tree(self, to_lang)
+            self.show_keys_btn.setText(
+                L("显示密钥") if not self.show_keys_btn.isChecked() else L("隐藏密钥"))
+            # 保险：语言下拉必须恒为两项(中文/English US)。若因任何原因丢项，自愈重建，
+            # 保留当前选择(按 userData 身份)。彻底防"切换后中文项消失"。
+            try:
+                lc = self.lang_combo
+                _ensure_combo_items(
+                    lc, [("中文", "中文"), ("English US", "English US")])
+                # 主题下拉同样保证三项齐全(文字随界面语言，身份值不变)
+                _tc = getattr(self, "theme_combo", None)
+                if _tc is not None:
+                    _ensure_combo_items(_tc, [(L("深色"), "深色"),
+                                              (L("浅色"), "浅色"),
+                                              (L("跟随系统"), "跟随系统")])
+            except Exception:
+                pass
+        self._retranslate_self = _retranslate_self
         btn_row.addStretch()
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(save_btn)
+        btn_row.addWidget(close_btn)
         outer.addLayout(btn_row)
+
+    def _on_show_keys(self, on):
+        self._toggle_echo(on)
+        if on:
+            self.show_keys_btn.setStyleSheet(
+                "QPushButton{background:#5aa8b0;color:#0e2024;"
+                "border:1px solid #5aa8b0;border-radius:5px;}")
+        else:
+            self.show_keys_btn.setStyleSheet("")
 
     def _toggle_echo(self, show):
         mode = QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password
@@ -2063,6 +3911,64 @@ class SettingsDialog(QDialog):
         self.google_api_edit.setEchoMode(mode)
         for e in self._key_edits.values():
             e.setEchoMode(mode)
+
+    def _export_log(self):
+        """导出日志到用户选择的路径/文件名/格式：.txt / .log / .md / .json。
+        全部用 Python 标准库实现(无第三方依赖)。"""
+        import os, json, datetime
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        src = _log_path()
+        try:
+            raw = open(src, "r", encoding="utf-8", errors="replace").read() \
+                if os.path.exists(src) else ""
+        except Exception as e:
+            QMessageBox.warning(self, L("导出日志"), f"{L('读取日志失败')}: {e}")
+            return
+        if not raw.strip():
+            QMessageBox.information(self, L("导出日志"), L("日志为空，无内容可导出"))
+            return
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
+        default = os.path.join(os.path.expanduser("~"), f"EC LT {stamp}.txt")
+        filt = ("Text (*.txt);;Log (*.log);;Markdown (*.md);;JSON (*.json);;"
+                "All Files (*)")
+        path, chosen = QFileDialog.getSaveFileName(
+            self, L("导出日志"), default, filt)
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:   # 用户没打后缀：按所选过滤器补
+            ext = (".log" if "Log" in (chosen or "") else
+                   ".md" if "Markdown" in (chosen or "") else
+                   ".json" if "JSON" in (chosen or "") else ".txt")
+            path += ext
+        try:
+            lines = raw.splitlines()
+            if ext == ".json":
+                data = {
+                    "app": "English Coach",
+                    "version": APP_VERSION,
+                    "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                    "line_count": len(lines),
+                    "lines": lines,
+                }
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            elif ext == ".md":
+                head = (f"# English Coach {L('运行日志')}\n\n"
+                        f"- **{L('版本')}**: v{APP_VERSION}\n"
+                        f"- **{L('导出时间')}**: "
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                        "```log\n")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(head + raw.rstrip("\n") + "\n```\n")
+            else:   # .txt / .log / 其它：原样文本
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(raw)
+        except Exception as e:
+            QMessageBox.warning(self, L("导出日志"), f"{L('导出失败')}: {e}")
+            return
+        QMessageBox.information(
+            self, L("导出日志"), f"{L('日志已导出到')}:\n{path}")
 
     def _open_log(self):
         """用系统默认程序打开日志文件。"""
@@ -2077,15 +3983,109 @@ class SettingsDialog(QDialog):
                 pass
         QDesktopServices.openUrl(QUrl.fromLocalFile(p))
 
+    def _retheme(self):
+        """主题热切换时被主窗 apply_theme 调用：按新深浅重建本窗自绘样式
+        (下拉/按钮/输入框颜色)。此前缺此方法 → 设置窗开着切主题时颜色错乱。"""
+        try:
+            self._apply_own_combo_style()
+            # show/hide 密钥按钮若处于按下态，其内联样式也随主题重置
+            if hasattr(self, "show_keys_btn") and self.show_keys_btn.isChecked():
+                self.show_keys_btn.setStyleSheet(
+                    "QPushButton{background:#5aa8b0;color:#0e2024;"
+                    "border:1px solid #5aa8b0;border-radius:5px;}")
+            else:
+                if hasattr(self, "show_keys_btn"):
+                    self.show_keys_btn.setStyleSheet("")
+            self.update()
+        except Exception:
+            _log_exc("settings_retheme")
+
+    def _apply_own_combo_style(self):
+        """(重)应用设置窗自己的下拉样式，按当前深浅。主题切换时可重调实现即时切换。"""
+        import sys as _sysd
+        if _sysd.platform != "darwin":
+            # 非 mac 混合方案：设置窗直接套用主窗的 _win_hybrid_qss，做到与主界面
+            # 一模一样，且只有一个深浅真相来源(setColorScheme)，杜绝改主题时下拉/按钮
+            # 因残缺样式表覆盖而错乱(这正是"改深浅色才坏、重启又好"的根因)。
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "_win_hybrid_qss"):
+                self.setStyleSheet(_p._win_hybrid_qss())
+            return
+        _base_css = (_themed(_combo_popup_css())
+            + "QLineEdit{border:1px solid #4a4a4a;border-radius:8px;padding:5px 10px;min-height:22px;}")
+        if True:
+            _light = _mac_current_is_light()
+            if _light:
+                _cbg, _ctx, _cbd, _arrow = "#ffffff", "#1f1f22", "#c4c4c8", "#5a5a5a"
+            else:
+                _cbg, _ctx, _cbd, _arrow = "#2d2d30", "#e8e8e8", "#3a3a3a", "#9aa0a6"
+            _p = self.parent()
+            _ch = _p._chevron_path(_arrow) if (_p is not None and hasattr(_p, "_chevron_path")) else ""
+            _ch_hi = _p._chevron_path("#4ea1ff") if (_p is not None and hasattr(_p, "_chevron_path")) else ""
+            _arrow_css = ""
+            if _ch:
+                _arrow_css = (f"QComboBox::down-arrow {{ image:url('{_ch}'); "
+                              f"width:12px; height:8px; margin-right:8px; }}"
+                              f"QComboBox::down-arrow:hover {{ image:url('{_ch_hi}'); }}")
+            _base_css += (
+                f"QComboBox {{ background:{_cbg}; color:{_ctx}; border:1px solid {_cbd};"
+                f" border-radius:8px; padding:5px 10px; }}"
+                f"QComboBox:hover {{ border:1px solid #4ea1ff; }}"
+                f"QComboBox::drop-down {{ border:none; width:22px; }}"
+                + _arrow_css
+                + f"QComboBox QAbstractItemView {{ background:{_cbg}; outline:none; border:none;"
+                  f" selection-background-color:#0e639c; selection-color:white; }}"
+                  f"QComboBox QAbstractItemView::item {{ padding:7px 14px; border:none; }}"
+                  f"QComboBox QAbstractItemView::item:selected {{ background:#0e639c; color:white; }}"
+                  f"QComboBox QAbstractItemView::item:hover {{ background:#0e639c; color:white; }}")
+        # 本窗自设样式表会覆盖 app 级规则，故把圆角滚动条一并带上
+        # (Win10/Linux 原生滚动条是直角，mac/Win11 返回空串不影响原生)
+        if not _native_scrollbar_platform():
+            _base_css += "\n" + _rounded_scrollbar_qss()
+        self.setStyleSheet(_base_css)
+
+    def _persist_keys(self):
+        """保存所有 API Key 与多风格开关(关闭设置窗时调用)。"""
+        try:
+            self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
+            self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
+            for kn, e in self._key_edits.items():
+                self.settings.setValue(f"{kn}_key", e.text().strip())
+            self.settings.setValue(
+                "multi_style", "true" if self.multi_style_chk.isChecked() else "false")
+        except Exception:
+            pass
+
     def save(self):
-        self.settings.setValue("engine", self.engine_combo.currentText())
+        self.settings.setValue("engine", self.engine_combo.currentData())
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
         for kn, e in self._key_edits.items():
             self.settings.setValue(f"{kn}_key", e.text().strip())
         self.settings.setValue(
             "multi_style", "true" if self.multi_style_chk.isChecked() else "false")
+        _old_lang = self.settings.value("ui_lang", "中文")
+        _old_theme = self.settings.value("ui_theme", "跟随系统")
+        _new_lang = self.lang_combo.currentText()
+        _new_theme = self.theme_combo.currentData() or "深色"
+        self.settings.setValue("ui_lang", _new_lang)
+        self.settings.setValue("ui_theme", _new_theme)
         self.accept()
+        # 立即生效：主题热切换；语言切换自动重启程序（免手动重启）
+        try:
+            if _new_theme != _old_theme:
+                _p = self.parent()
+                if _p is not None and hasattr(_p, "apply_theme"):
+                    _p.apply_theme()
+            if _new_lang != _old_lang:
+                from PyQt6.QtCore import QProcess
+                if getattr(sys, "frozen", False):
+                    QProcess.startDetached(sys.executable, sys.argv[1:])
+                else:
+                    QProcess.startDetached(sys.executable, sys.argv)
+                QApplication.instance().quit()
+        except Exception:
+            pass
 
 
 class DocDialog(QDialog):
@@ -2100,14 +4100,16 @@ class DocDialog(QDialog):
         from PyQt6.QtGui import QFont
         browser.setFont(QFont("Microsoft YaHei", 10))
         # 用 setDefaultStyleSheet 让 QTextBrowser 可靠地应用字号（比内联 <style> 稳）
-        browser.document().setDefaultStyleSheet(DOC_STYLESHEET)
+        browser.document().setDefaultStyleSheet(_themed(DOC_STYLESHEET))
+        if not _native_scrollbar_platform():
+            browser.setStyleSheet(_rounded_scrollbar_qss())   # Win10/Linux 圆角滚动条
         browser.setHtml(html)
         layout.addWidget(browser)
         btn_row = QHBoxLayout()
-        close_btn = QPushButton("关闭")
+        close_btn = QPushButton(L("关闭"))
         close_btn.setFixedWidth(BTN_W)
-        close_btn.setStyleSheet("QPushButton{background:#0e639c;border:none;border-radius:5px;color:white;}"\
-            "QPushButton:hover{background:#1177bb;}")
+        close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
+            "QPushButton:hover{background:#2b95ef;}")
         close_btn.clicked.connect(self.accept)
         btn_row.addStretch()
         btn_row.addWidget(close_btn)
@@ -2115,18 +4117,54 @@ class DocDialog(QDialog):
 
 
 def changelog_html():
-    parts = ['<div class="t1">版本更新说明</div><br>']
+    _en = _ui_lang() == "English US"
+    parts = ['<div class="t1">' + L('版本更新说明') + '</div><br>']
     for entry in CHANGELOG:
         parts.append(f'<div class="t2"><span class="ver">v{entry["version"]}</span>'
                      f' &nbsp;<span class="date">{entry["date"]}</span></div>')
-        parts.append(f'<div class="t3">{entry["title"]}</div><ul>')
-        for n in entry["notes"]:
+        title = entry.get("title_en", entry["title"]) if _en else entry["title"]
+        notes = entry.get("notes_en", entry["notes"]) if _en else entry["notes"]
+        parts.append(f'<div class="t3">{title}</div><ul>')
+        for n in notes:
             parts.append(f"<li>{n}</li>")
         parts.append("</ul>")
     return "".join(parts)
 
 
+def about_html_en():
+    return f"""
+    <div class="t1">English Coach</div>
+    <br>
+    <p>A concise English assistant integrating <b>Translation</b> and <b>Text-to-Speech</b>.</p>
+    <p><b>Version:</b> <span class="ver">v{APP_VERSION}</span></p>
+    <p><b>Developer:</b> Strilen Liu</p>
+    <p><a href="https://www.Strilen.com">www.Strilen.com</a>
+       <a href="mailto:vfx@Strilen.com">vfx@Strilen.com</a></p>
+    <div class="t2">Core Features</div>
+    <ul>
+      <li><b>Translation</b> - multiple engines: Google (free), DeepL, Argos (offline), plus
+      LLM engines such as DeepSeek / OpenAI GPT / Gemini / Claude / GLM / ERNIE / Doubao /
+      Qwen / Kimi / Hunyuan. LLM engines support multi-style translation (main rendering +
+      formal / casual / slang / US-UK variants).</li>
+      <li><b>Text-to-Speech</b> - dual engines edge-tts (online, high quality) and Kokoro
+      (offline, no network); multiple Chinese/English voices, adjustable speed, karaoke
+      word-by-word highlighting.</li>
+    </ul>
+    <div class="t2">Tech Stack</div>
+    <ul>
+      <li>UI: PyQt6</li>
+      <li>Translation: traditional engines + multiple LLMs (unified via OpenAI-compatible API)</li>
+      <li>Speech: edge-tts (online) + Kokoro (offline) + Qt Multimedia</li>
+    </ul>
+    <p class="date">(C) 2026 Strilen Liu. All rights reserved.</p>
+    """
+
+
 def about_html():
+    return about_html_en() if _ui_lang() == "English US" else about_html_zh()
+
+
+def about_html_zh():
     return f"""
     <div class="t1">English Coach</div>
     <div class="t1" style="margin-top:0;">英语导师</div><br>
@@ -2134,8 +4172,7 @@ def about_html():
     <p><b>当前版本：</b><span class="ver">v{APP_VERSION}</span></p>
     <p><b>开发者：</b>Strilen Liu</p>
     <p><a href="https://www.Strilen.com">www.Strilen.com</a>
-       <a href="mailto:vfx@Strilen.com">vfx@Strilen.com</a>
-       +8613811001963 +1(626)565-9633</p>
+       <a href="mailto:vfx@Strilen.com">vfx@Strilen.com</a></p>
     <div class="t2">核心功能</div>
     <ul>
       <li><b>翻译</b> — 多引擎：Google（免费）、DeepL、Argos（离线）等传统引擎，外加 DeepSeek / OpenAI GPT / Gemini / Claude / 智谱GLM / 文心一言 / 豆包 / 通义千问 / Kimi / HunYuan 等大模型引擎；大模型引擎可开启多风格翻译（主译文 + 书面/口语/俚语/美英式等辅助译法）。</li>
@@ -2151,7 +4188,89 @@ def about_html():
     """
 
 
+def readme_html_en():
+    return f"""
+    <div class="t1">User Guide</div><br>
+    <div class="t2">System Requirements (please read before sharing)</div>
+    <ul>
+      <li><b>No Python, no dependencies, no conda needed.</b> The interpreter and every
+      library are bundled into the app, so just download and run.</li>
+      <li><b>macOS</b>: runs natively on Intel; Apple Silicon (M series) runs via Rosetta.
+      Requires <b>macOS 11.0 Big Sur or newer</b>. Allow <b>2-3GB</b> of disk space
+      (including the offline speech model).</li>
+      <li><b>Windows</b>: 64-bit <b>Windows 10 / 11</b>. Allow 2-3GB of disk space.</li>
+      <li><b>Linux</b>: no prebuilt binary yet — run from source (Python 3.10+ and the
+      packages in requirements.txt).</li>
+      <li><b>Unsigned app warning</b>: this app is not code-signed and may be blocked on
+      first launch. On macOS open System Settings &rarr; Privacy &amp; Security and click
+      Open Anyway, or run
+      sudo xattr -rd com.apple.quarantine /Applications/EnglishCoach.app in Terminal.
+      On Windows click More info &rarr; Run anyway at the SmartScreen prompt.</li>
+      <li><b>GPU edition</b>: only worth installing on machines with an NVIDIA GPU; it
+      bundles CUDA components and is considerably larger.</li>
+    </ul>
+    <div class="t2">What Needs a Network Connection</div>
+    <ul>
+      <li><b>Bundled, works offline immediately</b>: the program itself and all its
+      dependencies.</li>
+      <li><b>Downloaded once on first use</b>: the Kokoro offline speech model
+      (about 330MB) and Argos offline language packs — fully offline afterwards.</li>
+      <li><b>Always needs a network</b>: online translation engines and online
+      text-to-speech.</li>
+      <li><b>LLM engines</b> (GPT / Claude / Gemini / DeepSeek and others) run in the
+      cloud and need your own API key plus a connection; nothing is bundled locally.</li>
+    </ul>
+    <div class="t2">Notes for Users in Mainland China</div>
+    <ul>
+      <li><b>Works without a VPN</b>: Chinese LLM engines (DeepSeek, ERNIE, Doubao, Qwen,
+      Hunyuan, GLM) and Argos offline language packs.</li>
+      <li><b>Kokoro speech model</b>: hosted on Hugging Face, which is not directly
+      reachable from mainland China. The app automatically falls back to the
+      hf-mirror.com community mirror, so the first download normally succeeds without a
+      VPN. To choose your own mirror, set the HF_ENDPOINT environment variable.</li>
+      <li><b>Needs a VPN</b>: Google and DeepL translation, and online text-to-speech
+      (Microsoft Edge voices).</li>
+    </ul>
+    <div class="t2">Quick Start</div>
+    <ul>
+      <li>Type or paste text in the left box; the translation appears on the right.</li>
+      <li>Click <b>Translate</b> to force a fresh translation with the current engine.</li>
+      <li>Pick the engine and source/target languages from the top dropdowns; the swap
+      button exchanges the two sides.</li>
+    </ul>
+    <div class="t2">Translation Engines</div>
+    <ul>
+      <li><b>Google -Online</b>: free, no key required, ready to use.</li>
+      <li><b>DeepL / Google Cloud</b>: fill in the API key in Settings.</li>
+      <li><b>Argos -Offline</b>: fully offline, no key or network.</li>
+      <li><b>LLM engines</b> (DeepSeek / GPT / Gemini / Claude / GLM / ERNIE / Doubao /
+      Qwen / Kimi / Hunyuan): fill your own API key; enable Multi-style for variant renderings.</li>
+    </ul>
+    <div class="t2">Text-to-Speech</div>
+    <ul>
+      <li>Each side has its own play / stop / download / clear-audio buttons and progress bar.</li>
+      <li>Select text first to read only the selection; otherwise the whole text is read.</li>
+      <li>Karaoke highlighting follows the reading; drag the progress bar to seek.</li>
+      <li><b>edge-tts</b> needs network; <b>Kokoro</b> runs offline.</li>
+    </ul>
+    <div class="t2">Import / Export</div>
+    <ul>
+      <li>Import txt / md / docx / pdf into the source box; export translation to txt / docx.</li>
+      <li>Translation history: reopen, reload &amp; translate, or export past records.</li>
+    </ul>
+    <div class="t2">Settings</div>
+    <ul>
+      <li>Language (Chinese / English US) and Theme (Dark / Light / Follow System) take effect immediately.</li>
+      <li>API keys are stored locally only and hidden by default.</li>
+    </ul>
+    """
+
+
 def readme_html():
+    return readme_html_en() if _ui_lang() == "English US" else readme_html_zh()
+
+
+def readme_html_zh():
     return f"""
     <div class="t1">使用说明</div><br>
     <div class="t2">系统要求（分享给他人前请阅读）</div>
@@ -2162,9 +4281,29 @@ def readme_html():
       <li><b>首次使用离线朗读（Kokoro）</b>：需联网下载语音模型（约 330MB），下载一次后即可完全离线。</li>
       <li><b>未签名应用提示</b>：本程序未签名，首次打开可能被系统拦截。
           macOS 可在「系统设置 → 隐私与安全性」点『仍要打开』，或终端执行
-          <code>sudo xattr -rd com.apple.quarantine /Applications/EnglishCoach.app</code>；
+          sudo xattr -rd com.apple.quarantine /Applications/EnglishCoach.app；
           Windows 在 SmartScreen 提示点『更多信息 → 仍要运行』。</li>
-      <li><b>联网</b>：翻译与在线朗读需联网（大陆请开代理）；离线引擎 Argos / Kokoro 无需联网。</li>
+      <li><b>无需安装 Python、依赖环境或 conda</b>：解释器与全部依赖已打包进程序，下载即用。</li>
+      <li><b>Linux</b>：暂无预编译版本，需从源码运行（Python 3.10+ 与 requirements.txt 中的依赖）。</li>
+      <li><b>GPU 版</b>：打包了 CUDA 组件、体积明显更大，仅在有 NVIDIA 显卡的机器上才有意义。</li>
+    </ul>
+    <div class="t2">哪些需要联网</div>
+    <ul>
+      <li><b>已打包、立即可用</b>：程序本体与全部依赖库。</li>
+      <li><b>首次使用时下载一次</b>：Kokoro 离线朗读模型（约 330MB）、Argos 离线语言包；
+      下载后即可完全离线使用。</li>
+      <li><b>始终需要联网</b>：在线翻译引擎、在线朗读。</li>
+      <li><b>LLM 引擎</b>（GPT / Claude / Gemini / DeepSeek 等）：模型在云端，需自备
+      API Key 并联网，本地不打包任何模型。</li>
+    </ul>
+    <div class="t2">中国大陆用户须知</div>
+    <ul>
+      <li><b>无需 VPN 即可使用</b>：国内 LLM 引擎（DeepSeek、文心一言、豆包、通义千问、
+      混元、智谱 GLM）与 Argos 离线语言包。</li>
+      <li><b>Kokoro 朗读模型</b>：托管在 Hugging Face，大陆无法直连。程序会自动改用
+      hf-mirror.com 公益镜像，通常无需 VPN 即可完成首次下载；如需指定其它镜像，
+      可设置 HF_ENDPOINT 环境变量。</li>
+      <li><b>需要 VPN</b>：Google、DeepL 翻译与在线朗读（微软 Edge 嗓音）。</li>
     </ul>
     <div class="t2">快速开始</div>
     <ul>
@@ -2245,6 +4384,624 @@ def developer_html():
 #  主窗口
 # =============================================================================
 
+_UI_LANG_CACHE = None
+
+def _ui_lang():
+    global _UI_LANG_CACHE
+    if _UI_LANG_CACHE is None:
+        from PyQt6.QtCore import QSettings as _QS
+        _UI_LANG_CACHE = _QS("Strilen", "EnglishCoach").value("ui_lang", "中文")
+    return _UI_LANG_CACHE
+
+_EN = {
+"极简界面":"Minimal UI","正常界面":"Normal UI","翻译引擎":"Engine","原文语言":"Source language",
+"译文语言":"Target language","交换源文译文内容":"Swap source & target","原文文字":"Source text",
+"译文文字":"Target text","在此输入或粘贴文本…":"__RAW__Type or paste text here…","译文显示在这里…":"__RAW__Translation appears here…",
+"翻译":"Translate","复制":"Copy","粘贴":"Paste","清空":"Clear","导入文件":"Import file",
+"导出当前原文":"Export source text","导出当前译文":"Export target text","导出翻译后文件":"Export translated file",
+"载入上一条原文":"Load previous source","载入下一条原文":"Load next source","翻译历史":"History",
+"中文嗓音":"Chinese voice","英文嗓音":"English voice","原文朗读进度":"Source playback progress",
+"译文朗读进度":"Target playback progress","朗读原文":"Read source","朗读译文":"Read target",
+"停止朗读原文":"Stop reading source","停止朗读译文":"Stop reading target",
+"下载原文朗读音频":"Download source audio","下载译文朗读音频":"Download target audio",
+"暂停朗读":"Pause","继续朗读":"Resume","朗读语速":"Speech rate","朗读语速 正常":"Speech rate: normal",
+"设置":"Settings","更新说明":"Changelog","使用说明":"Help","关于":"About","关闭":"Close","取消":"Cancel",
+"保存":"Save","检查历史":"View history","下载文档":"Download","载入":"Load","查看日志":"View log",
+"显示API-Key":"Show API Keys","默认翻译引擎":"Default engine","备选引擎 API Key（可选）":"API Keys (Optional)",
+"LLM 引擎多风格翻译":"Multi-Style Translation (LLM)","语言":"Language","样式风格":"Theme",
+"浅色":"Light","深色":"Dark","跟随系统":"Follow system","翻译完成":"Translation done","播放中…":"Playing…",
+"已停止":"Stopped","就绪":"Ready","请输入要翻译的文本":"Please enter text to translate",
+"正在生成音频…":"Generating audio…","剪贴板为空":"Clipboard is empty","已复制选中部分":"Copied selection",
+"已复制全部文字":"Copied all text","暂无历史记录":"No history yet","暂无历史原文":"No history sources",
+"原文朗读音频已清空":"Source audio cache cleared","译文朗读音频已清空":"Target audio cache cleared",
+"导出原文文字":"Export source text","导出译文文字":"Export target text","下载历史文档":"Download history",
+"语言/样式风格更改将在重启后生效":"Language/theme changes take effect after restart",
+}
+
+_EN_SUB = [
+    (" -线上联网", " -Online"), ("-线上联网", " -Online"),
+    (" -API-Key联网", " -API Key"), ("-API-Key联网", " -API Key"),
+    (" -纯离线", " -Offline"), ("-纯离线", " -Offline"),
+    ("离线本地", "Offline Local"), ("自动检测", "Auto Detect"),
+    ("(普通话·女)", "(Mandarin·F)"), ("(普通话·男)", "(Mandarin·M)"),
+    ("(美音·女)", "(US·F)"), ("(美音·男)", "(US·M)"),
+    ("(英音·女)", "(UK·F)"), ("(英音·男)", "(UK·M)"),
+    ("(澳音·女)", "(AU·F)"), ("(澳音·男)", "(AU·M)"),
+    ("晓晓", "Xiaoxiao"), ("云希", "Yunxi"), ("云扬", "Yunyang"),
+    ("晓伊", "Xiaoyi"), ("云健", "Yunjian"), ("晓辰", "Xiaochen"),
+]
+
+
+def _tc(v):
+    if v.startswith("__RAW__"):
+        return v
+    """英文词表值统一 Title Case（保留全大写缩写与非字母开头词）。"""
+    return " ".join(
+        w if (w.isupper() or not w[:1].isalpha()) else w[0].upper() + w[1:]
+        for w in v.split(" "))
+
+
+_EN = {k: _tc(v) for k, v in _EN.items()}
+_EN["载入"] = "Reload"
+_EN["载入翻译"] = "Reload"
+_EN["显示密钥"] = "Show Key"
+_EN["隐藏密钥"] = "Hide Key"
+_EN['Google 免费、无需 Key、即开即用（推荐）。Argos 纯离线。其余 LLM 引擎需填对应 Key，并可开启多风格翻译。'] = "Google's free, no key needed, just use it (recommended). Argos is totally offline. For other LLM engines, you gotta fill in the key, and you can turn on multi-style translation."
+_EN['提示：Google 免费无需 Key；Argos 纯离线无需 Key 与联网；其余 LLM 引擎需各自 API Key。勾选『多风格翻译』后，选用 LLM 引擎时会在主译文下给出多种风格译法。朗读 edge-tts 无需 Key。Key 仅保存在本机，不上传。'] = 'Note: Google is free and doesn\'t require a key; Argos is fully offline with no key or internet needed; other LLM models need their own API keys. Checking "Multi-style translation" will give you multiple style versions under the main translation when using LLM engines. Reading aloud with edge-tts requires no key. Keys are saved locally and not uploaded.'
+_EN["重新载入"] = "Reload"
+_EN["版本更新说明"] = "Changelog"
+_EN["使用说明"] = "User Guide"
+_EN["点选一条记录后『载入并翻译』；悬停可见全文。"] = "Click a record to Load & Translate; hover to see full text."
+_EN["免费版 Key 以 :fx 结尾"] = "Free-tier key ends with :fx"
+_EN["Google 云翻译 Key (AIza...)"] = "Google Cloud Translation Key (AIza...)"
+_EN["Google 云翻译 Key"] = "Google Cloud Key"
+_EN["版本更新说明"] = "Change Log"
+_EN["关于 EnglishCoach"] = "About English Coach"
+_EN["保持程序置顶"] = "Keep Window on Top"
+_EN["导出日志"] = "Export Log"
+_EN["读取日志失败"] = "Failed to read log"
+_EN["日志为空，无内容可导出"] = "Log is empty, nothing to export"
+_EN["导出失败"] = "Export failed"
+_EN["日志已导出到"] = "Log exported to"
+_EN["运行日志"] = "Runtime Log"
+_EN["版本"] = "Version"
+_EN["导出时间"] = "Exported at"
+_EN["（主译文 + 书面/口语/俚语/美英式等辅助译法）"] = "(Main + formal/casual/slang/US-UK variants)"
+for _k, _v in {"文心一言": "ERNIE", "字节豆包": "Doubao", "豆包": "Doubao",
+               "通义千问": "Qwen", "混元": "Hunyuan", "晓贝": "Xiaobei"}.items():
+    _EN_SUB.insert(0, (_k, _v))   # 插到最前，优先替换引擎主体名
+# 无条件补齐（避免去重误判漏词）
+for _k, _v in {
+    "翻译": "Translate", "文心一言": "ERNIE", "字节豆包": "Doubao", "豆包": "Doubao",
+    "通义千问": "Qwen", "混元": "Hunyuan", "晓贝": "Xiaobei", "查看历史": "View History",
+    "文心一言 Key:": "ERNIE Key:", "豆包 Key:": "Doubao Key:", "通义千问 Key:": "Qwen Key:",
+    "混元 HY-MT Key:": "Hunyuan HY-MT Key:", "百度千帆 Key": "Baidu AI Studio API Key",
+    "火山引擎 Key": "Volcengine API Key",
+    "阿里百炼 sk-...": "Alibaba Cloud Model Studio API Key sk-...",
+    "腾讯云混元 sk-...": "Tencent Cloud Hunyuan sk-...",
+    "显示API-Key": "Show API Key", "查看日志": "View Log",
+    "语言": "Language", "样式风格": "Theme",
+    "深色": "Dark", "浅色": "Light", "跟随系统": "Follow System", "设置": "Settings",
+}.items():
+    _EN[_k] = _v
+
+
+def L(s):
+    """界面文案本地化：English US 时查词表；查不到按子串规则翻译后缀。"""
+    if _ui_lang() != "English US":
+        return s
+    if s in _EN:
+        v = _EN[s]
+        return v[7:] if v.startswith("__RAW__") else v
+    out = s
+    for _a, _b in _EN_SUB:
+        out = out.replace(_a, _b)
+    return out
+
+
+# ==== 遍历式整体语言切换（根治：不逐条点名，遍历所有控件按文字查表替换）====
+def _build_reverse_map():
+    """英文->中文 反向映射(用于英->中切换)。"""
+    rev = {}
+    for zh, en in _EN.items():
+        v = en[7:] if en.startswith("__RAW__") else en
+        rev[v] = zh
+    return rev
+
+_ZH = _build_reverse_map()
+
+def _translate_text(txt, to_lang):
+    """把一段界面文字翻成目标语言。to_lang: 'English US' / '中文'。
+    处理前后空格 + 尾部冒号：strip后查表，命中则拼回原装饰。"""
+    if not txt:
+        return txt
+    # 提取前后空白
+    lead = txt[:len(txt) - len(txt.lstrip())]
+    trail = txt[len(txt.rstrip()):]
+    core = txt.strip()
+    if not core:
+        return txt
+    # 剥离尾部冒号(中/英)，翻译后拼回
+    colon = ""
+    if core and core[-1] in ("：", ":"):
+        colon = core[-1]
+        core = core[:-1]
+    if to_lang == "English US":
+        if core in _EN:
+            v = _EN[core]
+            v = v[7:] if v.startswith("__RAW__") else v
+            return lead + v + colon + trail
+        out = core
+        for a, b in _EN_SUB:
+            out = out.replace(a, b)
+        return lead + out + colon + trail
+    else:
+        if core in _ZH:
+            return lead + _ZH[core] + colon + trail
+        out = core
+        for a, b in _EN_SUB:
+            out = out.replace(b, a)
+        return lead + out + colon + trail
+
+def retranslate_widget_tree(root, to_lang):
+    """遍历 root 下所有控件，按当前显示文字翻成目标语言。
+    覆盖 text/toolTip/placeholder/窗口标题/下拉项。不逐条点名，自动全覆盖。"""
+    from PyQt6.QtWidgets import (QAbstractButton, QLabel, QLineEdit,
+                                 QComboBox, QGroupBox, QWidget)
+    widgets = root.findChildren(QWidget)
+    widgets.append(root)
+    for w in widgets:
+        try:
+            # 按钮/复选框/标签的文字
+            if isinstance(w, (QAbstractButton, QLabel, QGroupBox)):
+                t = w.text() if hasattr(w, "text") else ""
+                if t:
+                    nt = _translate_text(t, to_lang)
+                    if nt != t:
+                        w.setText(nt)
+            # tooltip 气球
+            tip = w.toolTip()
+            if tip:
+                ntip = _translate_text(tip, to_lang)
+                if ntip != tip:
+                    w.setToolTip(ntip)
+            # 占位符：凡是有 placeholderText 的控件都处理(QLineEdit / QTextEdit /
+            # QPlainTextEdit 等)，词表里没有的原样保留(不误伤 Key 示例格式)。
+            if hasattr(w, "placeholderText") and hasattr(w, "setPlaceholderText"):
+                ph = w.placeholderText()
+                if ph:
+                    nph = _translate_text(ph, to_lang)
+                    if nph != ph:
+                        w.setPlaceholderText(nph)
+                        w.update()   # placeholder 仅在空内容时可见，强制重绘
+            # 下拉项（保留当前选择）
+            if isinstance(w, QComboBox):
+                if w.property("no_retranslate"):
+                    continue          # 身份值下拉(如语言选择)不参与重译
+                _changed = False
+                for i in range(w.count()):
+                    it = w.itemText(i)
+                    nit = _translate_text(it, to_lang)
+                    if nit != it:
+                        w.setItemText(i, nit)
+                        _changed = True
+                if _changed:
+                    # 译后文字长度变了，闭合框与弹出列表都要按新文字重算宽度，
+                    # 否则中英切换后会变窄、弹出项显示成 "-On…"（v2.14.3 修复）
+                    try:
+                        _refit_combo_width(w)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+
+def _refit_combo_width(combo):
+    """语言切换后按当前(新语言)文字重算下拉闭合框与弹出列表宽度。
+    闭合框只增不减，避免中英来回切换时越切越窄。"""
+    from PyQt6.QtGui import QFontMetrics as _FM
+    fm = _FM(combo.font())
+    w = 0
+    for i in range(combo.count()):
+        w = max(w, fm.horizontalAdvance(combo.itemText(i)))
+    if w <= 0:
+        return
+    need = w + 52                      # 与 fit_combo_width 同款基础余量
+    if combo.minimumWidth() < need:    # 只增不减，宽度始终保持一致
+        combo.setMinimumWidth(need)
+    if combo.width() < need:
+        combo.setFixedWidth(need)
+    _fit_combo_popup_width(combo)      # 弹出列表同步重算
+
+
+def _combo_fill(combo, items):
+    """下拉填充：显示文字走本地化 L()，userData 保存中文原值（逻辑比较不受语言影响）。"""
+    for it in items:
+        combo.addItem(L(it), it)
+
+
+def _combo_select_data(combo, value):
+    for i in range(combo.count()):
+        if combo.itemData(i) == value or combo.itemText(i) == value \
+                or L(combo.itemData(i) or "") == value:
+            combo.setCurrentIndex(i)
+            return
+    if isinstance(value, str) and value:
+        combo.setCurrentText(L(value))
+
+
+def _mac_set_appearance(mode):
+    """mac 专用：用 AppKit 设置整个 App 的原生外观（深浅），即时生效、无需重启。
+    mode: '深色'/'浅色'/'跟随系统'。返回是否成功。
+    这是 6.4.2 + Big Sur 上唯一可靠的原生深浅方案（setColorScheme 是 6.8+ 才有）。"""
+    import sys
+    if sys.platform != "darwin":
+        return False
+    try:
+        from AppKit import NSApplication, NSAppearance
+        if mode in ("深色", "Dark"):
+            ap = NSAppearance.appearanceNamed_("NSAppearanceNameDarkAqua")
+        elif mode in ("浅色", "Light"):
+            ap = NSAppearance.appearanceNamed_("NSAppearanceNameAqua")
+        else:
+            ap = None   # 跟随系统
+        NSApplication.sharedApplication().setAppearance_(ap)
+        return True
+    except Exception:
+        return False
+
+
+def _mac_current_is_light():
+    """mac：读取 App 当前实际生效的外观是否为浅色。
+    优先用 Qt 的 colorScheme(6.5+，Apple Silicon 6.11 可靠且不依赖 pyobjc)，
+    不可用再回退 AppKit effectiveAppearance(Intel 6.4.2 走这条)。"""
+    try:
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import Qt as _Q
+        app = QApplication.instance()
+        if app is not None:
+            sh = app.styleHints()
+            if hasattr(sh, "colorScheme"):
+                cs = sh.colorScheme()
+                if cs == _Q.ColorScheme.Dark:
+                    return False
+                if cs == _Q.ColorScheme.Light:
+                    return True
+                # Unknown(跟随系统)：继续用 AppKit 判断真实系统深浅
+    except Exception:
+        pass
+    try:
+        from AppKit import NSApplication
+        eff = NSApplication.sharedApplication().effectiveAppearance()
+        name = eff.name() if eff else ""
+        return "Dark" not in str(name)
+    except Exception:
+        # AppKit 不可用(未装 pyobjc)：退回读系统外观(Qt)
+        try:
+            from PyQt6.QtWidgets import QApplication
+            from PyQt6.QtCore import Qt as _Q
+            app = QApplication.instance()
+            if app is not None:
+                return (app.styleHints().colorScheme()
+                        != _Q.ColorScheme.Dark)
+        except Exception:
+            pass
+        return True
+
+
+def _theme_is_light():
+    """当前是否浅色。mac 下以 AppKit 实际生效外观为准（含跟随系统时的真实深浅）。"""
+    import sys
+    from PyQt6.QtCore import QSettings as _QS
+    v = _QS("Strilen", "EnglishCoach").value("ui_theme", "跟随系统")
+    if sys.platform == "darwin":
+        if v in ("深色", "Dark"):
+            return False
+        if v in ("浅色", "Light"):
+            return True
+        # 跟随系统：读系统实际外观
+        return _mac_current_is_light()
+    # 非 mac：沿用 Qt colorScheme
+    if v in ("跟随系统", "Follow system"):
+        try:
+            from PyQt6.QtGui import QGuiApplication
+            from PyQt6.QtCore import Qt as _Qt
+            cs = QGuiApplication.styleHints().colorScheme()
+            # Unknown(未知)时保守当作浅色，避免在浅色系统上误用深色配色
+            # 导致按钮浅字浅底看不清(#1)。只有明确 Dark 才判深色。
+            return cs != _Qt.ColorScheme.Dark
+        except Exception:
+            return True
+    return v in ("浅色", "Light")
+
+# 深色样式 -> 浅色的颜色映射（仅非 mac 平台用；mac 走原生不涂）
+_LIGHT_COLORS = {
+    "#1e1e1e": "#f2f2f3", "#252526": "#ffffff", "#2d2d30": "#e9e9ea",
+    "#3a3a3a": "#c9c9cc", "#4a4a4a": "#b5b5b8", "#2a2a2a": "#e2e2e4",
+    "#dcdcdc": "#1f1f22", "#e0e0e0": "#1f1f22", "#e8e8e8": "#1f1f22",
+    "#cccccc": "#333333", "#0e2024": "#083038",
+    "#37373d": "#dcdce0",
+    "#5aa8b0": "#00b3c6",
+}
+
+def _log_exc(where=""):
+    """把异常写进日志，绝不向外抛——供槽函数兜底使用。"""
+    try:
+        import traceback
+        _log_error(f"[EXC] {where}\n{traceback.format_exc()}")
+    except Exception:
+        pass
+
+
+def _install_global_excepthook():
+    """PyQt6 对槽函数中未捕获的异常会直接 abort()（表现为闪退，
+    崩溃栈是 pyqt6_err_print -> QMessageLogger::fatal -> qAbort）。
+    装一个全局钩子：记录日志并弹窗提示，让程序活下来而不是直接死掉。"""
+    import sys as _sys
+    import traceback as _tb
+
+    def _hook(etype, value, tb):
+        try:
+            _log_error("[UNCAUGHT] " + "".join(
+                _tb.format_exception(etype, value, tb)))
+        except Exception:
+            pass
+        try:
+            from PyQt6.QtWidgets import QApplication, QMessageBox
+            if QApplication.instance() is not None:
+                QMessageBox.warning(
+                    None, "English Coach",
+                    f"{value}\n\n(已记录到日志，程序将继续运行)")
+        except Exception:
+            pass
+    _sys.excepthook = _hook
+
+
+def _rounded_scrollbar_qss():
+    """（已停用）历史上用于 Win10/Linux 自绘圆角滚动条。现决定各平台一律用
+    系统原生滚动条，故返回空串，不再注入任何滚动条 QSS。"""
+    return ""
+
+
+
+def _safe_fusion(widget):
+    """延后调用的安全包装：窗口可能已被销毁(RuntimeError)，静默跳过。"""
+    try:
+        if widget is not None and widget.isVisible():
+            _force_fusion_scrollbars(widget)
+    except RuntimeError:
+        pass
+    except Exception:
+        pass
+
+
+class _RoundScrollBarStyle:
+    """方案C：自绘圆角滚动条的 QProxyStyle。
+
+    为什么不用方案B(Fusion+QSS)：Qt 6.7+ 的 windows11 样式引擎原生绘制滚动条并
+    忽略 QSS border-radius；即便把滚动条切到 Fusion，QSS 仍会经由 QStyleSheetStyle
+    包装，未覆盖的子控件回退到平台样式，圆角时有时无。自绘则完全绕开样式引擎与
+    QSS 的层叠，在任何 Qt 版本/平台上都画出一致的圆角胶囊。
+
+    仅在需要自绘的平台(Win10及以下/Linux)启用；mac 与 Win11 原生已是圆角胶囊。
+    实现为惰性类工厂：QProxyStyle 必须在 QApplication 创建后才能子类化，
+    故用函数在运行时构造。
+    """
+    _cls = None
+
+
+def _make_round_scrollbar_style():
+    """运行时构造并缓存 QProxyStyle 子类（需 QApplication 已存在）。"""
+    if _RoundScrollBarStyle._cls is not None:
+        return _RoundScrollBarStyle._cls
+    from PyQt6.QtWidgets import QProxyStyle, QStyle
+    from PyQt6.QtCore import Qt, QRectF
+    from PyQt6.QtGui import QPainter, QColor, QBrush
+
+    class _RoundSB(QProxyStyle):
+        def drawComplexControl(self, cc, opt, painter, widget=None):
+            if cc == QStyle.ComplexControl.CC_ScrollBar:
+                self._draw_scrollbar(opt, painter, widget)
+                return
+            super().drawComplexControl(cc, opt, painter, widget)
+
+        def _draw_scrollbar(self, opt, painter, widget):
+            # 画法：先铺一层浅色圆角轨道，再画一个明确对比的圆角滑块。
+            # 关键（v2.14.8 修复 Win10 看不清）：不再用半透明色——半透明依赖底下
+            # 背景才有对比，Win10 背景色不同就糊成一片。改用不透明实色，并按深浅
+            # 主题选配色，滑块与轨道之间保证足够对比。
+            groove = self.subControlRect(
+                QStyle.ComplexControl.CC_ScrollBar, opt,
+                QStyle.SubControl.SC_ScrollBarGroove, widget)
+            slider = self.subControlRect(
+                QStyle.ComplexControl.CC_ScrollBar, opt,
+                QStyle.SubControl.SC_ScrollBarSlider, widget)
+
+            # 判断深浅主题：看控件背景色亮度
+            dark = False
+            try:
+                from PyQt6.QtGui import QPalette
+                base = (widget.palette().color(QPalette.ColorRole.Base)
+                        if widget is not None else None)
+                if base is not None:
+                    # 亮度 < 128 视为深色主题
+                    dark = (base.red() * 299 + base.green() * 587
+                            + base.blue() * 114) / 1000 < 128
+            except Exception:
+                pass
+
+            if dark:
+                track_col = QColor(255, 255, 255, 28)   # 深色主题：极浅白轨道
+                slider_col = QColor(120, 120, 120)      # 不透明中灰滑块
+                slider_hover = QColor(160, 160, 160)
+            else:
+                track_col = QColor(0, 0, 0, 22)          # 浅色主题：极浅黑轨道
+                slider_col = QColor(136, 136, 136)       # 不透明中深灰滑块(够醒目)
+                slider_hover = QColor(100, 100, 100)
+
+            painter.save()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setPen(Qt.PenStyle.NoPen)
+
+            # 轨道：浅色圆角背景（画在 groove 内，留 1px 边距）
+            gr = QRectF(groove).adjusted(1, 1, -1, -1)
+            if gr.width() > 0 and gr.height() > 0:
+                grad = (gr.width() if gr.width() < gr.height() else gr.height()) / 2.0
+                painter.setBrush(QBrush(track_col))
+                painter.drawRoundedRect(gr, grad, grad)
+
+            # 滑块：留 2px 边距，不透明圆角胶囊
+            if slider.isValid() and slider.width() > 0 and slider.height() > 0:
+                horizontal = slider.width() > slider.height()
+                r = QRectF(slider).adjusted(2, 2, -2, -2)
+                hovered = bool(opt.state & QStyle.StateFlag.State_MouseOver)
+                painter.setBrush(QBrush(slider_hover if hovered else slider_col))
+                radius = (r.height() if horizontal else r.width()) / 2.0
+                painter.drawRoundedRect(r, radius, radius)
+            painter.restore()
+
+        def pixelMetric(self, metric, opt=None, widget=None):
+            from PyQt6.QtWidgets import QStyle as _QS
+            # 隐藏两端箭头按钮（胶囊风格无箭头，和 mac 一致）
+            if metric == _QS.PixelMetric.PM_ScrollBarExtent:
+                return 12
+            return super().pixelMetric(metric, opt, widget)
+
+    _RoundScrollBarStyle._cls = _RoundSB
+    return _RoundSB
+
+
+def _force_fusion_scrollbars(widget):
+    """（已停用）历史上给滚动条套自绘/Fusion 圆角样式。现决定各平台一律用
+    系统原生滚动条，本函数改为空操作，保留以兼容旧调用点。"""
+    return
+
+
+
+def _native_scrollbar_platform():
+    """当前平台是否自带圆角胶囊滚动条(macOS 全版本 / Win11+)。"""
+    import sys
+    if sys.platform == "darwin":
+        return True
+    if sys.platform == "win32":
+        try:
+            if sys.getwindowsversion().build >= 22000:
+                from PyQt6.QtWidgets import QStyleFactory
+                if "windows11" in [k.lower() for k in QStyleFactory.keys()]:
+                    return True
+        except Exception:
+            pass
+    return False
+
+
+def _qt_set_color_scheme(app, v):
+    """用 Qt 原生 styleHints().setColorScheme() 设深浅。Qt 6.5+ 才有该 API，
+    6.9+ 在 macOS/Windows 上可靠生效。返回是否成功。"""
+    try:
+        from PyQt6.QtCore import Qt as _Q
+        sh = app.styleHints()
+        if not hasattr(sh, "setColorScheme"):
+            return False
+        if v in ("跟随系统", "Follow system"):
+            sh.setColorScheme(_Q.ColorScheme.Unknown)
+        else:
+            sh.setColorScheme(_Q.ColorScheme.Light if v in ("浅色", "Light")
+                              else _Q.ColorScheme.Dark)
+        return True
+    except Exception:
+        return False
+
+
+def _apply_win_palette(app):
+    """非 mac：按当前主题给 app 设深/浅调色板。启动与主题热切换共用同一套，
+    保证两条路径完全一致——这是原生控件(复选框边线/背景)正确显示深浅的关键。
+    (此前热切换漏了设调色板，导致"打开好、改主题坏、复选框没边线"。)"""
+    from PyQt6.QtGui import QPalette, QColor
+    if _theme_is_light():
+        _pc = {"Window": "#f2f2f3", "WindowText": "#1f1f22", "Base": "#ffffff",
+               "AlternateBase": "#ececec", "Text": "#1f1f22", "Button": "#e9e9ea",
+               "ButtonText": "#1f1f22", "Highlight": "#3a6ea5", "HighlightedText": "#ffffff",
+               "ToolTipBase": "#f7f7f7", "ToolTipText": "#1f1f22", "PlaceholderText": "#9a9a9a"}
+    else:
+        _pc = {"Window": "#1e1e1e", "WindowText": "#dcdcdc", "Base": "#252526",
+               "AlternateBase": "#2d2d30", "Text": "#dcdcdc", "Button": "#2d2d30",
+               "ButtonText": "#dcdcdc", "Highlight": "#3a6ea5", "HighlightedText": "#ffffff",
+               "ToolTipBase": "#2d2d30", "ToolTipText": "#e0e0e0", "PlaceholderText": "#777777"}
+    pal = app.palette()
+    for _rn, _cv in _pc.items():
+        pal.setColor(getattr(QPalette.ColorRole, _rn), QColor(_cv))
+    # 原生复选框/单选钮的勾选色取自【强调色】。不设的话会跟随系统强调色
+    # (用户系统若设成黄色，勾选就是黄色)。这里固定为程序蓝，保持原生渲染不变。
+    if hasattr(QPalette.ColorRole, "Accent"):        # Qt 6.6+ 才有
+        pal.setColor(QPalette.ColorRole.Accent, QColor("#1e88e5"))
+    app.setPalette(pal)
+
+
+def _apply_color_scheme(app):
+    """按用户主题设置 App 外观。
+    mac：优先用 Qt 原生 setColorScheme(6.5+；Apple Silicon 上的 6.11 可用，
+         不依赖 pyobjc)，不可用再回退 AppKit(Intel+6.4.2 走这条)。
+    非 mac：用 Qt colorScheme。"""
+    import sys
+    from PyQt6.QtCore import QSettings as _QS
+    v = _QS("Strilen", "EnglishCoach").value("ui_theme", "跟随系统")
+    if sys.platform == "darwin":
+        # 先试 Qt 原生(新版 mac/6.11)；不行再用 AppKit(老 Intel/6.4.2)
+        if not _qt_set_color_scheme(app, v):
+            _mac_set_appearance(v)
+        else:
+            # Qt 原生成功后也顺带调一次 AppKit(若可用)，让窗口标题栏等
+            # 系统装饰同步深浅；AppKit 不可用则忽略。
+            _mac_set_appearance(v)
+        return
+    _qt_set_color_scheme(app, v)
+
+
+def _combo_popup_css():
+    """mac 走系统原生下拉(圆角无框、深浅自适应)，其它平台用自定义蓝色高亮样式。"""
+    import sys
+    if sys.platform == "darwin":
+        return ""
+    return ("""
+            QComboBox QAbstractItemView { background:#2d2d30; outline:none; border:1px solid #3a3a3a;
+                selection-background-color:#0e639c; selection-color:white; }
+            QComboBox QAbstractItemView::item { padding:7px 14px; border:none; }
+            QComboBox QAbstractItemView::item:selected { background:#0e639c; color:white; }
+            QComboBox QAbstractItemView::item:hover { background:#0e639c; color:white; }
+""")
+
+
+def _tooltip_css():
+    """mac 走系统原生气球(尖角、深浅自适应)，其它平台自定义。"""
+    import sys
+    if sys.platform == "darwin":
+        return ""
+    return ("""
+            QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
+                padding:2px 5px; font-size:11px; border-radius:6px; }
+""")
+
+
+def _themed(css):
+    """非 mac 平台：浅色时对样式表整体换色。
+    mac 平台：不改色——深浅由 AppKit 原生外观驱动，QSS 只提供无关配色的结构，
+    避免自涂颜色与原生外观打架（这是之前深浅混乱的根源）。"""
+    import sys
+    if sys.platform == "darwin":
+        return css
+    if not _theme_is_light():
+        return css
+    for _k, _v in _LIGHT_COLORS.items():
+        css = css.replace(_k, _v)
+    return css
+
+
+def _xml_safe(s):
+    """去掉 docx/XML 不允许的控制字符（NULL、\\x0b 等），修复导出 docx 报错。"""
+    import re as _r
+    return _r.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', s or '')
+
+
 def _sentence_spans(text):
     """按中英文句末标点把文本切成句子，返回 [(start,end), ...]（含位置）。"""
     import re
@@ -2252,7 +5009,7 @@ def _sentence_spans(text):
         return []
     spans = []
     start = 0
-    for m in re.finditer(r'[。！？；…\.\!\?;\n]+', text):
+    for m in re.finditer(r'[。！？；…，\.\!\?;,\u3000\n]+', text):
         end = m.end()
         if text[start:end].strip():
             spans.append((start, end))
@@ -2275,7 +5032,7 @@ def _proportional_span(src_full, s0, s1, tgt_full):
     def segments(text):
         segs = []
         start = 0
-        for m in re.finditer(r'[。！？；…\.\!\?;\n]+', text):
+        for m in re.finditer(r'[。！？；…，\.\!\?;,\u3000\n]+', text):
             end = m.end()
             segs.append((start, end))
             start = end
@@ -2387,14 +5144,18 @@ class KaraokeHighlighter(QSyntaxHighlighter):
         self._link_start = 0     # 灰色联动选区（非活跃，自动匹配）
         self._link_end = 0
         # 朗读已读：偏青蓝、饱和度降低（更柔和）。只改背景，不改字色。
+        # 青蓝色卡拉OK已读底色 + 白字（#7：朗读到哪就覆盖青蓝背景+白字）
         self._fmt = QTextCharFormat()
         self._fmt.setBackground(QColor("#5aa8b0"))
-        # 蓝色选区底色（只改背景）
+        self._fmt.setForeground(QColor("white"))
+        # 蓝色选区底色 + 白字（#4：主动选区一律白字）
         self._sel_fmt = QTextCharFormat()
         self._sel_fmt.setBackground(QColor("#3a6ea5"))
-        # 灰色联动选区底色（非活跃，只改背景）
+        self._sel_fmt.setForeground(QColor("white"))
+        # 灰色联动选区底色 + 白字（#4：被动灰色选区也一律白字）
         self._link_fmt = QTextCharFormat()
         self._link_fmt.setBackground(QColor("#5a5a5a"))
+        self._link_fmt.setForeground(QColor("white"))
 
     def set_range(self, start, end):
         self._hl_start = max(0, start)
@@ -2432,24 +5193,55 @@ class KaraokeHighlighter(QSyntaxHighlighter):
         self._link_start = self._link_end = 0
         self.rehighlight()
 
+    def set_dim(self, start):
+        """多风格灰字区起点（-1=无）。"""
+        self._dim_from = start if (start is not None and start >= 0) else -1
+        self.rehighlight()
+
     def highlightBlock(self, text):
         block_start = self.currentBlock().position()
         block_end = block_start + len(text)
-        # 灰色联动选区（最底层）
-        ls = max(self._link_start, block_start)
-        le = min(self._link_end, block_end)
-        if le > ls:
-            self.setFormat(ls - block_start, le - ls, self._link_fmt)
-        # 蓝色选区
-        ss = max(self._sel_start, block_start)
-        se = min(self._sel_end, block_end)
-        if se > ss:
-            self.setFormat(ss - block_start, se - ss, self._sel_fmt)
-        # 绿色已读（最上层）
-        s = max(self._hl_start, block_start)
-        e = min(self._hl_end, block_end)
-        if e > s:
-            self.setFormat(s - block_start, e - s, self._fmt)
+        df = getattr(self, "_dim_from", -1)
+        # 底层：多风格灰字(只前景)。带背景的段随后用"背景+灰字"组合格式覆盖，
+        # 保证灰区内的蓝选区/灰联动/绿色卡拉OK照常显示(修复灰区无卡拉OK)。
+        if df >= 0 and block_end > df:
+            ds = max(df, block_start)
+            _f = QTextCharFormat()
+            _f.setForeground(QColor("#8a8a8a"))
+            self.setFormat(ds - block_start, block_end - ds, _f)
+
+        _has_bg = False   # 当前 _apply 的段是否带背景(带背景则灰区也用白字)
+
+        def _apply(a0, b0, base_fmt):
+            a = max(a0, block_start); b = min(b0, block_end)
+            if b <= a:
+                return
+            if df >= 0 and a < df < b:
+                segs = [(a, df, False), (df, b, True)]
+            elif df >= 0 and a >= df:
+                segs = [(a, b, True)]
+            else:
+                segs = [(a, b, False)]
+            for s1, e1, dim in segs:
+                f = QTextCharFormat(base_fmt)
+                # 带背景的格式(_fmt/_sel_fmt/_link_fmt)已自带白字前景，直接用即可，
+                # 无论是直译区黑字还是多风格灰区，被覆盖处都会显示为白字(#4/#7)。
+                # 仅"无背景的纯多风格灰区"(_has_bg=False 且 dim)保持灰字。
+                if dim and not _has_bg:
+                    f.setForeground(QColor("#8a8a8a"))
+                self.setFormat(s1 - block_start, e1 - s1, f)
+
+        # 三种带背景的格式：有背景 -> 字色白（覆盖多风格灰字）
+        def _apply_bg(a0, b0, base_fmt):
+            nonlocal _has_bg
+            _has_bg = True
+            _apply(a0, b0, base_fmt)
+            _has_bg = False
+
+        _has_bg = False
+        _apply_bg(self._link_start, self._link_end, self._link_fmt)  # 灰色联动(最底)
+        _apply_bg(self._sel_start, self._sel_end, self._sel_fmt)     # 蓝色选区
+        _apply_bg(self._hl_start, self._hl_end, self._fmt)           # 绿色已读(最上)
 
 
 class HistoryDialog(QDialog):
@@ -2457,14 +5249,14 @@ class HistoryDialog(QDialog):
     双击或选中后点『载入翻译』返回该条。"""
     def __init__(self, items, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("翻译历史")
+        self.setWindowTitle(L("翻译历史"))
         self.setMinimumSize(520, 560)
         self.chosen = None
         self._items = items
 
         from PyQt6.QtWidgets import QListWidget, QListWidgetItem
         layout = QVBoxLayout(self)
-        info = QLabel("点选一条记录后『载入并翻译』；悬停可见全文。")
+        info = QLabel(L("点选一条记录后『载入并翻译』；悬停可见全文。"))
         info.setStyleSheet("color:#888; font-size:12px;")
         layout.addWidget(info)
 
@@ -2472,14 +5264,21 @@ class HistoryDialog(QDialog):
         self.listw.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.listw.setWordWrap(False)
         self.listw.setTextElideMode(Qt.TextElideMode.ElideRight)
-        self.listw.setStyleSheet("""
-            QToolTip { background:#2d2d30; color:#e8e8e8; border:1px solid #4a4a4a;
-                padding:2px 5px; border-radius:6px; }
-            QListWidget { background:#252526; border:1px solid #3a3a3a; border-radius:6px; }
-            QListWidget::item { padding:8px 10px; border-bottom:1px solid #2f2f2f; }
+        # 按当前深浅动态配色(mac上_themed不换色，需自己判断)
+        _hl = _theme_is_light()
+        _hbg, _hbd, _hsep, _htx = (("#ffffff", "#c4c4c8", "#e4e4e6", "#1f1f22") if _hl
+                                    else ("#252526", "#3a3a3a", "#2f2f2f", "#e8e8e8"))
+        self.listw.setStyleSheet(_themed("""
+%HISTTOOLTIP%
+            QListWidget { background:%BG%; color:%TX%; border:1px solid %BD%; border-radius:6px; }
+            QListWidget::item { padding:8px 10px; border-bottom:1px solid %SEP%; }
             QListWidget::item:hover { background:#0e639c; color:white; }
             QListWidget::item:selected { background:#0e639c; color:white; }
-        """)
+        """.replace("%HISTTOOLTIP%", _tooltip_css())
+           .replace("%BG%", _hbg).replace("%BD%", _hbd)
+           .replace("%SEP%", _hsep).replace("%TX%", _htx)
+           + ("" if _native_scrollbar_platform()
+              else "\n" + _rounded_scrollbar_qss())))
         layout.addWidget(self.listw, 1)
 
         # 按天分组（倒序，新的在上）
@@ -2505,20 +5304,20 @@ class HistoryDialog(QDialog):
         self.listw.itemDoubleClicked.connect(self._choose)
 
         btns = QHBoxLayout()
-        view_file_btn = QPushButton("检查历史")
+        view_file_btn = QPushButton(L("检查历史"))
         view_file_btn.clicked.connect(self._open_history_file)
-        dl_btn = QPushButton("下载文档")
+        dl_btn = QPushButton(L("下载文档"))
         dl_btn.clicked.connect(self._download_history)
-        load_btn = QPushButton("重新载入")
+        load_btn = QPushButton(L("重新载入"))
         load_btn.clicked.connect(self._load_selected)
-        close_btn = QPushButton("关闭")
+        close_btn = QPushButton(L("关闭"))
         close_btn.clicked.connect(self.reject)
         for b in (view_file_btn, dl_btn, load_btn):
             b.setAutoDefault(False); b.setDefault(False)   # 去掉『检查历史』等的默认蓝
-        close_btn.setStyleSheet("QPushButton{background:#0e639c;border:none;border-radius:5px;color:white;}"\
-            "QPushButton:hover{background:#1177bb;}")
+        close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
+            "QPushButton:hover{background:#2b95ef;}")
         for b in (view_file_btn, dl_btn, load_btn, close_btn):
-            b.setFixedWidth(BTN_W)
+            b.setMinimumWidth(BTN_W)   # 英文更长时按内容自适应，不截断
         btns.setSpacing(6)
         btns.addStretch()
         btns.addWidget(view_file_btn)
@@ -2540,8 +5339,8 @@ class HistoryDialog(QDialog):
             pass
         if not last_dir or not os.path.isdir(last_dir):
             last_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-        default = os.path.join(last_dir, f"TH {ts}.txt")
-        path, sel = QFileDialog.getSaveFileName(self, "下载历史文档", default, filters)
+        default = os.path.join(last_dir, f"EC TH {ts}.txt")
+        path, sel = QFileDialog.getSaveFileName(self, L("下载历史文档"), default, filters)
         if not path:
             return
         ext = os.path.splitext(path)[1].lower()
@@ -2554,11 +5353,11 @@ class HistoryDialog(QDialog):
             elif ext == ".docx":
                 from docx import Document
                 doc = Document()
-                doc.add_heading("翻译历史", 0)
+                doc.add_heading(L("翻译历史"), 0)
                 for it in items:
-                    doc.add_heading(f"{it.get('ts','')} · {it.get('engine','')}", level=2)
-                    doc.add_paragraph("【原文】" + it.get("src", ""))
-                    doc.add_paragraph("【译文】" + it.get("tgt", ""))
+                    doc.add_heading(_xml_safe(f"{it.get('ts','')} · {it.get('engine','')}"), level=2)
+                    doc.add_paragraph(_xml_safe("【原文】" + it.get("src", "")))
+                    doc.add_paragraph(_xml_safe("【译文】" + it.get("tgt", "")))
                 doc.save(path)
             elif ext == ".pdf":
                 self._history_pdf(path, items)
@@ -2716,7 +5515,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"English Coach  v{APP_VERSION}")
         self.setAcceptDrops(True)   # 支持拖拽文件导入
         self.setWindowIcon(self._load_app_icon())
-        self.setMinimumSize(720, 480)   # 交换钮居中，宽度较原来缩小约400px
+        self.setMinimumSize(880, 480)   # 再-10
         self.resize(920, 620)
 
         self._build_central()
@@ -2748,21 +5547,25 @@ class MainWindow(QMainWindow):
         """返回一个含 设置/更新/帮助/关于 的横向布局，用于放在顶排右侧。"""
         box = QHBoxLayout()
         box.setSpacing(4)
+        self._tool_btns = []   # 登记，极简模式逐个隐藏(right_w整体保留)
 
         def mk(icon, tip, slot):
             b = QPushButton(Icons.icon(icon), "")
-            b.setFixedSize(34, 34)
+            b.setProperty("_icn", icon)
+            b.setFixedSize(36, 36)
+            b.setObjectName("toolbtn")
             b.setToolTip(tip)
             b.clicked.connect(slot)
+            self._tool_btns.append(b)
             return b
 
-        box.addWidget(mk("settings", "设置", self.open_settings))
-        box.addWidget(mk("history", "更新说明",
-                         lambda: DocDialog("版本更新说明", changelog_html(), self).exec()))
-        box.addWidget(mk("help", "使用说明",
-                         lambda: DocDialog("使用说明", readme_html(), self).exec()))
-        box.addWidget(mk("info", "关于",
-                         lambda: DocDialog("关于 EnglishCoach", about_html(), self).exec()))
+        box.addWidget(mk("settings", L("设置"), self.open_settings))
+        box.addWidget(mk("history", L("更新说明"),
+                         lambda: DocDialog(L("版本更新说明"), changelog_html(), self).exec()))
+        box.addWidget(mk("help", L("使用说明"),
+                         lambda: DocDialog(L("使用说明"), readme_html(), self).exec()))
+        box.addWidget(mk("info", L("关于"),
+                         lambda: DocDialog(L("关于 EnglishCoach"), about_html(), self).exec()))
         return box
 
     # ---------- 中央区域 ----------
@@ -2774,41 +5577,83 @@ class MainWindow(QMainWindow):
 
         # —— 第一排：翻译引擎(左) | 原文语言(贴交换) | 交换(中央) | 译文语言(贴交换) | 设置区(右) ——
         self.src_combo = QComboBox()
-        self.src_combo.addItems(LANG_OPTIONS)
-        fit_combo_width(self.src_combo)
-        self.src_combo.setToolTip("原文语言")
+        _combo_fill(self.src_combo, LANG_OPTIONS)
+        fit_combo_width(self.src_combo, extra=20)   # 再加宽10(累计20)，向左扩展
+        _combo_select_data(self.src_combo, self.settings.value("src_lang", "自动检测"))
+        self.src_combo.setToolTip(L("原文语言"))
         self.tgt_combo = QComboBox()
-        self.tgt_combo.addItems(LANG_OPTIONS)
-        fit_combo_width(self.tgt_combo)
-        self.tgt_combo.setCurrentText("自动检测")
-        self.tgt_combo.setToolTip("译文语言")
+        _combo_fill(self.tgt_combo, LANG_OPTIONS)
+        fit_combo_width(self.tgt_combo, extra=20)   # 再加宽10(累计20)，向右扩展
+        _combo_select_data(self.tgt_combo, self.settings.value("tgt_lang", "自动检测"))
+        self.tgt_combo.setToolTip(L("译文语言"))
 
         self.engine_combo = QComboBox()
-        self.engine_combo.addItems(ALL_ENGINES)
-        fit_combo_width(self.engine_combo)
-        self.engine_combo.setCurrentText(
+        _combo_fill(self.engine_combo, ALL_ENGINES)
+        fit_combo_width(self.engine_combo, extra=20, popup_extra=15)   # 闭合框+20(再+5)，弹出列表再+15
+        _combo_select_data(self.engine_combo, 
             self.settings.value("engine", ENGINE_GOOGLE))
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
-        self.engine_combo.setToolTip("翻译引擎")
+        self.engine_combo.currentTextChanged.connect(
+            lambda _t: self.settings.setValue("engine", self.engine_combo.currentData()))
+        self.engine_combo.setToolTip(L("翻译引擎"))
         # 原文/译文语言变化 -> 无条件强制重新翻译（等同点翻译按钮）
         self.src_combo.currentTextChanged.connect(lambda _t: self._on_lang_changed())
         self.tgt_combo.currentTextChanged.connect(lambda _t: self._on_lang_changed())
+        self.src_combo.currentTextChanged.connect(
+            lambda _t: self.settings.setValue("src_lang", self.src_combo.currentData()))
+        self.tgt_combo.currentTextChanged.connect(
+            lambda _t: self.settings.setValue("tgt_lang", self.tgt_combo.currentData()))
 
         swap_btn = QPushButton(Icons.icon("swap"), "")
-        swap_btn.setToolTip("交换源文译文内容")
+        swap_btn.setProperty("_icn", "swap")
+        swap_btn.setToolTip(L("交换源文译文内容"))
         swap_btn.setFixedSize(44, 34)
         swap_btn.clicked.connect(self.swap_sides)
 
         from PyQt6.QtWidgets import QGridLayout, QWidget as _QWt
+        # 极简钮独立(不并入left_w，否则极简时随left_w一起隐藏无法退出)
+        self.min_btn = QPushButton()
+        _mini_svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+                     '<rect x="4" y="4" width="16" height="2.5" rx="1" fill="{c}"/>'
+                     '<rect x="7" y="9.5" width="10" height="5" rx="1.5" fill="{c}"/>'
+                     '<rect x="4" y="17.5" width="16" height="2.5" rx="1" fill="{c}"/></svg>')
+        def _set_mini_icon():
+            from PyQt6.QtGui import QPixmap as _PX, QIcon as _IC
+            col = "#1f1f22" if _theme_is_light() else "#e8e8e8"
+            pm = _PX(); pm.loadFromData(_mini_svg.format(c=col).encode(), "SVG")
+            self.min_btn.setIcon(_IC(pm))
+        _set_mini_icon()
+        self._set_mini_icon = _set_mini_icon
+        self.min_btn.setFixedSize(36, 36)
+        self.min_btn.setObjectName("toolbtn")
+        self.min_btn.setToolTip(L("极简界面"))
+        self.min_btn.setStyleSheet("QPushButton{font-size:16px;}")
+        self.min_btn.clicked.connect(self._toggle_minimal_ui)
         left_w = _QWt(); ll = QHBoxLayout(left_w); ll.setContentsMargins(0,0,0,0)
-        ll.addWidget(self.engine_combo)     # 引擎下拉左对齐贴左
+        ll.setSpacing(6)
+        ll.addWidget(self.min_btn)          # 极简钮贴最左(极简时只隐藏两个下拉，不隐藏left_w整体)
+        ll.addSpacing(4)
+        ll.addWidget(self.engine_combo)     # 引擎下拉
         ll.addStretch()
-        ll.addWidget(self.src_combo)        # 原文语言右对齐贴近交换钮
+        ll.addWidget(self.src_combo)        # 原文语言贴近交换钮
 
         right_w = _QWt(); rl = QHBoxLayout(right_w); rl.setContentsMargins(0,0,0,0)
-        rl.addWidget(self.tgt_combo)        # 译文语言左对齐贴近交换钮
+        rl.setSpacing(6)
+        rl.addWidget(self.tgt_combo)        # 译文语言贴近交换钮
         rl.addStretch()
-        rl.addLayout(self._make_tool_buttons())
+        rl.addLayout(self._make_tool_buttons())   # 设置/更新/帮助/关于 贴最右
+        # 极简镜像占位：40=极简钮36+其后固定间隔4，与左端极简钮完全镜像对称。
+        # 仅极简模式显示(结构保证交换钮居中，零校准)；正常模式隐藏不占空间，工具钮贴边不受影响。
+        _mirror = _QWt(); _mirror.setFixedSize(40, 36)
+        _mirror.setVisible(False)
+        self._mini_mirror = _mirror
+        rl.addWidget(_mirror)
+        self._minimal_ui = False
+        self._restore_minimal = (self.settings.value("minimal_ui", "false") == "true")
+        self._lit_end = None
+        self._ui_top_left = left_w
+        self._ui_swap = swap_btn
+        self._ui_top_right = right_w
 
         top_grid = QGridLayout()
         top_grid.setContentsMargins(0, 0, 0, 0)
@@ -2825,11 +5670,11 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(10)
 
         self.input_edit = QTextEdit()
-        self.input_edit.setPlaceholderText("在此输入或粘贴文本…")
-        self.input_edit.setToolTip("原文文字")
+        self.input_edit.setPlaceholderText(L("在此输入或粘贴文本…"))
+        self.input_edit.setToolTip(L("原文文字"))
         self.output_edit = QTextEdit()
-        self.output_edit.setPlaceholderText("译文显示在这里…")
-        self.output_edit.setToolTip("译文文字")
+        self.output_edit.setPlaceholderText(L("译文显示在这里…"))
+        self.output_edit.setToolTip(L("译文文字"))
         # 原文/译文区字号放大，更醒目
         _edit_font = QFont("Microsoft YaHei", 13)
         self.input_edit.setFont(_edit_font)
@@ -2865,6 +5710,22 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.output_edit)
         splitter.setSizes([460, 460])
         splitter.setChildrenCollapsible(False)
+        # 拖到中央附近自动吸附精准居中(左右差≤32px时对半均分)
+        self._split_snap_guard = False
+        def _snap_center(_pos, _idx):
+            if self._split_snap_guard:
+                return
+            try:
+                sz = splitter.sizes()
+                if len(sz) == 2 and abs(sz[0] - sz[1]) <= 32:
+                    total = sz[0] + sz[1]
+                    half = total // 2
+                    self._split_snap_guard = True
+                    splitter.setSizes([half, total - half])
+                    self._split_snap_guard = False
+            except Exception:
+                self._split_snap_guard = False
+        splitter.splitterMoved.connect(_snap_center)
         root.addWidget(splitter, 1)
 
         # 输入即译：停止输入约 0.8 秒后自动翻译（手动按钮仍保留）
@@ -2879,70 +5740,71 @@ class MainWindow(QMainWindow):
         #             译文复制粘贴清空 | 导出译文+导出文件 | 译文 ——
         def _mini_btn(icon, tip, slot):
             b = QPushButton(Icons.icon(icon), "")
-            b.setFixedSize(34, 34)
+            b.setProperty("_icn", icon)
+            b.setFixedSize(36, 36)
+            b.setObjectName("toolbtn")
             b.setToolTip(tip)
             b.clicked.connect(slot)
             return b
 
         # 原文侧：导出当前原文 + 导入文件
-        self.export_src_btn = _mini_btn("export", "导出当前原文", lambda: self._export_text("src"))
-        self.import_btn = _mini_btn("file", "导入文件", self._import_file)
-        src_io = QHBoxLayout(); src_io.setSpacing(3); src_io.setContentsMargins(10, 0, 0, 0)
+        self.export_src_btn = _mini_btn("export", L("导出当前原文"), lambda: self._export_text("src"))
+        self.import_btn = _mini_btn("file", L("导入文件"), self._import_file)
+        src_io = QHBoxLayout(); src_io.setSpacing(4); src_io.setContentsMargins(0, 0, 0, 0)
         src_io.addWidget(self.export_src_btn); src_io.addWidget(self.import_btn)
 
         # 上一条 + 历史
         hist_box = QHBoxLayout()
-        hist_box.setSpacing(3)
-        hist_box.setContentsMargins(10, 0, 0, 0)
-        self.prev_src_btn = _mini_btn("undo", "载入上一条原文", self._load_prev_source)
-        self.history_btn = _mini_btn("list", "翻译历史", self._open_history_dialog)
-        self.next_src_btn = _mini_btn("undo", "载入下一条原文", self._load_next_source)
-        from PyQt6.QtGui import QTransform as _QT, QIcon as _QIc
-        _pm = Icons.icon("undo").pixmap(20, 20).transformed(_QT().scale(-1, 1))
-        self.next_src_btn.setIcon(_QIc(_pm))   # 镜像撤销图标=前进
+        hist_box.setSpacing(4)
+        hist_box.setContentsMargins(0, 0, 0, 0)
+        self.prev_src_btn = _mini_btn("undo", L("载入上一条原文"), self._load_prev_source)
+        self.history_btn = _mini_btn("list", L("翻译历史"), self._open_history_dialog)
+        self.next_src_btn = _mini_btn("redo", L("载入下一条原文"), self._load_next_source)
         hist_box.addWidget(self.prev_src_btn)
         hist_box.addWidget(self.next_src_btn)
         hist_box.addWidget(self.history_btn)
 
         # 译文侧：导出当前译文 + 导出翻译后文件
-        self.export_tgt_btn = _mini_btn("export", "导出当前译文", lambda: self._export_text("tgt"))
-        self.export_file_btn = _mini_btn("file_down", "导出翻译后文件", self._export_file)
+        self.export_tgt_btn = _mini_btn("export", L("导出当前译文"), lambda: self._export_text("tgt"))
+        self.export_file_btn = _mini_btn("file_down", L("导出翻译后文件"), self._export_file)
         self.export_file_btn.setEnabled(False)
         self.export_file_btn.setVisible(False)   # 平时隐藏，导入成功后才出现
-        tgt_io = QHBoxLayout(); tgt_io.setSpacing(3); tgt_io.setContentsMargins(10, 0, 0, 0)
+        tgt_io = QHBoxLayout(); tgt_io.setSpacing(4); tgt_io.setContentsMargins(0, 0, 0, 0)
         tgt_io.addWidget(self.export_tgt_btn); tgt_io.addWidget(self.export_file_btn)
 
-        self.translate_btn = QPushButton(Icons.icon("translate"), "  翻译")
+        self.translate_btn = QPushButton(Icons.icon("translate", "#ffffff"), "  " + L("翻译"))
         self.translate_btn.setObjectName("primary")
         self.translate_btn.setMinimumHeight(40)
-        self.translate_btn.setToolTip("翻译")
+        self.translate_btn.setToolTip(L("翻译"))
         self.translate_btn.clicked.connect(self.do_translate)
 
         from PyQt6.QtWidgets import QGridLayout, QWidget as _QW
         left_w = _QW(); left_l = QHBoxLayout(left_w)
         left_l.setContentsMargins(0, 0, 0, 0)
-        left_l.setSpacing(0)   # 组间距只由各组margin(10)决定，全局统一
+        left_l.setSpacing(4)   # 统一小缝隙，不分组
         left_l.addLayout(self._panel_buttons(self.input_edit))
         left_l.addLayout(src_io)
         left_l.addLayout(hist_box)
-        left_l.addSpacing(10)
         clear_src_btn = QPushButton(Icons.icon("clear"), "")
-        clear_src_btn.setFixedSize(34, 34)
-        clear_src_btn.setToolTip("清空")
+        clear_src_btn.setProperty("_icn", "clear")
+        clear_src_btn.setFixedSize(36, 36)
+        clear_src_btn.setObjectName("toolbtn")
+        clear_src_btn.setToolTip(L("清空"))
         clear_src_btn.clicked.connect(lambda: self._clear_editor(self.input_edit))
         left_l.addWidget(clear_src_btn)
         left_l.addStretch()          # 整组左对齐
 
         right_w = _QW(); right_l = QHBoxLayout(right_w)
         right_l.setContentsMargins(0, 0, 0, 0)
-        right_l.setSpacing(0)
+        right_l.setSpacing(4)   # 统一小缝隙，不分组
         right_l.addStretch()         # 整组右对齐
         right_l.addLayout(self._panel_buttons(self.output_edit))
         right_l.addLayout(tgt_io)
-        right_l.addSpacing(10)
         clear_tgt_btn = QPushButton(Icons.icon("clear"), "")
-        clear_tgt_btn.setFixedSize(34, 34)
-        clear_tgt_btn.setToolTip("清空")
+        clear_tgt_btn.setProperty("_icn", "clear")
+        clear_tgt_btn.setFixedSize(36, 36)
+        clear_tgt_btn.setObjectName("toolbtn")
+        clear_tgt_btn.setToolTip(L("清空"))
         clear_tgt_btn.clicked.connect(lambda: self._clear_editor(self.output_edit))
         right_l.addWidget(clear_tgt_btn)
 
@@ -2951,48 +5813,56 @@ class MainWindow(QMainWindow):
         grid.addWidget(left_w, 0, 0)
         grid.addWidget(self.translate_btn, 0, 1)
         grid.addWidget(right_w, 0, 2)
+        self._ui_bot_left = left_w
+        self._ui_bot_right = right_w
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(2, 1)
         root.addLayout(grid)
 
         # ===== 朗读音频条：原文 / 译文 各一组 =====
         play_groups = QHBoxLayout()
-        play_groups.setSpacing(16)
+        play_groups.setContentsMargins(0, 0, 0, 0)
+        play_groups.setSpacing(10)
         play_groups.addLayout(self._make_play_group("src"), 1)
         play_groups.addLayout(self._make_play_group("tgt"), 1)
-        root.addLayout(play_groups)
+        self._ui_play_w = _QW()
+        self._ui_play_w.setLayout(play_groups)
+        root.addWidget(self._ui_play_w)
 
         # 朗读控制条（嗓音 + 语速）：标签去掉，改成悬停气球提示
         tts_bar = QHBoxLayout()
+        tts_bar.setContentsMargins(0, 0, 0, 0)
+        tts_bar.setSpacing(6)
         self.zh_voice_combo = QComboBox()
-        self.zh_voice_combo.addItems(ZH_VOICES.keys())
+        _combo_fill(self.zh_voice_combo, ZH_VOICES.keys())
         fit_combo_width(self.zh_voice_combo)
-        self.zh_voice_combo.setCurrentText(
+        _combo_select_data(self.zh_voice_combo, 
             self.settings.value("zh_voice", next(iter(ZH_VOICES))))
         self.zh_voice_combo.currentTextChanged.connect(self._on_zh_voice_changed)
-        self.zh_voice_combo.setToolTip("中文嗓音")
+        self.zh_voice_combo.setToolTip(L("中文嗓音"))
         tts_bar.addWidget(self.zh_voice_combo)
 
         self.en_voice_combo = QComboBox()
-        self.en_voice_combo.addItems(EN_VOICES.keys())
+        _combo_fill(self.en_voice_combo, EN_VOICES.keys())
         fit_combo_width(self.en_voice_combo)
-        self.en_voice_combo.setCurrentText(
+        _combo_select_data(self.en_voice_combo, 
             self.settings.value("en_voice", next(iter(EN_VOICES))))
         self.en_voice_combo.currentTextChanged.connect(self._on_en_voice_changed)
-        self.en_voice_combo.setToolTip("英文嗓音")
+        self.en_voice_combo.setToolTip(L("英文嗓音"))
         tts_bar.addWidget(self.en_voice_combo)
         tts_bar.addSpacing(12)
 
         self.rate_slider = QSlider(Qt.Orientation.Horizontal)
         self.rate_slider.setObjectName("rateSlider")
         self.rate_slider.setRange(-50, 50)
-        self.rate_slider.setValue(0)
+        self.rate_slider.setValue(int(self.settings.value("tts_rate", 0)))
         self.rate_slider.setMinimumWidth(100)
         self.rate_label = QLabel("0%")
         self._update_rate_tooltip(0)   # 初始化语速气球
         self.rate_slider.valueChanged.connect(
             lambda v: self.rate_label.setText(f"{'+' if v>=0 else ''}{v}%"))
         self.rate_slider.valueChanged.connect(self._update_rate_tooltip)
+        self.rate_slider.valueChanged.connect(lambda _v: self._persist_rate())
         # 语速变更防抖：拖动停止 0.4s 后才重新朗读，避免拖动过程频繁触发
         self._rate_timer = QTimer(self)
         self._rate_timer.setSingleShot(True)
@@ -3003,7 +5873,9 @@ class MainWindow(QMainWindow):
         tts_bar.addWidget(self.rate_slider, 1)
         self.rate_label.setVisible(False)   # 数值改用气球提示，界面不再显示
         tts_bar.addWidget(self.rate_label)
-        root.addLayout(tts_bar)
+        self._ui_tts_w = _QW()
+        self._ui_tts_w.setLayout(tts_bar)
+        root.addWidget(self._ui_tts_w)
 
         self.setCentralWidget(central)
         # 兼容别名：默认指向原文侧；朗读某侧时在 do_speak 里切换到该侧
@@ -3013,6 +5885,156 @@ class MainWindow(QMainWindow):
         self._active_editor = self.input_edit
         self.input_edit.setProperty("activeRegion", "1")
         self.output_edit.setProperty("activeRegion", "0")
+
+    def retranslate_ui(self):
+        """语言即时切换：遍历整个窗口所有控件按文字查表替换，自动全覆盖。"""
+        try:
+            to_lang = _ui_lang()
+            retranslate_widget_tree(self, to_lang)
+            # 下拉项用 data 键重译（更准，保留选择）
+            for attr in ("engine_combo", "src_combo", "tgt_combo",
+                         "zh_voice_combo", "en_voice_combo"):
+                cb = getattr(self, attr, None)
+                if cb is None:
+                    continue
+                cb.blockSignals(True)
+                for i in range(cb.count()):
+                    d = cb.itemData(i)
+                    if d:
+                        cb.setItemText(i, L(d))
+                cb.blockSignals(False)
+        except Exception:
+            pass
+
+    def _refresh_icons_for_theme(self):
+        """主题切换后重生成所有按钮图标(SVG 按当前深浅色重新渲染)。
+        遍历所有按钮，读取创建时登记的图标名 property('_icn') 重新着色——不漏任何按钮。"""
+        from PyQt6.QtWidgets import QPushButton, QToolButton
+        for btn in self.findChildren((QPushButton, QToolButton)):
+            name = btn.property("_icn")
+            if name:
+                try:
+                    btn.setIcon(Icons.icon(name))
+                except Exception:
+                    pass
+        return
+
+    def _refresh_icons_legacy(self):
+        mapping = {
+            "import_btn": "import", "export_file_btn": "export",
+        }
+        for attr, icon_name in mapping.items():
+            btn = getattr(self, attr, None)
+            if btn is not None:
+                try:
+                    btn.setIcon(Icons.icon(icon_name))
+                except Exception:
+                    pass
+
+    def apply_theme(self):
+        """主题切换即时生效。mac：AppKit 原生驱动(不涂调色板/QSS，避免打架)；非 mac：调色板+样式表。"""
+        from PyQt6.QtWidgets import QApplication as _QA
+        from PyQt6.QtGui import QPalette, QColor
+        app = _QA.instance()
+        _apply_color_scheme(app)   # mac 走 AppKit 原生；非 mac 走 Qt colorScheme
+        if sys.platform == "darwin":
+            # mac：AppKit 外观已切换。重设混合QSS(绘制部分按新深浅重画) + 重生成图标。
+            self.setStyleSheet(self._mac_hybrid_qss())
+            self._refresh_icons_for_theme()
+            if hasattr(self, "_set_mini_icon"):
+                self._set_mini_icon()   # 极简钮图标按新深浅重新着色
+            for w in app.topLevelWidgets():
+                w.update()
+            return
+        # 非 mac 混合方案：完整复刻启动路径的顺序，否则会出现
+        # "打开好、改主题坏、重启又好"。启动时是：设调色板 -> app.setStyle(新建样式对象)
+        # -> 再设 colorScheme -> 建窗口。原生样式(windows11)在【创建时】确定深浅状态，
+        # 已存在的样式对象不会因后来改 colorScheme 而彻底重绘 —— 这正是重启才好的原因。
+        # 所以热切换必须重建样式对象，并按启动顺序重设调色板与 colorScheme。
+        _apply_win_palette(app)
+        try:
+            from PyQt6.QtWidgets import QStyleFactory
+            _cur_style = app.style().objectName()          # 如 windows11 / windowsvista / fusion
+            _match = [k for k in QStyleFactory.keys() if k.lower() == _cur_style.lower()]
+            if _match:
+                app.setStyle(QStyleFactory.create(_match[0]))   # 重建样式对象(关键)
+        except Exception:
+            pass
+        # setStyle 会把 app 调色板重置成该样式的标准调色板，必须在其后再设一次；
+        # colorScheme 也照启动那样在 setStyle 之后再设一次。
+        _apply_win_palette(app)
+        _apply_color_scheme(app)
+        _ss = self._win_hybrid_qss()
+        self._base_ss = _ss
+        self.setStyleSheet(_ss)
+        # 强制所有控件重新 polish：仅 update() 不足以让已 polish 过的控件按新样式/调色板重绘
+        from PyQt6.QtWidgets import QDialog
+        try:
+            _st = app.style()
+            for _w in app.allWidgets():
+                _st.unpolish(_w)
+                _st.polish(_w)
+        except Exception:
+            pass
+        # 关键(修复"深色切浅色后按钮图标/文字看不见")：图标是按当前深浅渲染的 SVG
+        # (浅色主题用深色 #1f1f22，深色主题用浅色 #e8e8e8)。mac 分支一直有重生成图标
+        # 这一步，非 mac 分支却漏了 —— 切到浅色后图标仍是浅灰色，在浅底按钮上就看不见。
+        self._refresh_icons_for_theme()
+        if hasattr(self, "_set_mini_icon"):
+            self._set_mini_icon()      # 极简钮图标按新深浅重新着色
+        # 关键(修复"切浅色后下拉弹出仍是黑底、看似丢一项")：弹出容器配色只在下拉
+        # 创建时设过一次，切主题从不更新 -> 深字配黑底就"看不见"了。这里按新深浅刷新。
+        _refresh_combo_popups(self)
+        for w in app.topLevelWidgets():
+            if isinstance(w, QDialog) and hasattr(w, "_retheme"):
+                w._retheme()
+            # 弹窗内的下拉弹出容器也要按新深浅刷新
+            _refresh_combo_popups(w)
+            # 弹窗内的按钮图标同样要按新深浅重生成
+            if w is not self and hasattr(w, "findChildren"):
+                try:
+                    from PyQt6.QtWidgets import QPushButton, QToolButton
+                    for _b in w.findChildren((QPushButton, QToolButton)):
+                        _n = _b.property("_icn")
+                        if _n:
+                            _b.setIcon(Icons.icon(_n))
+                except Exception:
+                    pass
+            w.update()
+
+    def _toggle_minimal_ui(self):
+        """极简界面：只留 极简钮/原文译文区/翻译钮/状态栏；再点切回正常。"""
+        self._minimal_ui = not getattr(self, "_minimal_ui", False)
+        mini = self._minimal_ui
+        try:
+            self.settings.setValue("minimal_ui", "true" if mini else "false")
+        except Exception:
+            pass
+        for w in (self._ui_bot_left, self._ui_bot_right,
+                  self._ui_play_w, self._ui_tts_w):
+            w.setVisible(not mini)
+        # left_w/right_w 都不整体隐藏，只隐藏内容——右端镜像占位与左端极简钮
+        # 结构对称，交换钮由布局数学保证居中(方案B，零数值零校准)。
+        self.engine_combo.setVisible(not mini)
+        self.src_combo.setVisible(not mini)
+        self.tgt_combo.setVisible(not mini)
+        for _b in getattr(self, "_tool_btns", []):
+            _b.setVisible(not mini)
+        if hasattr(self, "_mini_mirror"):
+            self._mini_mirror.setVisible(mini)
+        self.min_btn.setVisible(True)   # 极简钮始终可见（否则无法退出极简）
+        self._ui_swap.setVisible(True)  # 极简模式保留交换钮
+        if mini:
+            self.min_btn.setToolTip(L("正常界面"))
+            self.min_btn.setStyleSheet(
+                "QPushButton{font-size:16px; background:#5aa8b0; color:#0e2024;"
+                " border:1px solid #5aa8b0; border-radius:6px;}")
+            self.setMinimumSize(420, 200)   # 极简模式最小约束
+            self.resize(420, 280)           # 点极简默认缩到较小尺寸
+        else:
+            self.min_btn.setToolTip(L("极简界面"))
+            self.min_btn.setStyleSheet("QPushButton{font-size:16px;}")
+            self.setMinimumSize(880, 480)
 
     def eventFilter(self, obj, event):
         from PyQt6.QtCore import QEvent
@@ -3071,34 +6093,42 @@ class MainWindow(QMainWindow):
         slider.setRange(0, 1000)
         slider.setValue(0)
         slider.setMinimumWidth(90)
-        slider.setToolTip(f"{name}朗读进度")
+        slider.setToolTip(L(f"{name}朗读进度"))
         slider.sliderPressed.connect(lambda s=side: self._on_seek_start(s))
         slider.sliderReleased.connect(lambda s=side: self._on_seek_end_side(s))
         slider.sliderMoved.connect(lambda v, s=side: self._on_seek_moved(v, s))
         box.addWidget(slider, 1)
 
         speak_btn = QPushButton(Icons.icon("speak"), "")
-        speak_btn.setFixedSize(34, 34)
-        speak_btn.setToolTip(f"朗读{name}")
+        speak_btn.setProperty("_icn", "speak")
+        speak_btn.setFixedSize(36, 36)
+        speak_btn.setObjectName("toolbtn")
+        speak_btn.setToolTip(L(f"朗读{name}"))
         speak_btn.clicked.connect(lambda _=False, e=editor: self._toggle_speak(e))
         box.addWidget(speak_btn)
 
         stop_btn = QPushButton(Icons.icon("stop"), "")
-        stop_btn.setFixedSize(34, 34)
-        stop_btn.setToolTip(f"停止朗读{name}")
+        stop_btn.setProperty("_icn", "stop")
+        stop_btn.setFixedSize(36, 36)
+        stop_btn.setObjectName("toolbtn")
+        stop_btn.setToolTip(L(f"停止朗读{name}"))
         stop_btn.clicked.connect(lambda _=False, e=editor: self._stop_side(e))
         box.addWidget(stop_btn)
 
         dl_btn = QPushButton(Icons.icon("download"), "")
-        dl_btn.setFixedSize(34, 34)
-        dl_btn.setToolTip(f"下载{name}朗读音频")
+        dl_btn.setProperty("_icn", "download")
+        dl_btn.setFixedSize(36, 36)
+        dl_btn.setObjectName("toolbtn")
+        dl_btn.setToolTip(L(f"下载{name}朗读音频"))
         dl_btn.setEnabled(False)
         dl_btn.clicked.connect(lambda _=False, s=side: self._download_audio(s))
         box.addWidget(dl_btn)
 
         clr_btn = QPushButton(Icons.icon("clear"), "")
-        clr_btn.setFixedSize(34, 34)
-        clr_btn.setToolTip("清空")
+        clr_btn.setProperty("_icn", "clear")
+        clr_btn.setFixedSize(36, 36)
+        clr_btn.setObjectName("toolbtn")
+        clr_btn.setToolTip(L("清空"))
         clr_btn.clicked.connect(lambda _=False, s=side: self._clear_side_audio(s))
         box.addWidget(clr_btn)
 
@@ -3132,7 +6162,69 @@ class MainWindow(QMainWindow):
                 self.output_edit.clear()   # 译文文字随之清空（音频仍保留）
         finally:
             self._preserve_audio_on_clear = False
+        # 字幕铁律：字幕依附文字——文字不在，字幕(边界+高亮)同亡；音频bytes保留可继续播放
+        self._drop_karaoke_for(editor)
+        if editor is self.input_edit:
+            self._drop_karaoke_for(self.output_edit)   # 译文文字随清，译文字幕同亡
         self._update_file_buttons()
+
+    def apply_always_on_top(self, on: bool, defer_if_modal: bool = True):
+        """保持程序置顶。
+
+        关键约束（v2.14.1 根治）：改 windowFlags 会销毁并重建原生窗口。
+        若此时有模态对话框(设置窗 exec())开着：
+          - 对主窗重建 → mac 上对话框跟着闪一下、Windows 上对话框被压到下面；
+          - 对对话框本身重建 → 它会先缩小消失再出现，且 exec() 的模态循环失效，
+            关闭后主界面按钮点了没反应（v2.14.0 的两个 bug 就是这么来的）。
+        因此：模态对话框开着时只记录意图，等它关闭后再真正应用。
+        模态对话框本来就显示在父窗之上，不需要自己加置顶标志。
+        """
+        from PyQt6.QtCore import Qt as _Qt
+        try:
+            _app = QApplication.instance()
+            if defer_if_modal and _app is not None and _app.activeModalWidget() is not None:
+                # 有模态窗开着：只记意图，关闭后由 open_settings 收尾应用
+                self._pending_on_top = bool(on)
+                return
+            flags = self.windowFlags()
+            if on:
+                flags |= _Qt.WindowType.WindowStaysOnTopHint
+            else:
+                flags &= ~_Qt.WindowType.WindowStaysOnTopHint
+            if flags == self.windowFlags():
+                return                      # 状态没变就不重建窗口
+            was_visible = self.isVisible()
+            self.setWindowFlags(flags)
+            if was_visible:
+                self.setVisible(True)       # 改 flags 后需重新显示
+        except Exception:
+            pass
+
+    def _flush_pending_on_top(self):
+        """模态对话框关闭后，应用期间被推迟的置顶设置。"""
+        try:
+            pend = getattr(self, "_pending_on_top", None)
+            if pend is None:
+                return
+            self._pending_on_top = None
+            from PyQt6.QtCore import Qt as _Qt   # 局部导入，避免作用域意外
+            cur = bool(self.windowFlags()
+                       & _Qt.WindowType.WindowStaysOnTopHint)
+            if cur != pend:
+                self.apply_always_on_top(pend, defer_if_modal=False)
+        except Exception:
+            _log_exc("flush_pending_on_top")
+
+    def _drop_karaoke_for(self, editor):
+        """该编辑器的字幕状态清零：内存边界表 + 卡拉OK高亮。不动音频缓存bytes。"""
+        try:
+            hl = self._hl_input if editor is self.input_edit else self._hl_output
+            hl.clear_range()
+        except Exception:
+            pass
+        if getattr(self, "_speak_editor", None) is editor:
+            self._speak_boundaries = []
+            self._speak_span = None
 
     def _sel_or_link_range(self, editor):
         """该区当前选区范围：原生蓝选 > 高亮蓝选 > 灰色联动，都无则 None。"""
@@ -3152,7 +6244,7 @@ class MainWindow(QMainWindow):
         r = self._sel_or_link_range(editor)
         text = editor.toPlainText()
         _QA.clipboard().setText(text[r[0]:r[1]] if r else text)
-        self.status.showMessage("已复制选中部分" if r else "已复制全部文字", 2000)
+        self.status.showMessage(L("已复制选中部分") if r else L("已复制全部文字"), 2000)
 
     def _smart_paste(self, editor):
         """有选区(蓝/灰)只覆盖选中部分；无选区默认粘贴到末尾。"""
@@ -3160,7 +6252,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtGui import QTextCursor
         clip = _QA.clipboard().text()
         if not clip:
-            self.status.showMessage("剪贴板为空", 2000)
+            self.status.showMessage(L("剪贴板为空"), 2000)
             return
         r = self._sel_or_link_range(editor)
         c = editor.textCursor()
@@ -3183,12 +6275,16 @@ class MainWindow(QMainWindow):
         box.setSpacing(3)
         box.setContentsMargins(0, 0, 0, 0)
         paste_btn = QPushButton(Icons.icon("paste"), "")
-        paste_btn.setFixedSize(34, 34)
-        paste_btn.setToolTip("粘贴")
+        paste_btn.setProperty("_icn", "paste")
+        paste_btn.setFixedSize(36, 36)
+        paste_btn.setObjectName("toolbtn")
+        paste_btn.setToolTip(L("粘贴"))
         paste_btn.clicked.connect(lambda: self._smart_paste(editor))
         copy_btn = QPushButton(Icons.icon("copy"), "")
-        copy_btn.setFixedSize(34, 34)
-        copy_btn.setToolTip("复制")
+        copy_btn.setProperty("_icn", "copy")
+        copy_btn.setFixedSize(36, 36)
+        copy_btn.setObjectName("toolbtn")
+        copy_btn.setToolTip(L("复制"))
         copy_btn.clicked.connect(lambda: self._smart_copy(editor))
         box.addWidget(copy_btn)
         box.addWidget(paste_btn)
@@ -3209,9 +6305,176 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.status.setSizeGripEnabled(False)   # 去掉 Windows 右下角的灰色拖拽块
         self.setStatusBar(self.status)
-        self.status.showMessage("就绪")
+        self.status.showMessage(L("就绪"))
 
     # ---------- 样式 ----------
+    def _mac_hybrid_qss(self):
+        """mac 最终混合方案样式表（真机验证成功）。按当前 AppKit 外观取深浅两套色。
+        绘制：下拉闭合框+方按钮+普通按钮+特殊青色；原生：弹出项+气球+滚动条。"""
+        light = _mac_current_is_light()
+        if light:
+            bg, tx, bd, hv = "#e8e8ea", "#1f1f22", "#c4c4c8", "#dcdce0"
+            cbg, ctx, cbd = "#ffffff", "#1f1f22", "#c4c4c8"
+            arrow = "#5a5a5a"
+        else:
+            bg, tx, bd, hv = "#3a3a3c", "#f0f0f0", "#4a4a4a", "#48484b"
+            cbg, ctx, cbd = "#2d2d30", "#e8e8e8", "#3a3a3a"
+            arrow = "#9aa0a6"
+        ch = self._chevron_path(arrow)
+        ch_hi = self._chevron_path("#4ea1ff")
+        arrow_css = ""
+        if ch:
+            arrow_css = (
+                f"QComboBox::down-arrow {{ image:url('{ch}'); "
+                f"width:12px; height:8px; margin-right:8px; }}\n"
+                f"QComboBox::down-arrow:hover {{ image:url('{ch_hi}'); }}\n")
+        return f"""
+            QTextEdit {{ border-radius:6px; padding:8px; font-size:14px; }}
+            QTextEdit[activeRegion="1"] {{ border:2px solid #4ea1ff; }}
+
+            /* 正方形工具按钮：绘制、圆角、深浅、淡蓝按下 */
+            QPushButton#toolbtn {{ background:{bg}; color:{tx};
+                border:1px solid {bd}; border-radius:8px; }}
+            QPushButton#toolbtn:hover {{ background:{hv}; border:1px solid #4ea1ff; border-radius:8px; }}
+            QPushButton#toolbtn:pressed {{ background:rgba(78,161,255,0.25);
+                border:1px solid #4ea1ff; border-radius:8px; }}
+            QPushButton#toolbtn:checked {{ background:#00b3c6; color:white;
+                border:1px solid #00b3c6; border-radius:10px; }}
+
+            /* 普通按钮：按下即回弹，淡蓝反馈 */
+            QPushButton {{ background:{bg}; color:{tx};
+                border:1px solid {bd}; border-radius:6px; padding:6px 12px; }}
+            QPushButton:hover {{ background:{hv}; border:1px solid #4ea1ff; }}
+            QPushButton:pressed {{ background:rgba(78,161,255,0.25);
+                border:1px solid #4ea1ff; }}
+
+            /* 特殊按钮：checkable 保持按下时青色 */
+            QPushButton:checked {{ background:#00b3c6; color:white;
+                border:1px solid #00b3c6; }}
+
+            /* 蓝色主按钮 */
+            QPushButton#primary {{ background:#1e88e5; border:none; font-size:15px;
+                font-weight:bold; padding:8px 40px; border-radius:8px; color:white; }}
+            QPushButton#primary:hover {{ background:#2b95ef; }}
+            QPushButton#primary:pressed {{ background:#1565c0; }}
+            QPushButton#primary:disabled {{ background:#12557f; color:#dfe8f2; }}
+
+            /* 下拉闭合框(第一部分)：绘制 + V形箭头图片 */
+            QComboBox {{ background:{cbg}; color:{ctx}; border:1px solid {cbd};
+                border-radius:8px; padding:5px 10px; }}
+            QComboBox:hover {{ border:1px solid #4ea1ff; }}
+            QComboBox::drop-down {{ border:none; width:22px; }}
+            {arrow_css}
+            /* 下拉弹出项(第二部分)：照搬v25完美版——border:none + 背景 + 蓝色高亮，
+               显式声明阻断父窗QComboBox规则渗透(那会加方边框破坏圆角) */
+            QComboBox QAbstractItemView {{ background:{cbg}; outline:none; border:none;
+                selection-background-color:#0e639c; selection-color:white; }}
+            QComboBox QAbstractItemView::item {{ padding:7px 14px; border:none; }}
+            QComboBox QAbstractItemView::item:selected {{ background:#0e639c; color:white; }}
+            QComboBox QAbstractItemView::item:hover {{ background:#0e639c; color:white; }}
+
+            /* 朗读进度条(普通slider)：左侧蓝色已读 */
+            QSlider::groove:horizontal {{ height:4px; background:{bd}; border-radius:2px; }}
+            QSlider::sub-page:horizontal {{ background:#4ea1ff; border-radius:2px; }}
+            QSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
+            QSlider::handle:horizontal {{ background:#ffffff; width:14px; height:14px;
+                margin:-5px 0; border-radius:7px; border:none; }}
+            /* 朗读速度滑杆(rateSlider)：左右滑槽都灰、圆球灰，不要蓝 */
+            QSlider#rateSlider::sub-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+            QSlider#rateSlider::add-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+            QSlider#rateSlider::handle:horizontal {{ background:#ffffff;
+                width:14px; height:14px; margin:-5px 0; border-radius:7px; border:none; }}
+
+            QStatusBar {{ background:#007acc; color:white; }}
+            QStatusBar QLabel {{ background:transparent; color:white; }}
+            QStatusBar::item {{ border:none; }}
+            QSizeGrip {{ background:transparent; width:0; height:0; }}
+            """
+
+    def _win_hybrid_qss(self):
+        """Windows/Linux 混合方案样式表(真机测试验证)：与 mac 混合同构，但深浅由
+        Qt 的 setColorScheme 驱动原生控件(复选框/滚动条/窗口底色走原生)，本 QSS 只绘制
+        按钮/下拉闭合框/下拉弹出(蓝色高亮)/滑杆/状态栏，不碰复选框指示器与滚动条。"""
+        light = _theme_is_light()
+        if light:
+            bg, tx, bd, hv = "#e9eaec", "#1f1f22", "#c9c9cc", "#dcdce0"
+            cbg, ctx, cbd = "#ffffff", "#1f1f22", "#c4c4c8"
+            edit_bg, win_tx = "#ffffff", "#1f1f1f"
+            arrow = "#5a5a5a"
+        else:
+            bg, tx, bd, hv = "#2d2d30", "#dcdcdc", "#3a3a3a", "#37373d"
+            cbg, ctx, cbd = "#2d2d30", "#dcdcdc", "#3a3a3a"
+            edit_bg, win_tx = "#252526", "#dcdcdc"
+            arrow = "#9aa0a6"
+        ch = self._chevron_path(arrow)
+        ch_hi = self._chevron_path("#4ea1ff")
+        arrow_css = ""
+        if ch:
+            arrow_css = (
+                f"QComboBox::down-arrow {{ image:url('{ch}'); "
+                f"width:12px; height:8px; margin-right:8px; }}\n"
+                f"QComboBox::down-arrow:hover {{ image:url('{ch_hi}'); }}\n")
+        return f"""
+            /* 标签/复选框只设文字色，背景与指示器交给原生(setColorScheme 驱动) */
+            QLabel {{ background:transparent; color:{win_tx}; }}
+            /* 复选框完全交给原生(setColorScheme+调色板驱动)：不设任何 QCheckBox 规则，
+               否则 windows11 引擎会对复选框整体接管渲染，导致小方块失去边线。
+               文字色由调色板 WindowText 提供。测试程序的混合模式正是这样(无QCheckBox规则)。 */
+
+            QToolBar {{ border:none; padding:4px; spacing:4px; }}
+            QToolBar QToolButton {{ color:{win_tx}; padding:6px 10px; border-radius:5px; }}
+            QToolBar QToolButton:hover {{ background:{hv}; }}
+
+            QTextEdit {{ background:{edit_bg}; color:{win_tx}; border:1px solid {bd};
+                border-radius:6px; padding:8px; font-size:14px; }}
+            QTextEdit[activeRegion="1"] {{ border:1px solid #4ea1ff; }}
+            QTextEdit[activeRegion="0"] {{ border:1px solid {bd}; }}
+
+            /* 普通按钮：绘制、圆角、深浅、淡蓝反馈 */
+            QPushButton {{ background:{bg}; color:{tx}; border:1px solid {bd};
+                border-radius:5px; padding:6px 12px; }}
+            QPushButton:hover {{ background:{hv}; border:1px solid #4ea1ff; }}
+            QPushButton:pressed {{ background:#094771; }}
+            QPushButton#primary {{ background:#1e88e5; border:none; font-size:15px;
+                border-radius:8px; color:white; font-weight:bold; padding:8px 40px; }}
+            QPushButton#primary:hover {{ background:#2b95ef; }}
+            QPushButton#primary:disabled {{ background:#12557f; color:#bbccdd; }}
+
+            /* 下拉闭合框 + 单行输入框：绘制加高 + V形箭头
+               (QLineEdit 原本与 QComboBox 共用同一条规则，混合方案时漏掉了 ->
+                Win10 深色下 API Key 框变白、Win11 出现原生底部亮条。此处恢复) */
+            QComboBox, QLineEdit {{ background:{cbg}; color:{ctx}; border:1px solid {cbd};
+                border-radius:5px; padding:5px 8px; }}
+            QComboBox:hover, QLineEdit:hover {{ border:1px solid #4ea1ff; }}
+            QLineEdit:focus {{ border:1px solid #4ea1ff; }}
+            QComboBox QAbstractItemView::indicator {{ width:0px; height:0px; }}
+            QComboBox::drop-down {{ border:none; background:transparent; width:24px;
+                subcontrol-origin:padding; subcontrol-position:center right; }}
+            {arrow_css}
+            /* 下拉弹出项：蓝色高亮 + 白字(照搬主程序，显式声明阻断父规则渗透) */
+            QComboBox QAbstractItemView {{ background:{cbg}; outline:none;
+                border:1px solid {cbd};
+                selection-background-color:#0e639c; selection-color:white; }}
+            QComboBox QAbstractItemView::item {{ padding:7px 14px; border:none; }}
+            QComboBox QAbstractItemView::item:selected {{ background:#0e639c; color:white; }}
+            QComboBox QAbstractItemView::item:hover {{ background:#0e639c; color:white; }}
+
+            /* 朗读进度条：左侧蓝色已读 */
+            QSlider {{ border:none; }}
+            QSlider::groove:horizontal {{ height:4px; background:{bd}; border-radius:2px; }}
+            QSlider::sub-page:horizontal {{ background:#4ea1ff; border-radius:2px; }}
+            QSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
+            QSlider::handle:horizontal {{ background:#ffffff; width:14px; height:14px;
+                margin:-5px 0; border-radius:7px; border:none; }}
+            QSlider#rateSlider::sub-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+            QSlider#rateSlider::add-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+
+            QStatusBar {{ background:#007acc; color:white; }}
+            QStatusBar QLabel {{ background:transparent; color:white; }}
+            QStatusBar::item {{ border:none; }}
+            QSizeGrip {{ background:transparent; width:0; height:0; }}
+            """
+
     def _chevron_path(self, color="#9aa0a6"):
         """生成一个扁平 V 形尖角号 SVG，写入临时文件，供下拉箭头使用。"""
         import tempfile, os as _os
@@ -3239,9 +6502,9 @@ class MainWindow(QMainWindow):
                 f"QComboBox::down-arrow:hover {{ image:url('{chevron_hi}'); }}\n")
         _ss = ("""
             QMainWindow, QDialog, QMessageBox { background:#1e1e1e; }
-            QLabel, QCheckBox { background:transparent; color:#dcdcdc; }
-            QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
-                padding:2px 5px; font-size:11px; border-radius:6px; }
+            QLabel { background:transparent; color:#dcdcdc; }
+            QCheckBox { background:transparent; color:#dcdcdc; }
+%TOOLTIP%
             QToolBar { background:#252526; border:none; padding:4px; spacing:4px; }
             QToolBar QToolButton { color:#dcdcdc; padding:6px 10px; border-radius:5px; }
             QToolBar QToolButton:hover { background:#37373d; }
@@ -3253,29 +6516,23 @@ class MainWindow(QMainWindow):
             QComboBox, QLineEdit { background:#2d2d30; border:1px solid #3a3a3a;
                 border-radius:5px; padding:5px 8px; }
             QComboBox:hover { border:1px solid #4ea1ff; }
-            QComboBox QAbstractItemView { background:#2d2d30; outline:none;
-                border:none;
-                selection-background-color:#0e639c; selection-color:white; }
-            QComboBox QAbstractItemView::item {
-                padding:7px 14px; border:none; }
-            QComboBox QAbstractItemView::item:selected { background:#0e639c; color:white; }
-            QComboBox QAbstractItemView::item:hover { background:#0e639c; color:white; }
+%COMBOPOPUP%
             QComboBox QAbstractItemView::indicator { width:0px; height:0px; }
             QComboBox::drop-down { border:none; background:transparent;
                 width:24px; subcontrol-origin:padding; subcontrol-position:center right; }
             """ + arrow_css + """
-            QPushButton { background:#2d2d30; border:1px solid #3a3a3a;
+            QPushButton { background:#2d2d30; color:#dcdcdc; border:1px solid #3a3a3a;
                 border-radius:5px; padding:6px 12px; }
             QPushButton:hover { background:#37373d; border:1px solid #4ea1ff; }
             QPushButton:pressed { background:#094771; }
-            QPushButton#primary { background:#0e639c; border:none; font-size:15px;
+            QPushButton#primary { background:#1e88e5; border:none; font-size:15px;
                 border-radius:8px; color:white; font-weight:bold; padding:8px 40px; }
             QPushButton#primary:disabled { background:#12557f; color:#bbccdd; }
-            QPushButton#primary:hover { background:#1177bb; }
+            QPushButton#primary:hover { background:#2b95ef; }
             QLabel { color:#cccccc; }
             QSlider { border:none; }
-            QSlider#rateSlider::sub-page:horizontal { background:#3a3a3a; border-radius:2px; }
-            QSlider#rateSlider::add-page:horizontal { background:#3a3a3a; border-radius:2px; }
+            QSlider#rateSlider::sub-page:horizontal { background:#8a8a8a; border-radius:2px; }
+            QSlider#rateSlider::add-page:horizontal { background:#8a8a8a; border-radius:2px; }
             QSlider::groove:horizontal { height:4px; background:#3a3a3a; border-radius:2px;
                 border:none; }
             QSlider::handle:horizontal { background:#4ea1ff; width:14px; height:14px;
@@ -3290,34 +6547,37 @@ class MainWindow(QMainWindow):
         # 占位符残留导致整表解析失败被丢弃——按钮丢样式/翻译钮丢蓝色的元凶）
         _sb = self._scrollbar_css()
         _ss = _ss.replace("%SCROLLBAR%", _sb)
+        _ss = _ss.replace("%TOOLTIP%", _tooltip_css())
+        _ss = _ss.replace("%COMBOPOPUP%", _combo_popup_css())
         _ss = _ss.replace("%EDITPAD%", "8px" if _sb == "" else "8px 20px 8px 8px")
+        self._base_ss = _ss              # 保存原始表，供主题热切换重设
+        import sys as _sys
+        if _sys.platform == "darwin":
+            # mac 最终混合方案（真机验证成功）：
+            # - 下拉闭合框(第一部分)+方按钮+普通按钮+特殊青色 = 绘制(深浅两套)
+            # - 下拉弹出项(第二部分)+气球+滚动条 = 系统原生(不设QSS，悬停蓝条自动)
+            # - 深浅由 pyobjc 驱动；切换时本函数按当前外观重生成绘制部分
+            _ss = self._mac_hybrid_qss()
+            self._base_ss = _ss
+            self.setStyleSheet(_ss)
+            return
+        # 非 mac 混合方案(测试程序验证)：先用 setColorScheme 驱动原生深浅
+        # (复选框/滚动条/窗口底色走原生)，再套只绘制按钮/下拉/滑杆的混合 QSS。
+        try:
+            from PyQt6.QtWidgets import QApplication as _QA
+            _apply_color_scheme(_QA.instance())
+        except Exception:
+            pass
+        _ss = self._win_hybrid_qss()
+        self._base_ss = _ss
         self.setStyleSheet(_ss)
 
     def _scrollbar_css(self):
         """Mac / Win11(Qt>=6.7) 用系统原生胶囊滚动条（不设任何样式）；
-        Win10 及以下 / Linux / Qt过旧 用自定义细样式。"""
-        import sys
-        if sys.platform == "darwin":
-            return ""   # mac 原生胶囊
-        if sys.platform == "win32":
-            try:
-                if sys.getwindowsversion().build >= 22000:
-                    from PyQt6.QtWidgets import QStyleFactory
-                    if "windows11" in [k.lower() for k in QStyleFactory.keys()]:
-                        return ""   # Win11 原生 Fluent 胶囊
-            except Exception:
-                pass
-        return (
-            "            QScrollBar:vertical { background:transparent; width:8px;"
-            " margin:4px 2px 4px 0; border:none; }\n"
-            "            QScrollBar::handle:vertical { background:rgba(150,150,150,140);"
-            " border-radius:4px; min-height:30px; }\n"
-            "            QScrollBar::handle:vertical:hover { background:rgba(190,190,190,200); }\n"
-            "            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
-            " height:0; background:none; border:none; }\n"
-            "            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
-            " background:transparent; }\n"
-            "            QScrollBar:horizontal { height:0px; background:transparent; }")
+        Win10 及以下 / Linux 用自绘圆角胶囊(与原生观感一致)。"""
+        if _native_scrollbar_platform():
+            return ""
+        return _rounded_scrollbar_qss()
 
     # ====================================================================
     #  动作
@@ -3325,11 +6585,14 @@ class MainWindow(QMainWindow):
 
     def open_settings(self):
         SettingsDialog(self.settings, self).exec()
+        self._flush_pending_on_top()   # 应用对话框期间推迟的置顶设置
         # 设置里改了默认引擎，同步到主界面下拉
-        self.engine_combo.setCurrentText(
+        _combo_select_data(self.engine_combo, 
             self.settings.value("engine", ENGINE_GOOGLE))
 
     def swap_sides(self):
+        # 多风格模式下只交换直译区，多风格灰字区不参与
+        _le = getattr(self, "_lit_end", None)
         # 朗读中交换：把卡拉OK朗读目标也对换到对面窗，避免青绿色显示在错误文字上
         was_speaking = getattr(self, "_is_speaking", False)
         speak_ed = getattr(self, "_speak_editor", None)
@@ -3339,12 +6602,16 @@ class MainWindow(QMainWindow):
         out_sel = (out_cur.selectionStart(), out_cur.selectionEnd()) if out_cur.hasSelection() else None
 
         a, b = self.input_edit.toPlainText(), self.output_edit.toPlainText()
+        # 多风格模式：译文只取直译区参与交换，多风格灰字区不换过去
+        if _le is not None:
+            b = b[:_le].rstrip()
+        self._lit_end = None
         self.input_edit.setPlainText(b)
         self.output_edit.setPlainText(a)
-        s, t = self.src_combo.currentText(), self.tgt_combo.currentText()
+        s, t = self.src_combo.currentData(), self.tgt_combo.currentData()
         if s in LANG_OPTIONS and t in LANG_OPTIONS:
-            self.src_combo.setCurrentText(t)
-            self.tgt_combo.setCurrentText(s)
+            _combo_select_data(self.src_combo, t)
+            _combo_select_data(self.tgt_combo, s)
         # 清掉旧的高亮（含可能停在错误文字上的青绿/灰条）
         self._link_guard = True
         try:
@@ -3383,6 +6650,7 @@ class MainWindow(QMainWindow):
 
     # ---------- 翻译 ----------
     def _on_input_changed(self):
+        self._sync_export_text_buttons()   # 导出文字钮灰化随文字有无即时更新
         # 根治方案：rehighlight 触发的 textChanged 中文本内容并未变化，
         # 用文本比对判断是否"真实编辑"——从根上消灭所有高亮反馈环误伤。
         cur_text = self.input_edit.toPlainText()
@@ -3403,6 +6671,7 @@ class MainWindow(QMainWindow):
         self._auto_timer.start()
 
     def _on_output_changed(self):
+        self._sync_export_text_buttons()   # 导出文字钮灰化随文字有无即时更新
         cur_text = self.output_edit.toPlainText()
         if cur_text == getattr(self, "_last_output_text", ""):
             return                      # 仅格式重绘，非真实变更
@@ -3419,6 +6688,9 @@ class MainWindow(QMainWindow):
 
     def _invalidate_side_audio(self, side):
         """某侧文字变化 -> 该侧音频缓存作废，朗读钮变灰、下载钮禁用。"""
+        # 字幕铁律：字幕捆绑音频——音频作废，该侧内存边界与卡拉OK高亮同亡
+        _ed = self.input_edit if side == "src" else self.output_edit
+        self._drop_karaoke_for(_ed)
         c = self._side_cache.get(side)
         if not c:
             return
@@ -3443,6 +6715,7 @@ class MainWindow(QMainWindow):
                 hl._sel_start = hl._sel_end = 0
                 hl._link_start = hl._link_end = 0
                 hl._hl_start = hl._hl_end = 0
+                hl._dim_from = -1
                 hl.rehighlight()
         finally:
             self._highlighting = False
@@ -3498,7 +6771,7 @@ class MainWindow(QMainWindow):
         text = self.input_edit.toPlainText().strip()
         if not text:
             if not auto:
-                self.status.showMessage("请输入要翻译的文本", 3000)
+                self.status.showMessage(L("请输入要翻译的文本"), 3000)
             self.translate_btn.setEnabled(True)
             return
         # 特殊模式：原文仅为单个/一串符号或数字 -> 本地处理（不走引擎）
@@ -3515,7 +6788,7 @@ class MainWindow(QMainWindow):
                 self._auto_timer.start()
                 return
             self._abort_translation()
-        engine = self.engine_combo.currentText()
+        engine = self.engine_combo.currentData()
         keys = {
             "deepl": self.settings.value("deepl_key", ""),
             "google_api": self.settings.value("google_api_key", ""),
@@ -3536,13 +6809,14 @@ class MainWindow(QMainWindow):
         multi = (engine in LLM_ENGINE_SET and
                  self.settings.value("multi_style", "true") == "true" and
                  not self._in_file_mode())
+        self._multi_active = multi   # 记录本次是否真的多风格，供 on_translate_ok 判分区
         self._current_auto = auto
         self.translate_btn.setEnabled(False)
         # 按钮文字始终不变（避免闪动），状态提示放到底部状态栏
         self.status.showMessage(f"正在翻译（{engine}）…")
 
         self.translate_worker = TranslateWorker(
-            text, self.src_combo.currentText(), self.tgt_combo.currentText(),
+            text, self.src_combo.currentData(), self.tgt_combo.currentData(),
             engine, keys, multi_style=multi)
         self.translate_worker.finished_ok.connect(self.on_translate_ok)
         self.translate_worker.failed.connect(self.on_translate_fail)
@@ -3596,7 +6870,7 @@ class MainWindow(QMainWindow):
         return " ".join(m for m in mapped if m.strip())
 
     def _resolve_tgt_lang(self):
-        t = self.tgt_combo.currentText()
+        t = self.tgt_combo.currentData()
         if t == "自动检测":
             # 原文是数字/符号，默认中文输入 -> 英文；否则中文
             return "英语"
@@ -3616,20 +6890,60 @@ class MainWindow(QMainWindow):
             except Exception:
                 return str(n)
 
+    def _sanitize_literal(self, out):
+        """强删多风格直译区可能混入的结构标注：Part 1/第一部分/直译区/----/【..】/Literal 等。
+        代码层兜底，不依赖模型是否遵守 prompt。"""
+        import re as _re
+        lines = out.split("\n")
+        cleaned = []
+        for ln in lines:
+            t = ln.strip()
+            if _re.fullmatch(r'[-=_*·—\s]{3,}', t):   # 纯分隔线
+                continue
+            if _re.match(r'^\s*(Part\s*\d|第[一二三四五]部分|直译区|多风格区|'
+                         r'Literal|Direct translation|Multi-?style)\s*[:：]?\s*$',
+                         t, _re.I):
+                continue
+            t2 = _re.sub(r'^\s*[【\[（(]\s*(直译区|多风格区|Part\s*\d|第[一二三四五]部分)'
+                         r'\s*[】\])）]\s*[:：]?\s*', '', ln)
+            cleaned.append(t2)
+        # 合并因删除产生的连续多空行为单个空行
+        res = _re.sub(r'\n{3,}', '\n\n', "\n".join(cleaned)).strip("\n")
+        return res
+
     def on_translate_ok(self, out):
+        _multi = getattr(self, "_multi_active", False)
+        if _multi or "\n----" in out:
+            out = self._sanitize_literal(out)
+        # 多风格分区解析：直译区(参与对齐联动) 与 多风格区(灰字、不联动) 的边界。
+        # 关键(#3 修复)：只有在多风格模式真正激活时才做分区。否则——例如普通翻译
+        # 且原文本身含空行(“下载\n\n计算机”)——译文也会有空行，绝不能拿它当分界，
+        # 否则空行后的内容(computer)会被误判成多风格区而变灰。普通模式 _lit_end 恒 None。
+        if _multi:
+            _m = re.search(r"\n[ \t]*\n", out)
+            self._lit_end = _m.start() if _m else None
+        else:
+            self._lit_end = None
         self._filling_output = True
         try:
             self.output_edit.setPlainText(out)
         finally:
             self._filling_output = False
         self._reset_translate_btn()
-        self.status.showMessage("翻译完成", 3000)
+        self.status.showMessage(L("翻译完成"), 3000)
         self._update_file_buttons()
         # 建立"原文句 <-> 译文句"对应关系，供选区联动精确定位
         try:
             src = self.input_edit.toPlainText()
-            self._build_alignment(src, out)
-            _add_history(src, out, self.engine_combo.currentText())
+            self._build_alignment(
+                src, out if self._lit_end is None else out[:self._lit_end])
+            self._highlighting = True
+            try:
+                self._hl_output.set_dim(
+                    self._lit_end if self._lit_end is not None else -1)
+            finally:
+                self._highlighting = False
+            _add_history(src, out, self.engine_combo.currentData())
         except Exception as e:
             _log_error(f"记录历史/对齐失败: {e}")
 
@@ -3652,25 +6966,25 @@ class MainWindow(QMainWindow):
     def on_translate_fail(self, msg):
         self._reset_translate_btn()
         self.status.showMessage("翻译失败", 3000)
-        _log_error(f"翻译失败 [{self.engine_combo.currentText()}]: {msg}")
+        _log_error(f"翻译失败 [{self.engine_combo.currentData()}]: {msg}")
         # 自动翻译失败不打扰；手动翻译才弹窗
         if not getattr(self, "_current_auto", False):
             QMessageBox.warning(self, "翻译失败", msg)
 
     def _reset_translate_btn(self):
         self.translate_btn.setEnabled(True)
-        # 文字始终保持"翻译"不变（不再改文案，避免闪动）
+        # 文字始终保持L("翻译")不变（不再改文案，避免闪动）
 
     def _load_prev_source(self):
         """循环载入历史中的所有原文（每点一次往前一条，到头回到最新）。"""
         items = _load_history()
         if not items:
-            self.status.showMessage("暂无历史记录", 2500)
+            self.status.showMessage(L("暂无历史记录"), 2500)
             return
         # 维护一个游标，在所有历史原文间循环
         srcs = [it.get("src", "") for it in items if it.get("src", "").strip()]
         if not srcs:
-            self.status.showMessage("暂无历史原文", 2500)
+            self.status.showMessage(L("暂无历史原文"), 2500)
             return
         idx = getattr(self, "_prev_src_idx", None)
         cur = self.input_edit.toPlainText().strip()
@@ -3692,7 +7006,7 @@ class MainWindow(QMainWindow):
         items = _load_history()
         srcs = [it.get("src", "") for it in items if it.get("src", "").strip()]
         if not srcs:
-            self.status.showMessage("暂无历史原文", 2500)
+            self.status.showMessage(L("暂无历史原文"), 2500)
             return
         idx = getattr(self, "_prev_src_idx", None)
         if idx is None:
@@ -3708,7 +7022,7 @@ class MainWindow(QMainWindow):
     def _open_history_dialog(self):
         items = _load_history()
         if not items:
-            self.status.showMessage("暂无历史记录", 2500)
+            self.status.showMessage(L("暂无历史记录"), 2500)
             return
         dlg = HistoryDialog(items, self)
         if dlg.exec() and dlg.chosen is not None:
@@ -3726,16 +7040,33 @@ class MainWindow(QMainWindow):
             self.status.showMessage("音频后端不可用，无法播放", 3000)
             return
         state = self.player.playbackState()
-        # 新选区优先：用户选了一段文字再点朗读 -> 停掉旧音频，朗读选区
+        # 若正在播放/暂停当前这一栏，优先按"暂停/继续"处理，不被选区判断拦截。
+        # 关键(v2.14.9 修复全选朗读时暂停失效)：全选朗读时编辑器里的选区仍然
+        # 存在，且卡拉OK/结束回填会让 _sel_range 与当前选区不再精确相等，于是
+        # 旧逻辑把"暂停点击"误判为新朗读请求而重启，导致点暂停没反应(在重播)。
+        # 现在：同栏且正在播放 -> 直接暂停；同栏且已暂停 -> 直接继续。
+        same_side_active = (
+            self._speak_editor is editor and
+            state in (QMediaPlayer.PlaybackState.PlayingState,
+                      QMediaPlayer.PlaybackState.PausedState))
         cur = editor.textCursor()
         if cur.hasSelection():
             new_range = (cur.selectionStart(), cur.selectionEnd())
-            if (self._speak_editor is not editor or
-                    getattr(self, "_sel_range", None) != new_range):
-                if state != QMediaPlayer.PlaybackState.StoppedState:
-                    self.stop_speak(clear_only=True)
-                self.do_speak(editor)
-                return
+            # 判断这个选区是不是"正在朗读的那一段"：全选朗读时选区仍在，且卡拉OK/
+            # 结束回填会让 _sel_range 变化，故不能只比 _sel_range，还要比朗读范围
+            # _speak_span / _speak_scope。任一匹配即视为"同一段"，走暂停/继续。
+            _spans = [getattr(self, "_sel_range", None),
+                      getattr(self, "_speak_span", None),
+                      getattr(self, "_speak_scope", None)]
+            is_same_span = new_range in [sp for sp in _spans if sp]
+            # 只有"新的、不同的选区"才重启朗读；同段(或同栏正在播放)交给三态暂停/继续
+            if not (same_side_active and is_same_span):
+                if (self._speak_editor is not editor or
+                        getattr(self, "_sel_range", None) != new_range):
+                    if state != QMediaPlayer.PlaybackState.StoppedState:
+                        self.stop_speak(clear_only=True)
+                    self.do_speak(editor)
+                    return
         # 正在播放当前栏 -> 暂停（把位置记入该侧缓存，供跨侧回来续播）
         if (self._speak_editor is editor and
                 state == QMediaPlayer.PlaybackState.PlayingState):
@@ -3771,7 +7102,7 @@ class MainWindow(QMainWindow):
         # 该侧按钮强制设成青色继续态（喇叭图标 + 青底）
         btn = self.speak_src_btn if other is self.input_edit else self.speak_tgt_btn
         self._set_speak_btn_active(btn, True, icon="speak")
-        btn.setToolTip("继续朗读")
+        btn.setToolTip(L("继续朗读"))
 
     def do_speak(self, editor, from_pos_ratio=None):
         if from_pos_ratio is None:
@@ -3798,9 +7129,11 @@ class MainWindow(QMainWindow):
             full = editor.toPlainText()
             text = full[_a:_b].replace("\u2029", "\n").strip()
             char_offset = _a
+            self._speak_scope = (_a, _b)
         elif cursor.hasSelection():
             text = cursor.selectedText().replace("\u2029", "\n").strip()
             char_offset = cursor.selectionStart()
+            self._speak_span = (char_offset, char_offset + len(text))
             self._sel_range = (cursor.selectionStart(), cursor.selectionEnd())
             self._sel_editor = editor
             self._sel_is_link = False    # 用户主动选区 -> 蓝色
@@ -3811,13 +7144,24 @@ class MainWindow(QMainWindow):
             # 灰色联动选区也可朗读（与主动选区同等效果），但保持灰色不变蓝
             full = editor.toPlainText()
             char_offset = hl._link_start
-            text = full[hl._link_start:hl._link_end].strip()
+            text = full[hl._link_start:hl._link_end].strip()   # 必须先取 text
+            self._speak_span = (char_offset, char_offset + len(text))
             self._sel_range = (hl._link_start, hl._link_end)
             self._sel_editor = editor
             self._sel_is_link = True     # 灰色联动区 -> 保持灰色
         else:
-            text = editor.toPlainText().strip()
+            full = editor.toPlainText()
+            text = full.strip()
             char_offset = 0
+            # 多风格翻译时：译文区无任何选区默认只朗读直译区(第一个空行之前)，
+            # 卡拉OK也只对应直译区；有选区仍按选区(含多风格灰区)朗读。
+            if editor is self.output_edit:
+                _le = getattr(self, "_lit_end", None)
+                if _le and 0 < _le <= len(full):
+                    _lit = full[:_le]
+                    char_offset = len(_lit) - len(_lit.lstrip())
+                    text = _lit.strip()
+            self._speak_span = (char_offset, char_offset + len(text))
             self._sel_range = None
             self._sel_editor = None
             self._sel_is_link = False
@@ -3829,9 +7173,9 @@ class MainWindow(QMainWindow):
         # 计算本次朗读的"签名"：文本+嗓音+语速+选区。若与上次已合成的一致，
         # 且有缓存音频，则直接重播，不重新生成（像播放音频文件一样）。
         if _text_is_chinese(text):
-            _vname_sig = self.zh_voice_combo.currentText()
+            _vname_sig = self.zh_voice_combo.currentData()
         else:
-            _vname_sig = self.en_voice_combo.currentText()
+            _vname_sig = self.en_voice_combo.currentData()
         sig = (id(editor), text, _vname_sig, self.rate_slider.value(), self._sel_range)
         self._last_lang = "ZH" if _text_is_chinese(text) else "EN"   # 重播路径也要设，供嗓音切换判断
         _sc = self._side_cache[self._active_side]
@@ -3839,6 +7183,8 @@ class MainWindow(QMainWindow):
                 and _sc.get("sig") == sig):
             # 该侧缓存命中 -> 直接重播，不重新生成（缓存被清空后此路必不命中）
             self._speak_boundaries = _sc.get("boundaries") or []
+            _resume = _sc.get("position") or 0   # 必须在内部 stop_speak 之前取！
+            _sc["position"] = 0                  # 否则 stop 会把续播位置清零(#1根因)
             self._speak_editor = editor
             self._last_speak_editor = editor
             self._is_speaking = True
@@ -3846,10 +7192,10 @@ class MainWindow(QMainWindow):
             self.stop_speak(clear_only=True)
             self._setup_selection_highlight()
             QTimer.singleShot(600, lambda: setattr(self, "_freeze_slider", False))
-            self.status.showMessage("播放中…", 2000)
-            _resume = _sc.get("position") or 0
-            _sc["position"] = 0            # 用掉即清
+            self.status.showMessage(L("播放中…"), 2000)
             self._play_bytes(_sc["bytes"])
+            if not self._speak_boundaries:
+                QTimer.singleShot(300, self._build_fallback_boundaries)
             if _resume > 0:
                 # 缓存里存过暂停位置 -> 续播而不是从头（媒体加载后再定位）
                 QTimer.singleShot(150, lambda pms=_resume: self.player.setPosition(pms))
@@ -3865,11 +7211,11 @@ class MainWindow(QMainWindow):
         self._pending_seek_ratio = from_pos_ratio
         # 按文本语种选嗓音
         if _text_is_chinese(text):
-            voice_name = self.zh_voice_combo.currentText()
+            voice_name = self.zh_voice_combo.currentData()
             voice_spec = ZH_VOICES.get(voice_name, next(iter(ZH_VOICES.values())))
             self._last_lang = "ZH"
         else:
-            voice_name = self.en_voice_combo.currentText()
+            voice_name = self.en_voice_combo.currentData()
             voice_spec = EN_VOICES.get(voice_name, next(iter(EN_VOICES.values())))
             self._last_lang = "EN"
         self._last_voice_name = voice_name
@@ -3893,7 +7239,7 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_synth_in_progress", False):
             return
         # 文字：用 showMessage 进入左侧消息区（同一位置，自动与其它消息互相覆盖）
-        self.status.showMessage("正在生成音频…")
+        self.status.showMessage(L("正在生成音频…"))
         from PyQt6.QtWidgets import QProgressBar, QWidget as _QW, QHBoxLayout as _QH
         if getattr(self, "_synth_holder", None) is None:
             holder = _QW()
@@ -3923,7 +7269,7 @@ class MainWindow(QMainWindow):
         if holder is not None:
             holder.hide()
         # 清掉左侧"正在生成音频"消息（让其它状态正常显示）
-        if self.status.currentMessage().startswith("正在生成音频"):
+        if self.status.currentMessage().startswith(L(L("正在生成音频…"))[:6]):
             self.status.clearMessage()
 
     def _next_audio_filename(self):
@@ -3959,7 +7305,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._invalidate_side_audio(side)
-        self.status.showMessage(("原文" if side == "src" else "译文") + "朗读音频已清空", 2500)
+        self.status.showMessage(L("原文朗读音频已清空") if side == "src" else L("译文朗读音频已清空"), 2500)
 
     def _download_audio(self, side=None):
         if side is None:
@@ -4068,6 +7414,13 @@ class MainWindow(QMainWindow):
 
     def on_tts_ok(self, audio_bytes, boundaries):
         self._hide_synth_busy()
+        # 选区朗读时，若引擎返回"相对选区"(从0起算)的词边界，统一平移成全文绝对位置，
+        # 否则卡拉OK画在文首或画不出来（中文选区偶发无字幕的根因）
+        if boundaries and getattr(self, "_sel_range", None):
+            _a, _b = self._sel_range
+            if _a > 0 and boundaries[-1][1] <= (_b - _a) + 2:
+                boundaries = [(cs + _a, ce + _a, off, dur)
+                              for (cs, ce, off, dur) in boundaries]
         self._speak_boundaries = boundaries
         self._last_audio = audio_bytes
         self._last_audio_sig = getattr(self, "_pending_sig", None)
@@ -4092,7 +7445,7 @@ class MainWindow(QMainWindow):
             self._pending_seek_ratio = None
             QTimer.singleShot(150, lambda: self._seek_ratio(r))
         QTimer.singleShot(600, lambda: setattr(self, "_freeze_slider", False))
-        self.status.showMessage("播放中…", 2000)
+        self.status.showMessage(L("播放中…"), 2000)
 
     def _mark_side_has_audio(self, side, has):
         """标记某侧是否有音频在内存：有->朗读钮青色(可下载)，无->灰色。"""
@@ -4103,9 +7456,10 @@ class MainWindow(QMainWindow):
         # 下载钮可用性跟随
         dl.setEnabled(has)
 
-    def _build_fallback_boundaries(self):
+    def _build_fallback_boundaries(self, _retry=0):
         """没有 WordBoundary 时，按字符/词在总时长上均匀估算高亮时间表。
-        若朗读的是选区，只在选区范围内估算（不能从全文开头算）。"""
+        估算范围永远 = 实际朗读范围(_speak_span)：选区/联动区/直译区/全文都一一对应。
+        首次播放时媒体时长可能尚未加载(=0)，重试等待而不是放弃(修复首次无字幕)。"""
         if self._speak_boundaries:   # 已经有真实边界
             return
         editor = self._speak_editor
@@ -4113,16 +7467,23 @@ class MainWindow(QMainWindow):
             return
         dur = getattr(self, "_play_duration", 0) or (self.player.duration() if self.player else 0)
         if dur <= 0:
+            if _retry < 10 and getattr(self, "_is_speaking", False):
+                QTimer.singleShot(300, lambda: self._build_fallback_boundaries(_retry + 1))
             return
-        # 朗读选区时，只取选区文本与其在文档中的偏移
-        sel = getattr(self, "_sel_range", None)
-        if sel and getattr(self, "_sel_editor", None) is editor:
-            base_off = sel[0]
-            full = editor.toPlainText()
-            text = full[sel[0]:sel[1]]
+        full = editor.toPlainText()
+        span = getattr(self, "_speak_span", None)
+        if span and 0 <= span[0] <= span[1] <= len(full):
+            base_off = span[0]
+            text = full[span[0]:span[1]]
         else:
-            base_off = 0
-            text = editor.toPlainText()
+            # 兜底的兜底：老逻辑(选区或全文)
+            sel = getattr(self, "_sel_range", None)
+            if sel and getattr(self, "_sel_editor", None) is editor:
+                base_off = sel[0]
+                text = full[sel[0]:sel[1]]
+            else:
+                base_off = 0
+                text = full
         if not text.strip():
             return
         import re
@@ -4138,6 +7499,11 @@ class MainWindow(QMainWindow):
             off = dur * i / n
             bounds.append((base_off + s, base_off + e, off, dur / n))
         self._speak_boundaries = bounds
+        try:
+            self._side_cache[getattr(self, "_active_side", "src")]["boundaries"] = \
+                list(self._speak_boundaries)
+        except Exception:
+            pass
 
     def _play_bytes(self, audio_bytes):
         # 用 QBuffer 把内存中的音频喂给 QMediaPlayer；按头部判断格式提示
@@ -4225,13 +7591,13 @@ class MainWindow(QMainWindow):
             name = "原文" if editor is self.input_edit else "译文"
             if state == QMediaPlayer.PlaybackState.PlayingState:
                 self._set_speak_btn_active(btn, True, icon="pause")
-                btn.setToolTip("暂停朗读")
+                btn.setToolTip(L("暂停朗读"))
             elif state == QMediaPlayer.PlaybackState.PausedState:
                 self._set_speak_btn_active(btn, True, icon="speak")
-                btn.setToolTip("继续朗读")
+                btn.setToolTip(L("继续朗读"))
             else:
                 # 停止态颜色由 _reset_speak_buttons 按缓存决定，这里只更新提示
-                btn.setToolTip(f"朗读{name}")
+                btn.setToolTip(L(f"朗读{name}"))
         if state == QMediaPlayer.PlaybackState.StoppedState:
             # 为重读而主动 stop（preserve 期间）不是自然播完：跳过收尾闪亮与清绿，
             # 否则 250ms 后 _finish_karaoke 会把要保持的卡拉OK/选区清掉（#2 根因之二）
@@ -4342,6 +7708,12 @@ class MainWindow(QMainWindow):
             self._link_guard = False
 
     def _on_selection_changed(self, editor):
+        # 多风格灰字区不参与联动：译文侧在直译区之外的选择不建立对应
+        if (editor is getattr(self, "output_edit", None)
+                and getattr(self, "_lit_end", None)):
+            _c0 = editor.textCursor()
+            if _c0.hasSelection() and _c0.selectionStart() >= self._lit_end:
+                return
         """任一区选择文字 -> 该区成为『主动区』(蓝框+蓝底)，另一区为『从属区』，
         用句对应关系把选区映射到从属区并铺灰色底。双向均可。"""
         if self._link_guard:
@@ -4471,13 +7843,20 @@ class MainWindow(QMainWindow):
                 return
         except Exception:
             pass
+        # 进度拖到最左(位置≈0)时不应有任何卡拉OK效果，连第一个词也不点亮。
+        # 之前因提前量(lead)会让 off-lead<=0 成立而误亮第一个词(#2)。
+        if pos_ms <= 0:
+            self._apply_karaoke_selection(bounds[0][0], bounds[0][0])
+            return
         # 提前量：取中间值。之前 350ms 偏多导致字幕抢拍，180ms 偏少又滞后。
         LEAD_FIXED = 120   # 固定提前 120ms
         cur_end = None
         cur_start = bounds[0][0]
         for (cs, ce, off, dur) in bounds:
             lead = LEAD_FIXED + (dur * 0.25 if dur else 0)
-            if off - lead <= pos_ms:
+            # 用 off>0 时才允许提前量，避免第一个词(off≈0)在 pos=0 被提前点亮
+            _eff = off - lead if off > lead else off
+            if _eff <= pos_ms:
                 cur_end = ce
             else:
                 break
@@ -4528,15 +7907,21 @@ class MainWindow(QMainWindow):
         # set_selection 已在 _setup 时设好，clear_range 后蓝色仍在；无选区则什么都不显示
 
     # ---- 进度条拖动 ----
+    def _persist_rate(self):
+        try:
+            self.settings.setValue("tts_rate", self.rate_slider.value())
+        except Exception:
+            pass
+
     def _update_rate_tooltip(self, value=None):
         """语速气球：0 显示『朗读语速 正常』，否则带正负百分比。
         拖动时用 QToolTip 在滑块上方持续显示，不消失。"""
         if value is None:
             value = self.rate_slider.value()
         if value == 0:
-            txt = "朗读语速 正常"
+            txt = L(L("朗读语速 正常"))
         else:
-            txt = f"朗读语速 {'+' if value > 0 else ''}{value}%"
+            txt = L("朗读语速") + f" {'+' if value > 0 else ''}{value}%"
         self.rate_slider.setToolTip(txt)
         # 拖动时在滑块手柄上方持续显示气球
         from PyQt6.QtWidgets import QToolTip
@@ -4557,13 +7942,35 @@ class MainWindow(QMainWindow):
         self._seeking = True
 
     def _on_seek_moved(self, value, side=None):
-        """拖动进度条时实时刷新青色已读位置。只对当前朗读侧生效。"""
-        if not getattr(self, "_seeking", False):
+        """拖动进度条时实时刷新青色已读位置。只对当前朗读侧生效。
+        字幕铁律：该侧音频缓存在 且 该侧文字在 → 拖动必有字幕(边界丢了就恢复/重建)；
+        任一不在 → 必无字幕。字幕与音频捆绑、依附文字，一起出现一起消失。"""
+        s = side if side is not None else getattr(self, "_active_side", "src")
+        # 两侧独立：拖动的不是当前朗读侧则不刷字幕（修复滑原文区译文出字幕）
+        if s != getattr(self, "_active_side", "src") or self.player is None:
             return
-        if side is not None and side != getattr(self, "_active_side", "src"):
+        ed = self.input_edit if s == "src" else self.output_edit
+        txt = ed.toPlainText()
+        if not txt.strip():
+            return   # 文字不在 → 无字幕(音频可照常播放)
+        c = self._side_cache.get(s, {}) if hasattr(self, "_side_cache") else {}
+        if not (c.get("bytes") or getattr(self, "_is_speaking", False)):
+            return   # 音频不在(缓存无bytes且当前非在读) → 无字幕
+        # 两者都在：边界必须有——内存空则先从缓存恢复(缓存bytes在即文字未变，必匹配)，
+        # 缓存也没有再按实际朗读范围重建估算
+        if not self._speak_boundaries:
+            b = c.get("boundaries") or []
+            if b and b[-1][1] <= len(txt):
+                self._speak_boundaries = list(b)
+            else:
+                try:
+                    self._build_fallback_boundaries()
+                except Exception:
+                    pass
+        if not self._speak_boundaries:
             return
         dur = getattr(self, "_play_duration", 0) or (self.player.duration() if self.player else 0)
-        if dur > 0 and self._speak_boundaries:
+        if dur > 0:
             pos_ms = dur * (value / 1000.0)
             self._update_karaoke(pos_ms)
 
@@ -4597,7 +8004,7 @@ class MainWindow(QMainWindow):
 
     def _on_voice_or_rate_changed(self, changed_lang=None):
         # 朗读进行中更改嗓音/语速/引擎 -> 在当前进度处用新设置重读，
-        # 但保持进度条位置不跳回、按钮保持"继续朗读"青色不闪。
+        # 但保持进度条位置不跳回、按钮保持L("继续朗读")青色不闪。
         _playing = False
         if self.player is not None:
             _st = self.player.playbackState()
@@ -4653,14 +8060,14 @@ class MainWindow(QMainWindow):
         self.settings.setValue(f"last_dir_{key}", os.path.dirname(path))
 
     def _gen_filename(self, side, ext=".txt"):
-        """文件名规则（空格分隔）：OT/TT 语言 日期 时间。
-        例如 OT ZH 2026-06-30 013733.txt。原文=OT，译文=TT。"""
+        """文件名规则（空格分隔）：EC OT/TT 语言 日期 时间。
+        例如 EC OT ZH 2026-06-30 013733.txt。原文=OT，译文=TT。"""
         import datetime
         text = (self.input_edit if side == "src" else self.output_edit).toPlainText()
         prefix = "OT" if side == "src" else "TT"
         lang = "ZH" if _text_is_chinese(text) else "EN"
         ts = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
-        return f"{prefix} {lang} {ts}{ext}"
+        return f"EC {prefix} {lang} {ts}{ext}"
 
     def _export_text(self, side):
         """导出当前原文/译文区的文字（只文字，无时间等信息）。"""
@@ -4673,7 +8080,7 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QFileDialog
         filters = "文本 (*.txt);;Markdown (*.md);;Word (*.docx);;JSON (*.json);;PDF (*.pdf)"
         default = os.path.join(self._last_dir("export"), self._gen_filename(side, ".txt"))
-        path, sel = QFileDialog.getSaveFileName(self, f"导出{name}文字", default, filters)
+        path, sel = QFileDialog.getSaveFileName(self, L(f"导出{name}文字"), default, filters)
         if not path:
             return
         try:
@@ -4695,7 +8102,7 @@ class MainWindow(QMainWindow):
             from docx import Document
             doc = Document()
             for line in text.split("\n"):
-                doc.add_paragraph(line)
+                doc.add_paragraph(_xml_safe(line))
             doc.save(path)
         elif ext == ".pdf":
             self._write_pdf(path, text)
@@ -4776,7 +8183,7 @@ class MainWindow(QMainWindow):
     def _import_file(self):
         from PyQt6.QtWidgets import QFileDialog
         filters = "支持的文件 (*.txt *.md *.docx *.pdf);;文本 (*.txt *.md);;Word (*.docx);;PDF (*.pdf)"
-        path, _ = QFileDialog.getOpenFileName(self, "导入文件", self._last_dir("import"), filters)
+        path, _ = QFileDialog.getOpenFileName(self, L("导入文件"), self._last_dir("import"), filters)
         if not path:
             return
         self._remember_dir(path, "import")
@@ -4816,6 +8223,18 @@ class MainWindow(QMainWindow):
         if text.strip():
             self._start_translate(auto=True)
 
+    def _sync_export_text_buttons(self):
+        """导出原文/译文文字钮：该区无文字则灰色不可点（与导出音频钮一致）。"""
+        try:
+            if hasattr(self, "export_src_btn"):
+                self.export_src_btn.setEnabled(
+                    bool(self.input_edit.toPlainText().strip()))
+            if hasattr(self, "export_tgt_btn"):
+                self.export_tgt_btn.setEnabled(
+                    bool(self.output_edit.toPlainText().strip()))
+        except Exception:
+            pass
+
     def _update_file_buttons(self):
         """根据导入/翻译/一致性状态，更新导入钮颜色与导出钮显隐/颜色。
         逻辑：
@@ -4826,6 +8245,13 @@ class MainWindow(QMainWindow):
         imported_text = getattr(self, "_imported_text", None)
         cur_src = self.input_edit.toPlainText().strip()
         consistent = bool(imported) and imported_text is not None and cur_src == imported_text
+
+        # 导出文字钮：该区无文字则灰色不可点（与导出音频钮一致）
+        if hasattr(self, "export_src_btn"):
+            self.export_src_btn.setEnabled(bool(cur_src))
+        if hasattr(self, "export_tgt_btn"):
+            self.export_tgt_btn.setEnabled(
+                bool(self.output_edit.toPlainText().strip()))
 
         # 导入按钮颜色
         if hasattr(self, "import_btn"):
@@ -4884,9 +8310,12 @@ class MainWindow(QMainWindow):
         src_path = getattr(self, "_imported_path", "")
         if not src_path:
             return
+        import datetime
         d = os.path.dirname(src_path)
         base, ext = os.path.splitext(os.path.basename(src_path))
-        default = os.path.join(d, f"{base} T{ext}")   # 加 T 后缀
+        _lang = "ZH" if _text_is_chinese(self.output_edit.toPlainText()) else "EN"
+        _ts = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
+        default = os.path.join(d, f"EC TT {_lang} {_ts} T{ext}")   # 统一 EC 前缀 + T 后缀
         from PyQt6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(self, "导出翻译后的文件", default,
                                               f"原格式 (*{ext})")
@@ -4928,7 +8357,7 @@ class MainWindow(QMainWindow):
             # 段落数不匹配，退回纯文本 docx
             doc = Document()
             for line in tgt_lines:
-                doc.add_paragraph(line)
+                doc.add_paragraph(_xml_safe(line))
             doc.save(out_path)
 
     def stop_speak(self, clear_only=False, keep_slider=False):
@@ -4954,7 +8383,8 @@ class MainWindow(QMainWindow):
             # 停止后：若该侧音频仍在内存，朗读钮保持青色（喇叭图标+可下载），
             # 否则才灰化。图标恢复喇叭、提示恢复"朗读原文/译文"。
             side = getattr(self, "_active_side", "src")
-            self._side_cache.get(side, {})["position"] = 0   # 停止=进度归零，续播位置作废
+            if not clear_only:
+                self._side_cache.get(side, {})["position"] = 0   # 真·停止才归零续播位置
             has_audio = bool(self._side_cache.get(side, {}).get("bytes"))
             btn = self.speak_src_btn if side == "src" else self.speak_tgt_btn
             name = "原文" if side == "src" else "译文"
@@ -4962,7 +8392,7 @@ class MainWindow(QMainWindow):
                 self._set_speak_btn_active(btn, True, icon="speak")
             else:
                 self._set_speak_btn_active(btn, False)
-            btn.setToolTip(f"朗读{name}")
+            btn.setToolTip(L(f"朗读{name}"))
             # 另一侧按钮状态按其缓存独立设置
             other = "tgt" if side == "src" else "src"
             obtn = self.speak_src_btn if other == "src" else self.speak_tgt_btn
@@ -4973,7 +8403,7 @@ class MainWindow(QMainWindow):
                 self._set_speak_btn_active(obtn, False)
             obtn.setToolTip(f"朗读{oname}")
         if not clear_only:
-            self.status.showMessage("已停止", 2000)
+            self.status.showMessage(L("已停止"), 2000)
 
     def closeEvent(self, event):
         # 退出前安全结束朗读线程，避免 "QThread destroyed while running" 崩溃
@@ -4997,6 +8427,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    _install_global_excepthook()   # 越早越好：把槽函数异常从闪退变成提示
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(True)
     # 单实例守护：已有实例运行则提示并退出（修复偶发双开两个程序）
@@ -5008,24 +8439,18 @@ def main():
                                 "English Coach 已在运行，请勿重复启动。")
         sys.exit(0)
     app._single_instance_lock = _lock   # 保持引用直到退出
-    # 深色调色板：接替原全局 QWidget 样式规则的着色（该规则会"污染"滚动条，
-    # 使 Qt 放弃原生绘制画出原始样式，故删规则改用调色板——调色板不影响原生滚动条）
     from PyQt6.QtGui import QPalette, QColor
-    pal = app.palette()
-    pal.setColor(QPalette.ColorRole.Window, QColor("#1e1e1e"))
-    pal.setColor(QPalette.ColorRole.WindowText, QColor("#dcdcdc"))
-    pal.setColor(QPalette.ColorRole.Base, QColor("#252526"))
-    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#2d2d30"))
-    pal.setColor(QPalette.ColorRole.Text, QColor("#dcdcdc"))
-    pal.setColor(QPalette.ColorRole.Button, QColor("#2d2d30"))
-    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#dcdcdc"))
-    pal.setColor(QPalette.ColorRole.Highlight, QColor("#3a6ea5"))
-    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor("#2d2d30"))
-    pal.setColor(QPalette.ColorRole.ToolTipText, QColor("#e0e0e0"))
-    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#777777"))
-    app.setPalette(pal)
-    f = app.font(); f.setPixelSize(13); app.setFont(f)
+    if sys.platform == "darwin":
+        # mac：先按用户设置切原生外观(AppKit)，不设任何调色板——
+        # 让所有原生控件(下拉/气球/按钮/滚动条/标题栏)自动深浅，杜绝自涂与原生打架。
+        _apply_color_scheme(app)
+        f = app.font(); f.setPixelSize(13); app.setFont(f)
+    else:
+        # 各平台一律使用系统原生滚动条：Win11=Fluent圆角，Win10=Vista直角，
+        # Linux=各发行版原生。不再强加任何自定义滚动条样式(2026-07 决定)。
+        # 非 mac：用调色板着色（与 apply_theme 热切换共用 _apply_win_palette，杜绝漂移）
+        _apply_win_palette(app)
+        f = app.font(); f.setPixelSize(13); app.setFont(f)
     # Win11（构建号>=22000）且 Qt>=6.7 提供 windows11 样式 -> 用原生 Fluent 胶囊滚动条
     if sys.platform == "win32":
         try:
@@ -5036,7 +8461,37 @@ def main():
         except Exception:
             pass
     try:
+        _apply_color_scheme(app)
         win = MainWindow()
+        try:
+            def _on_sys_scheme(_sch):
+                from PyQt6.QtCore import QSettings as _QS
+                if _QS("Strilen", "EnglishCoach").value("ui_theme", "跟随系统") == "跟随系统":
+                    win.apply_theme()
+            app.styleHints().colorSchemeChanged.connect(_on_sys_scheme)
+        except Exception:
+            pass
+        # Qt 6.4 没有 colorSchemeChanged 信号(6.5+才有)，上面的 connect 会静默失败。
+        # mac 兜底：轮询当前深浅，变化时重刷主题(跟随系统模式下绘制部分才能跟上)。
+        if sys.platform == "darwin":
+            try:
+                from PyQt6.QtCore import QTimer as _QTm, QSettings as _QS2
+                win._last_sys_light = _theme_is_light()
+                def _poll_theme():
+                    try:
+                        cur = _theme_is_light()
+                        if cur != win._last_sys_light:
+                            win._last_sys_light = cur
+                            if _QS2("Strilen", "EnglishCoach").value(
+                                    "ui_theme", "跟随系统") == "跟随系统":
+                                win.apply_theme()
+                    except Exception:
+                        pass
+                win._theme_poll = _QTm(win)
+                win._theme_poll.timeout.connect(_poll_theme)
+                win._theme_poll.start(2000)
+            except Exception:
+                pass
     except Exception as e:
         # 启动期异常：弹窗显示，避免"无报错也无界面"
         import traceback as _tb
@@ -5046,6 +8501,18 @@ def main():
         except Exception:
             print(msg)
         sys.exit(1)
+    try:
+        # 首次运行：显式写入 false，保证默认非勾选(不置顶)
+        if win.settings.value("always_on_top", None) is None:
+            win.settings.setValue("always_on_top", "false")
+        if win.settings.value("always_on_top", "false") == "true":
+            win.apply_always_on_top(True)
+    except Exception:
+        pass
+    try:
+        win._sync_export_text_buttons()   # 启动时空文本 -> 导出文字钮初始为灰
+    except Exception:
+        pass
     win.show()
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
@@ -5053,4 +8520,16 @@ def main():
 
 
 if __name__ == "__main__":
+    # 关键(修复 macOS Silicon 打包后生成音频时不断弹出新 App 窗口)：
+    # torch/Kokoro 等库会用 multiprocessing 起工作进程。在 PyInstaller 冻结的
+    # app 里，若不在入口最前调用 freeze_support()，每个子进程会重新执行整个
+    # 程序 -> 又弹出一个 App 窗。freeze_support() 让子进程正确识别身份、直接
+    # 干活而不重启 app。必须是 __main__ 里的第一件事。
+    import multiprocessing as _mp
+    _mp.freeze_support()
+    try:
+        # 强制用 spawn 起子进程时也走 freeze 逻辑（macOS 默认已是 spawn）
+        _mp.set_start_method("spawn", force=False)
+    except Exception:
+        pass
     main()

@@ -1,0 +1,17 @@
+# English Coach — Windows GPU 版依赖 / Windows GPU edition
+# 仅 Windows + NVIDIA 显卡使用。先装本文件，再装 requirements.txt 的其余部分
+# （本文件已排除 CPU 版 torch，避免覆盖 CUDA 版）。
+# Windows with an NVIDIA GPU only. Install this first, then the rest of
+# requirements.txt (CPU torch is excluded here so it cannot overwrite CUDA torch).
+#
+#   pip install -r requirements-gpu.txt
+#
+# CUDA 12.8 版 torch 来自 PyTorch 官方索引，不在 PyPI 上。
+# CUDA 12.8 torch comes from PyTorch's own index, not PyPI.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+torch==2.9.1
+
+# GPU 版用较新的 transformers（与 torch 2.9 配套）
+# The GPU edition uses a newer transformers, matching torch 2.9
+transformers>=4.44,<4.49

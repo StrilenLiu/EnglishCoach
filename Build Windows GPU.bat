@@ -1,16 +1,19 @@
 @echo off
 REM ===========================================================================
 REM  EnglishCoach - Windows build script (v1.9.1)
-REM  Output: dist\EnglishCoach\EnglishCoach.exe  and  EnglishCoach-1.0.7-windows.zip
+REM  Output: dist\Windows-x64-GPU\English Coach\English Coach.exe
+REM          and  dist\Windows-x64-GPU\EnglishCoach-<ver>-Windows-x64-GPU.zip
 REM  Bundles Argos en<->zh offline models.
 REM  ASCII-only for GBK consoles.
 REM ===========================================================================
 
-setlocal enabledelayedexpansion
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 
 set APP_NAME=English Coach GPU
-set VERSION=2.5.1
+rem Auto-extract version from english_coach.py (single source of truth)
+for /f tokens^=2^ delims^=^" %%A in ('findstr /b /c:"APP_VERSION" english_coach.py') do set "VERSION=%%A"
+if not defined VERSION set VERSION=0.0.0
 set MAIN=english_coach.py
 set CONDA_ENV=EnglishCoach-GPU
 set PIP_MIRROR=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -79,7 +82,15 @@ call :pipinstall python-docx pypdf pdfplumber reportlab num2words
 call :pipinstall ordered_set addict regex pydantic loguru
 call :pipinstall pypinyin jieba cn2an "misaki[zh]"
 if errorlevel 1 call :pipinstall pypinyin jieba cn2an
-python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || echo   [!] en_core_web_sm preinstall failed
+rem en_core_web_sm is NOT on PyPI (spaCy models ship via GitHub Releases); mirrors
+rem return a 0-byte placeholder that triggers a "Wheel is invalid" error. Check first:
+rem skip if already installed (no noisy error), else install from the official GitHub wheel.
+python -c "import en_core_web_sm" >nul 2>&1
+if errorlevel 1 (
+  python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || echo   [!] en_core_web_sm preinstall failed
+) else (
+  echo   [OK] en_core_web_sm already installed, skipping
+)
 REM Verify CUDA available (False = driver/version mismatch, will fall back to CPU)
 python -c "import torch;print('torch',torch.__version__,'| CUDA available:',torch.cuda.is_available(),'|',(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
 python -c "import torch,transformers,kokoro;print('Kokoro deps OK, transformers',transformers.__version__)" || echo   [!] Kokoro dependency check failed
@@ -111,8 +122,12 @@ if exist "%USERPROFILE%\EnglishCoach Models\Kokoro" (
 )
 
 echo ==^> [5/7] Clean old build
+set DESTDIR=dist\Windows-x64-GPU
 if exist build rmdir /s /q build
-if exist dist rmdir /s /q dist
+rem Clean only this platform's own output folder, keep other platforms' artifacts
+if exist "%DESTDIR%" rmdir /s /q "%DESTDIR%"
+if not exist dist mkdir dist
+mkdir "%DESTDIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
 echo ==^> [6/7] PyInstaller build
@@ -155,19 +170,21 @@ if errorlevel 1 (
 )
 
 echo ==^> [7/7] Package zip
-set OUT=%APP_NAME%-%VERSION%-windows.zip
+set OUT=%DESTDIR%\EnglishCoach-%VERSION%-Windows-x64-GPU.zip
 if exist "%OUT%" del /q "%OUT%"
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\%APP_NAME%' -DestinationPath '%OUT%' -Force"
+rem Move the PyInstaller output into this platform's folder, keep dist root clean
+if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
+powershell -NoProfile -Command "Compress-Archive -Path '%DESTDIR%\%APP_NAME%' -DestinationPath '%OUT%' -Force"
 
 echo.
 echo ================================================================
 echo   Done.
-echo   EXE : dist\%APP_NAME%\%APP_NAME%.exe
+echo   EXE : %DESTDIR%\%APP_NAME%\%APP_NAME%.exe
 echo   Zip : %OUT%
 echo ================================================================
 echo.
 echo If it fails to start, run the exe from a console to see the error:
-echo     dist\%APP_NAME%\%APP_NAME%.exe
+echo     %DESTDIR%\%APP_NAME%\%APP_NAME%.exe
 echo.
 echo Translation/TTS need internet ^(Argos works offline after bundle^).
 goto :end
