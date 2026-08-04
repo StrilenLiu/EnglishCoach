@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
 # English Coach (英语导师) — 翻译 + 朗读 学习助手
 # Copyright (C) 2026 Strilen Liu <vfx@strilen.com>  https://www.strilen.com
 #
@@ -13,8 +16,6 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 # <https://www.gnu.org/licenses/>
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 EnglishCoach - 英语助手工具
 第一版 (v1.0.0)
