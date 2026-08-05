@@ -5,7 +5,27 @@
 
 **当前版本 / Current version: v2.15.12**
 
-![English Coach](screenshot.png)
+![English Coach](assets/screenshot.png)
+
+---
+
+## 下载 / Download
+
+前往 **[Releases 页面](https://github.com/StrilenLiu/EnglishCoach/releases/latest)** 下载最新版，或直接点下表对应平台：
+
+Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/EnglishCoach/releases/latest)**, or use the direct links below:
+
+| 平台 / Platform | 下载 / Download | 说明 / Notes |
+|---|---|---|
+| **Windows (CPU)** | [EnglishCoach-2.15.12-Windows-x64-CPU.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-CPU.zip) | 通用版，推荐大多数用户<br>The general build — recommended for most users |
+| **Windows (GPU)** | [分卷 1 / part 1](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.001) · [分卷 2 / part 2](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.002) · [分卷 3 / part 3](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.003) · [分卷 4 / part 4](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.004) | **四个分卷需全部下载**到同一目录，再右键第一个分卷用 7-Zip 解压<br>**All four parts are required** — download them into the same folder, then extract the first part with 7-Zip |
+| **macOS (Intel)** | [EnglishCoach-2.15.12-MacOS-Intel.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-Intel.zip) | Intel 芯片，macOS 11 Big Sur 起<br>Intel Macs, macOS 11 Big Sur and newer |
+| **macOS (Apple Silicon)** | [EnglishCoach-2.15.12-MacOS-AppleSilicon.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-AppleSilicon.zip) | M 系列芯片原生运行，macOS 12 起<br>Native on M-series chips, macOS 12 and newer |
+| **Linux** | 即将推出 / Coming soon | 预编译版正在准备中；当前可[从源码运行](#从源码运行--running-from-source)或用 `Build Linux.sh` 自行编译<br>A prebuilt package is on the way; for now you can [run from source](#从源码运行--running-from-source) or build one with `Build Linux.sh` |
+
+> 上面的链接指向 v2.15.12。以后发布新版时，[Releases 页面](https://github.com/StrilenLiu/EnglishCoach/releases/latest)总是指向最新版本。
+>
+> The links above point at v2.15.12. The [Releases page](https://github.com/StrilenLiu/EnglishCoach/releases/latest) always resolves to the newest build.
 
 ---
 
@@ -54,6 +74,10 @@ Unpack the archive and double-click `EnglishCoach.exe`. The GPU edition ships as
 Drag `EnglishCoach.app` into your Applications folder and launch it. Choose the download that matches your chip: `MacOS-Intel` for Intel Macs, `MacOS-AppleSilicon` for M-series Macs. The Apple Silicon build runs natively and does not need Rosetta.
 
 **Linux**
+
+> 预编译包尚在准备中，暂未提供下载。目前请[从源码运行](#从源码运行--running-from-source)，或用 `Build Linux.sh` 自行编译。下面的说明适用于预编译包发布之后。
+>
+> The prebuilt package is still being prepared and is not available for download yet. For now, [run from source](#从源码运行--running-from-source) or build one with `Build Linux.sh`. The instructions below apply once the prebuilt package ships.
 
 下载 `EnglishCoach-<版本>-Linux-x64.tar.gz`，解压后运行启动脚本：
 
@@ -253,7 +277,7 @@ API keys are stored locally through QSettings and are never transmitted anywhere
 
 If you find this program useful, you are welcome to buy the author a coffee:
 
-<img src="alipay.png" alt="支付宝 / Alipay" width="220">
+<img src="assets/alipay.png" alt="支付宝 / Alipay" width="220">
 
 **支付宝 / Alipay**
 
