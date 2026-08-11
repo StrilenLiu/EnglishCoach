@@ -19,8 +19,8 @@ Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/E
 |---|---|---|
 | **Windows (CPU)** | [EnglishCoach-2.15.12-Windows-x64-CPU.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-CPU.zip) | 通用版，推荐大多数用户<br>The general build — recommended for most users |
 | **Windows (GPU)** | [分卷 1 / part 1](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.001) · [分卷 2 / part 2](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.002) · [分卷 3 / part 3](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.003) · [分卷 4 / part 4](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.004) | **四个分卷需全部下载**到同一目录，再右键第一个分卷用 7-Zip 解压<br>**All four parts are required** — download them into the same folder, then extract the first part with 7-Zip |
-| **macOS (Intel)** | [EnglishCoach-2.15.12-MacOS-Intel.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-Intel.zip) | Intel 芯片，macOS 11 Big Sur 起<br>Intel Macs, macOS 11 Big Sur and newer |
-| **macOS (Apple Silicon)** | [EnglishCoach-2.15.12-MacOS-AppleSilicon.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-AppleSilicon.zip) | M 系列芯片原生运行，macOS 12 起<br>Native on M-series chips, macOS 12 and newer |
+| **macOS (Intel)** | [EnglishCoach-2.15.12-MacOS-Intel.dmg](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-Intel.dmg) | Intel 芯片，macOS 11 Big Sur 起<br>Intel Macs, macOS 11 Big Sur and newer |
+| **macOS (Apple Silicon)** | [EnglishCoach-2.15.12-MacOS-AppleSilicon.dmg](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-AppleSilicon.dmg) | M 系列芯片原生运行，macOS 12 起<br>Native on M-series chips, macOS 12 and newer |
 | **Linux** | [EnglishCoach-2.15.12-Linux-x64.tar.gz](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64.tar.gz) | glibc 2.31 起（Ubuntu 20.04 及以上）<br>glibc 2.31 and newer (Ubuntu 20.04-era and later) |
 
 > 上面的链接指向 v2.15.12。以后发布新版时，[Releases 页面](https://github.com/StrilenLiu/EnglishCoach/releases/latest)总是指向最新版本。
@@ -87,13 +87,22 @@ Unpack the archive and double-click `EnglishCoach.exe`. The GPU edition ships as
 
 **macOS**
 
-双击 `Install.command` 即可完成安装——它会复制到「应用程序」并**自动移除隔离标记**（本程序未签名，不移除的话首次打开会被系统拦截）。也可以手动把 `EnglishCoach.app` 拖入「应用程序」文件夹。
+请按芯片类型选择下载：Intel 机型选 `MacOS-Intel`，M 系列芯片选 `MacOS-AppleSilicon`。Apple Silicon 版为原生运行，不需要 Rosetta。
 
-Double-click `Install.command` to install: it copies the app into Applications and **removes the quarantine flag automatically**, which matters because the app is unsigned and macOS would otherwise refuse to open it the first time. You can also drag `EnglishCoach.app` into Applications by hand.
+Choose the download that matches your chip: `MacOS-Intel` for Intel Macs, `MacOS-AppleSilicon` for M-series Macs. The Apple Silicon build runs natively and does not need Rosetta.
 
-把 `EnglishCoach.app` 拖入「应用程序」文件夹后启动。请按芯片类型选择对应下载：Intel 机型选 `MacOS-Intel`，M 系列芯片选 `MacOS-AppleSilicon`。
+双击下载得到的 `.dmg` 挂载后，有两种安装方式：
 
-Drag `EnglishCoach.app` into your Applications folder and launch it. Choose the download that matches your chip: `MacOS-Intel` for Intel Macs, `MacOS-AppleSilicon` for M-series Macs. The Apple Silicon build runs natively and does not need Rosetta.
+Double-click the downloaded `.dmg` to mount it. There are two ways to install:
+
+- **双击 `Install.command`（推荐）** —— 自动复制到「应用程序」并**移除隔离标记**。本程序未做代码签名，不移除的话首次打开会被系统拦截，提示「已损坏」或「无法验证开发者」。
+  **Double-click `Install.command` (recommended)** — it copies the app into Applications and **removes the quarantine flag**. The app is unsigned, so without this macOS blocks the first launch with a "damaged" or "unverified developer" message.
+- **手动拖拽** —— 把 `English Coach.app` 拖入「应用程序」文件夹。此时需要自己处理隔离标记，见下方[常见问题](#常见问题--troubleshooting)。
+  **Drag manually** — drag `English Coach.app` into your Applications folder. You will then need to clear the quarantine flag yourself; see [Troubleshooting](#常见问题--troubleshooting) below.
+
+安装完成后可推出（弹出）磁盘映像，并删除 `.dmg` 文件。
+
+Once installed you can eject the disk image and delete the `.dmg` file.
 
 **Linux**
 
@@ -151,7 +160,7 @@ This app is not code-signed — Apple's Developer ID requires a paid yearly memb
 - **macOS**：「系统设置 → 隐私与安全性」点『仍要打开』，或在终端执行下面这条命令移除隔离标记。
   Go to System Settings → Privacy & Security and click **Open Anyway**, or remove the quarantine flag from Terminal:
   ```bash
-  sudo xattr -rd com.apple.quarantine /Applications/EnglishCoach.app
+  sudo xattr -rd com.apple.quarantine "/Applications/English Coach.app"
   ```
 - **Windows**：SmartScreen 提示时点『更多信息 → 仍要运行』。
   At the SmartScreen prompt, click **More info → Run anyway**.
