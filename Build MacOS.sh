@@ -305,6 +305,16 @@ until hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGE" -ov -format UDZO
 done
 rm -rf "$STAGE"
 
+# 随产物附带安装/卸载脚本（双击即可运行，会处理未签名应用的隔离标记）
+for _s in Install.command Uninstall.command; do
+    if [ -f "$_s" ]; then
+        cp "$_s" "${DESTDIR}/$_s"
+        chmod +x "${DESTDIR}/$_s"
+        echo "    已附带 $_s"
+    else
+        echo "    ! 未找到 $_s，产物中将没有安装脚本"
+    fi
+done
 echo ""
 echo "================================================================"
 # 把 .app 移进本平台产物目录，dist 根目录保持干净

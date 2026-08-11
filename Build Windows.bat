@@ -166,6 +166,16 @@ if exist "%OUT%" del /q "%OUT%"
 REM Zip the whole app folder (so the zip contains "English Coach\English Coach.exe")
 rem Move the PyInstaller output into this platform's folder, keep dist root clean
 if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
+REM --- 随产物附带安装/卸载脚本（必须在打包成 zip 之前放进去）---
+for %%S in (Install.bat Uninstall.bat) do (
+    if exist "%%S" (
+        copy /y "%%S" "%DESTDIR%\%APP_NAME%\%%S" >nul
+        echo     already bundled %%S
+    ) else (
+        echo     [!] %%S not found - installer will be missing from the build
+    )
+)
+
 powershell -NoProfile -Command "Compress-Archive -Path '%DESTDIR%\%APP_NAME%' -DestinationPath '%OUT%' -Force"
 
 echo.

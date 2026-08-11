@@ -21,7 +21,7 @@ Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/E
 | **Windows (GPU)** | [分卷 1 / part 1](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.001) · [分卷 2 / part 2](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.002) · [分卷 3 / part 3](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.003) · [分卷 4 / part 4](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.004) | **四个分卷需全部下载**到同一目录，再右键第一个分卷用 7-Zip 解压<br>**All four parts are required** — download them into the same folder, then extract the first part with 7-Zip |
 | **macOS (Intel)** | [EnglishCoach-2.15.12-MacOS-Intel.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-Intel.zip) | Intel 芯片，macOS 11 Big Sur 起<br>Intel Macs, macOS 11 Big Sur and newer |
 | **macOS (Apple Silicon)** | [EnglishCoach-2.15.12-MacOS-AppleSilicon.zip](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-AppleSilicon.zip) | M 系列芯片原生运行，macOS 12 起<br>Native on M-series chips, macOS 12 and newer |
-| **Linux** | 即将推出 / Coming soon | 预编译版正在准备中；当前可[从源码运行](#从源码运行--running-from-source)或用 `Build Linux.sh` 自行编译<br>A prebuilt package is on the way; for now you can [run from source](#从源码运行--running-from-source) or build one with `Build Linux.sh` |
+| **Linux** | [EnglishCoach-2.15.12-Linux-x64.tar.gz](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64.tar.gz) | glibc 2.31 起（Ubuntu 20.04 及以上）<br>glibc 2.31 and newer (Ubuntu 20.04-era and later) |
 
 > 上面的链接指向 v2.15.12。以后发布新版时，[Releases 页面](https://github.com/StrilenLiu/EnglishCoach/releases/latest)总是指向最新版本。
 >
@@ -61,7 +61,25 @@ English Coach is a desktop translation and speech tool. It bundles 14 translatio
 
 ### 各平台安装与启动 / Installing and launching
 
+每个平台的压缩包内都附带了**安装与卸载脚本**，运行后会把程序放到系统的标准位置并创建快捷方式/菜单入口，卸载时也能一并清理干净。不想安装的话，直接运行程序本体同样可以。
+
+Every platform archive ships with **install and uninstall scripts**. Running the installer places the program in the standard location for your system and creates a shortcut or menu entry; the uninstaller removes everything cleanly. You can also just run the program in place without installing.
+
+| 平台 / Platform | 安装 / Install | 卸载 / Uninstall |
+|---|---|---|
+| Windows | 双击 `Install.bat` | 双击 `Uninstall.bat` |
+| macOS | 双击 `Install.command` | 双击 `Uninstall.command` |
+| Linux | `./Install.sh` | `./Uninstall.sh` |
+
+卸载脚本默认**保留**你的翻译历史、设置与 API Key，运行时会单独询问是否一并删除。
+
+The uninstallers **keep** your translation history, settings and API keys by default, and ask separately before deleting them.
+
 **Windows**
+
+双击 `Install.bat` 安装到「开始」菜单（可选桌面快捷方式，无需管理员权限），或直接双击 `EnglishCoach.exe` 免安装运行。
+
+Double-click `Install.bat` to install with a Start Menu entry and an optional Desktop shortcut — no administrator rights needed — or just double-click `EnglishCoach.exe` to run it in place.
 
 解压后双击 `EnglishCoach.exe` 即可。GPU 版为分卷压缩包，请把所有分卷（`.7z.001`、`.7z.002` …）下载到**同一目录**，然后右键第一个分卷用 7-Zip 解压。
 
@@ -69,15 +87,15 @@ Unpack the archive and double-click `EnglishCoach.exe`. The GPU edition ships as
 
 **macOS**
 
+双击 `Install.command` 即可完成安装——它会复制到「应用程序」并**自动移除隔离标记**（本程序未签名，不移除的话首次打开会被系统拦截）。也可以手动把 `EnglishCoach.app` 拖入「应用程序」文件夹。
+
+Double-click `Install.command` to install: it copies the app into Applications and **removes the quarantine flag automatically**, which matters because the app is unsigned and macOS would otherwise refuse to open it the first time. You can also drag `EnglishCoach.app` into Applications by hand.
+
 把 `EnglishCoach.app` 拖入「应用程序」文件夹后启动。请按芯片类型选择对应下载：Intel 机型选 `MacOS-Intel`，M 系列芯片选 `MacOS-AppleSilicon`。
 
 Drag `EnglishCoach.app` into your Applications folder and launch it. Choose the download that matches your chip: `MacOS-Intel` for Intel Macs, `MacOS-AppleSilicon` for M-series Macs. The Apple Silicon build runs natively and does not need Rosetta.
 
 **Linux**
-
-> 预编译包尚在准备中，暂未提供下载。目前请[从源码运行](#从源码运行--running-from-source)，或用 `Build Linux.sh` 自行编译。下面的说明适用于预编译包发布之后。
->
-> The prebuilt package is still being prepared and is not available for download yet. For now, [run from source](#从源码运行--running-from-source) or build one with `Build Linux.sh`. The instructions below apply once the prebuilt package ships.
 
 下载 `EnglishCoach-<版本>-Linux-x64.tar.gz`，解压后运行启动脚本：
 
@@ -157,6 +175,96 @@ This app is not code-signed — Apple's Developer ID requires a paid yearly memb
   **The Kokoro speech model** is hosted on Hugging Face, which is not directly reachable from mainland China. The app detects the system region and automatically falls back to the `hf-mirror.com` community mirror, so the one-time download normally succeeds without a VPN. Set the `HF_ENDPOINT` environment variable to point at a different mirror.
 - **需要 VPN**：Google 翻译、DeepL 翻译，以及在线朗读（微软 Edge 嗓音）。
   **Needs a VPN**: Google Translate, DeepL, and online text-to-speech (Microsoft Edge voices).
+
+---
+
+## 常见问题 / Troubleshooting
+
+### Linux：启动时报 `qt.qpa.plugin` 错误 / Qt platform plugin errors on Linux
+
+若看到类似下面的报错，说明系统缺少 Qt 需要的库：
+
+If you see an error like the one below, your system is missing a library that Qt needs:
+
+```
+qt.qpa.plugin: From 6.5.0, xcb-cursor0 or libxcb-cursor0 is needed to load
+the Qt xcb platform plugin.
+This application failed to start because no Qt platform plugin could be initialized.
+```
+
+v2.15.12 起产物已捆绑常缺的 xcb 支持库，多数情况下不会再遇到。万一仍然出现，按发行版执行：
+
+Since v2.15.12 the build bundles the commonly-missing xcb libraries, so this should be rare. If it still happens, install them for your distribution:
+
+```bash
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y libxcb-cursor0 libxkbcommon-x11-0 libgl1
+
+# Fedora / RHEL
+sudo dnf install -y xcb-util-cursor libxkbcommon-x11 mesa-libGL
+
+# Arch
+sudo pacman -S xcb-util-cursor libxkbcommon-x11
+```
+
+用启动脚本 `English Coach.sh` 运行时，程序会**在启动前自动检查**并直接给出适配你系统的安装命令，不必自己判断缺什么。
+
+When launched through `English Coach.sh` the program **checks these libraries before starting** and prints the exact install command for your distribution, so you do not have to work out what is missing.
+
+### Linux：有 `pipewire` 警告但程序正常 / pipewire warnings on Linux
+
+```
+qt.multimedia.symbolsresolver: Couldn't load pipewire-0.3 library
+```
+
+这只是 Qt 在探测音频后端，找不到 PipeWire 会自动回退到 PulseAudio 或 ALSA。**只要朗读有声音就可以忽略。**
+
+This is only Qt probing for an audio backend; without PipeWire it falls back to PulseAudio or ALSA. **If playback works, ignore it.**
+
+确实没有声音时再安装（包名随系统版本不同）：
+
+Only if you actually get no sound, install it — the package name varies by release:
+
+```bash
+sudo apt install -y libpipewire-0.3-0t64   # Ubuntu 24.04 及更新 / and newer
+sudo apt install -y libpipewire-0.3-0      # Ubuntu 22.04 及更早 / and older
+```
+
+若提示找不到软件包，先 `sudo apt update`；仍找不到就用 `apt-cache search pipewire | grep ^libpipewire` 查看你的系统里实际叫什么。
+
+If apt reports no such package, run `sudo apt update` first; if it still cannot be found, use `apt-cache search pipewire | grep ^libpipewire` to see the actual name on your system.
+
+### macOS：提示「已损坏」或无法打开 / macOS says the app is damaged or refuses to open
+
+本程序未做代码签名。**双击 `Install.command` 安装即可自动解决**（它会移除隔离标记）。若手动拖入「应用程序」，请执行：
+
+The app is not code-signed. **Double-clicking `Install.command` handles this automatically** by removing the quarantine flag. If you copied the app manually instead, run:
+
+```bash
+sudo xattr -rd com.apple.quarantine "/Applications/English Coach.app"
+```
+
+### Windows：SmartScreen 拦截 / SmartScreen blocks the app
+
+点「更多信息 → 仍要运行」。这是未签名程序的常规提示，与安全性无关。
+
+Click **More info → Run anyway**. This is the standard prompt for unsigned software and does not indicate a problem with the program.
+
+### 首次朗读要等很久 / The first playback takes a long time
+
+Kokoro 离线朗读模型约 330MB，首次使用时下载，之后完全离线。中国大陆会自动改用 `hf-mirror.com` 镜像。
+
+The Kokoro offline speech model is about 330MB and is downloaded on first use, after which it works entirely offline. Users in mainland China are automatically switched to the `hf-mirror.com` mirror.
+
+### 程序无法启动且没有任何提示 / The app fails to start silently
+
+查看运行日志，其中记录了未捕获的异常：
+
+Check the runtime log, which records uncaught exceptions:
+
+- Windows：`%APPDATA%\EnglishCoach\运行日志.txt`
+- macOS：`~/Library/Application Support/EnglishCoach/运行日志.txt`
+- Linux：`~/.local/share/EnglishCoach/运行日志.txt`
 
 ---
 
@@ -257,9 +365,33 @@ Four build scripts are included. Each extracts the version automatically from `A
 
 If `ctranslate2` fails to import during the build, install the Visual C++ Redistributable (x64) first.
 
-**Linux 编译提示 / Linux build note**：建议在较老的发行版（如 Ubuntu 20.04）上编译。glibc 向下不兼容，用新系统编出的产物无法在老系统上运行，反之则可以。
+**Linux 编译提示 / Linux build note**：建议在较老的发行版（如 Ubuntu 20.04、Debian 11）上编译。glibc 向下不兼容，用新系统编出的产物无法在老系统上运行，反之则可以。
 
-Build on an older distribution such as Ubuntu 20.04. glibc is forward-compatible but not backward-compatible, so a binary built on a new system will refuse to start on older ones, while a binary built on an old system runs everywhere newer.
+Build on an older distribution such as Ubuntu 20.04 or Debian 11. glibc is forward-compatible but not backward-compatible, so a binary built on a new system will refuse to start on older ones, while a binary built on an old system runs everywhere newer.
+
+没有老系统也不必重装 —— 用 Docker 即可，`python:3.10-bullseye` 是 Debian 11 底座（glibc 2.31）且自带 Python 3.10：
+
+You do not need to reinstall anything to get an old base — Docker is enough. The `python:3.10-bullseye` image is Debian 11 (glibc 2.31) and ships Python 3.10:
+
+```bash
+docker run --rm -it -v "$PWD":/src -w /src python:3.10-bullseye bash
+# 容器内 / inside the container:
+apt update && apt install -y libgl1 libxkbcommon-x11-0 libegl1 zip \
+    libxcb-cursor0 libxcb-image0 libxcb-util1 libxcb-render-util0
+bash "Build Linux.sh"
+```
+
+后面那四个 `libxcb-*` 是给产物**捆绑**用的（共约 94KB）：Qt 6.5+ 的 xcb 插件需要 `libxcb-cursor`，而多数发行版默认不装，用户一启动就会看到一堆 `qt.qpa.plugin` 报错。编译环境里装上它们，构建脚本会自动打进产物，用户端就不必再手动安装。注意 `libxcb.so.1`、`libX11`、`libc` 这类**不会**被捆绑 —— 它们必须与用户的 X 服务器和显卡驱动匹配，捆绑反而会引发难查的崩溃。
+
+The four `libxcb-*` packages are there so the build can **bundle** them (about 94KB total). Qt 6.5+ needs `libxcb-cursor` for its xcb platform plugin, yet most distributions do not install it by default, so users otherwise hit a wall of `qt.qpa.plugin` errors on first launch. With these present in the build environment the script bundles them automatically and users no longer need to install anything by hand. Note that `libxcb.so.1`, `libX11` and `libc` are deliberately **not** bundled: those must match the user's X server and graphics drivers, and bundling them causes hard-to-diagnose crashes instead.
+
+Windows 的 CMD 请把 `"$PWD"` 换成 `"%cd%"`，PowerShell 换成 `"${PWD}"`。产物会出现在宿主机的 `dist/Linux-x64/`。容器没有图形界面，无法在其中启动程序，但打包本身不需要界面 —— 请到有桌面的 Linux 上测试运行。
+
+On Windows use `"%cd%"` in CMD or `"${PWD}"` in PowerShell instead of `"$PWD"`. The output appears in `dist/Linux-x64/` on the host. The container has no graphical environment so the app cannot be launched inside it, but packaging does not need one — test the result on a Linux machine with a desktop.
+
+**PyQt6 版本钉死的原因 / Why PyQt6 is pinned**：脚本固定使用 PyQt6 6.9.1。6.10 起的 Linux 轮子是 `manylinux_2_34`，要求 glibc 2.34 以上，在 Debian 11 / Ubuntu 20.04 上装不了，pip 会退去下载源码包现场编译并因缺少 qmake 而失败。6.9.x 的轮子是 `manylinux_2_28`，是能装在 glibc 2.31 上的最新版本；改用 6.10+ 会把最低要求抬到 glibc 2.34，将 Ubuntu 20.04 与 22.04 的用户一并挡在门外。如需覆盖更老的系统，可用 `PYQT_VER=6.8.1 bash "Build Linux.sh"` 指定版本。
+
+The script pins PyQt6 6.9.1. From 6.10 onwards the Linux wheels are `manylinux_2_34` and require glibc 2.34 or newer, which Debian 11 and Ubuntu 20.04 do not have — pip then falls back to the source archive and fails while building it because qmake is missing. The 6.9.x wheels are `manylinux_2_28`, making 6.9.1 the newest release installable on glibc 2.31. Moving to 6.10+ would raise the floor to glibc 2.34 and shut out Ubuntu 20.04 and 22.04 users alike. To reach even older systems, override the version with `PYQT_VER=6.8.1 bash "Build Linux.sh"`.
 
 ---
 

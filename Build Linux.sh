@@ -24,48 +24,123 @@ PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_FALLBACK="https://pypi.org/simple"
 
 pip_install () {
-    python -m pip install "$@" -i "$PIP_MIRROR" || \
-    python -m pip install "$@" -i "$PIP_FALLBACK"
+    "$PY" -m pip install "$@" -i "$PIP_MIRROR" || \
+    "$PY" -m pip install "$@" -i "$PIP_FALLBACK"
 }
 
-echo "==> [1/7] 激活 conda 环境: ${CONDA_ENV}"
-if [ -z "$(command -v conda)" ]; then
-    echo "✗ 未找到 conda，请先安装并加入 PATH"; exit 1
-fi
-CONDA_BASE="$(conda info --base 2>/dev/null)"
-for cand in "$CONDA_BASE" "$HOME/anaconda3" "$HOME/miniconda3" \
-            "/opt/anaconda3" "/opt/miniconda3"; do
-    if [ -n "$cand" ] && [ -f "$cand/etc/profile.d/conda.sh" ]; then
-        source "$cand/etc/profile.d/conda.sh"; break
+echo "==> [1/7] 准备 Python 环境"
+# 有 conda 就用指定的 conda 环境；没有(如 Docker / CI 容器)则直接用当前 Python。
+# 这样在 python:3.10-bullseye 这类镜像里可以零配置直接编译，
+# 而 glibc 2.31 的底座正好保证产物能兼容 Ubuntu 20.04 及以上。
+USE_CONDA=0
+if command -v conda >/dev/null 2>&1; then
+    CONDA_BASE="$(conda info --base 2>/dev/null)"
+    for cand in "$CONDA_BASE" "$HOME/anaconda3" "$HOME/miniconda3" \
+                "/opt/anaconda3" "/opt/miniconda3"; do
+        if [ -n "$cand" ] && [ -f "$cand/etc/profile.d/conda.sh" ]; then
+            source "$cand/etc/profile.d/conda.sh"; break
+        fi
+    done
+    if conda env list | grep -qE "(^|/)${CONDA_ENV}(\s|$)"; then
+        conda activate "${CONDA_ENV}"
+        if [ "${CONDA_DEFAULT_ENV}" != "${CONDA_ENV}" ]; then
+            echo "✗ conda 环境 ${CONDA_ENV} 激活失败，中止以免装错环境"; exit 1
+        fi
+        USE_CONDA=1
+        echo "    使用 conda 环境: ${CONDA_DEFAULT_ENV}"
+    else
+        echo "    ! 未找到 conda 环境 ${CONDA_ENV}，改用当前 Python"
+        echo "      如需使用 conda: conda create -n ${CONDA_ENV} python=3.12 -y"
     fi
-done
-if ! conda env list | grep -qE "(^|/)${CONDA_ENV}(\s|$)"; then
-    echo "✗ 未找到环境 ${CONDA_ENV}，请先：conda create -n ${CONDA_ENV} python=3.12 -y"; exit 1
+else
+    echo "    未检测到 conda，使用当前 Python(适用于 Docker / CI)"
 fi
-conda activate "${CONDA_ENV}"
-echo "    ----------------------------------------"
-echo "    当前 conda 环境: ${CONDA_DEFAULT_ENV}"
-echo "    Python 路径    : $(which python)"
-python --version
-echo "    ----------------------------------------"
-if [ "${CONDA_DEFAULT_ENV}" != "${CONDA_ENV}" ]; then
-    echo "✗ 环境未正确激活，中止以免装错环境"; exit 1
+
+# 统一确定解释器：conda 环境下是 python，否则用虚拟环境里的 python。
+# 建虚拟环境有两个原因：一是 Debian/Ubuntu 的系统 Python 受 PEP 668 保护，
+# 直接 pip 安装会被拒绝(externally-managed-environment)；二是避免把一堆
+# 依赖装进系统目录污染环境。
+if [ "$USE_CONDA" = "1" ]; then
+    PY=python
+else
+    BASE_PY="$(command -v python3 || command -v python)"
+    if [ -z "$BASE_PY" ]; then
+        echo "✗ 未找到 Python 解释器"; exit 1
+    fi
+    VENV_DIR="${VENV_DIR:-.build-venv}"
+    # 已存在的虚拟环境若是低版本 Python 建的(比如换了容器/基础镜像)，
+    # 直接复用会一直卡在版本检查上，这里自动识别并重建。
+    if [ -x "${VENV_DIR}/bin/python" ]; then
+        if "${VENV_DIR}/bin/python" -c 'import sys; sys.exit(0 if sys.version_info>=(3,10) else 1)' 2>/dev/null; then
+            echo "    复用已有虚拟环境: ${VENV_DIR}"
+        else
+            _old_ver="$("${VENV_DIR}/bin/python" -c 'import sys;print(sys.version.split()[0])' 2>/dev/null)"
+            echo "    已有虚拟环境是 Python ${_old_ver}(低于 3.10)，删除重建"
+            rm -rf "${VENV_DIR}"
+        fi
+    fi
+    if [ ! -x "${VENV_DIR}/bin/python" ]; then
+        # 基础解释器本身也要够新，否则建出来的还是旧版本
+        if ! "$BASE_PY" -c 'import sys; sys.exit(0 if sys.version_info>=(3,10) else 1)' 2>/dev/null; then
+            echo "✗ 当前 Python 为 $("$BASE_PY" -c 'import sys;print(sys.version.split()[0])')，需要 3.10 或更新"
+            echo "  提示：ubuntu:20.04 镜像自带 Python 3.8，请改用 python:3.10-bullseye"
+            echo "        docker run --rm -it -v \"%cd%\":/src -w /src python:3.10-bullseye bash"
+            exit 1
+        fi
+        echo "    创建虚拟环境: ${VENV_DIR}"
+        "$BASE_PY" -m venv "${VENV_DIR}" || {
+            echo "✗ 创建虚拟环境失败。Debian/Ubuntu 上可能需要： apt install -y python3-venv"
+            exit 1
+        }
+    fi
+    PY="$(cd "${VENV_DIR}/bin" && pwd)/python"
 fi
+if [ -z "$PY" ] || [ ! -x "$PY" ]; then
+    echo "✗ 未找到可用的 Python 解释器"; exit 1
+fi
+echo "    ----------------------------------------"
+echo "    Python 路径: $PY"
+"$PY" --version
+echo "    ----------------------------------------"
+# 版本下限检查：程序需要 3.10+
+"$PY" - <<'PYCHK' || exit 1
+import sys
+if sys.version_info < (3, 10):
+    print(f"\u2717 需要 Python 3.10 或更新，当前为 {sys.version.split()[0]}")
+    sys.exit(1)
+PYCHK
 
 echo "==> [2/7] 升级 pip 与打包工具"
 pip_install -U pip
 pip_install pyinstaller
 
 echo "==> [3/7] 安装运行依赖"
-# Linux 用最新 PyQt6(6.11.x)——Linux 无 Big Sur 兼容包袱
-pip_install PyQt6 PyQt6-Qt6
+# PyQt6 版本必须钉死：6.10 起的 Linux 轮子是 manylinux_2_34，要求 glibc >= 2.34，
+# 在 Debian 11 / Ubuntu 20.04(glibc 2.31) 上装不了 —— pip 会退去下源码包现场编译，
+# 而编译 PyQt6 需要 qmake 工具链，最终报 PyProjectOptionException('qmake')。
+# 6.9.x 的轮子是 manylinux_2_28(glibc >= 2.28)，是能在 2.31 底座上安装的最新版本。
+# 用它编出的产物可覆盖 Ubuntu 20.04 及以上；若改用 6.10+，最低要求会抬到 glibc 2.34，
+# 把 Ubuntu 20.04 与 22.04 的用户都挡在外面。
+PYQT_VER="${PYQT_VER:-6.9.1}"
+echo "    PyQt6 ${PYQT_VER}(manylinux_2_28，兼容 glibc 2.28+)"
+# --only-binary 强制使用预编译轮子：装不上就立刻报错，
+# 而不是悄悄退去源码编译、跑很久再失败。
+"$PY" -m pip install --only-binary :all: \
+    "PyQt6==${PYQT_VER}" "PyQt6-Qt6==${PYQT_VER}" "PyQt6-sip" -i "$PIP_MIRROR" || \
+"$PY" -m pip install --only-binary :all: \
+    "PyQt6==${PYQT_VER}" "PyQt6-Qt6==${PYQT_VER}" "PyQt6-sip" -i "$PIP_FALLBACK" || {
+    echo "✗ PyQt6 ${PYQT_VER} 预编译轮子安装失败"
+    echo "  本机 glibc: $(ldd --version 2>/dev/null | head -1)"
+    echo "  需要 glibc >= 2.28。若底座过旧，可试更低版本： PYQT_VER=6.8.1 bash \"Build Linux.sh\""
+    exit 1
+}
 # —— Argos 离线翻译：与其它平台一致的兼容版本组合 ——
 pip_install "setuptools<81"
 pip_install "numpy<2"
 pip_install "sentencepiece==0.2.0"
 pip_install "ctranslate2==4.3.1"
-python -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_MIRROR" || \
-python -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_FALLBACK"
+"$PY" -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_MIRROR" || \
+"$PY" -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_FALLBACK"
 pip_install sacremoses
 pip_install -U edge-tts
 
@@ -81,15 +156,15 @@ pip_install pypinyin jieba cn2an "misaki[zh]" || pip_install pypinyin jieba cn2a
 # misaki 英文 G2P 需要 spaCy 英文模型。它不在 PyPI（走 GitHub Releases），
 # 镜像会返回 0 字节占位导致 "Wheel is invalid" 报错。先检查是否已安装：
 # 已装则跳过，未装才安装——优先官方 GitHub wheel，失败再退回 pip。
-if python -c "import en_core_web_sm" >/dev/null 2>&1; then
+if "$PY" -c "import en_core_web_sm" >/dev/null 2>&1; then
   echo "  ✓ en_core_web_sm 已安装，跳过"
 else
-  python -m pip install \
+  "$PY" -m pip install \
     "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
     || pip_install en_core_web_sm \
     || echo "  ⚠ en_core_web_sm 预装失败，首次离线英文朗读会自动下载（需联网）"
 fi
-python -c "import torch,transformers,kokoro;print('  ✓ Kokoro 依赖链 OK, torch',torch.__version__,'transformers',transformers.__version__)" \
+"$PY" -c "import torch,transformers,kokoro;print('  ✓ Kokoro 依赖链 OK, torch',torch.__version__,'transformers',transformers.__version__)" \
   || echo "  ⚠ Kokoro 依赖校验未通过，离线朗读可能不可用"
 # espeak-ng 是 Kokoro 英文 G2P 的后备依赖（Linux 用系统包管理器）
 if ! command -v espeak-ng >/dev/null 2>&1; then
@@ -98,7 +173,7 @@ if ! command -v espeak-ng >/dev/null 2>&1; then
 fi
 
 echo "==> [4/7] 预下载 Kokoro 模型（约 330MB，首次较慢，可离线跳过）"
-python - <<'PYEOF' || echo "  ⚠ Kokoro 模型预下载失败，离线英文嗓音在无网时将不可用"
+"$PY" - <<'PYEOF' || echo "  ⚠ Kokoro 模型预下载失败，离线英文嗓音在无网时将不可用"
 import os
 try:
     from huggingface_hub import snapshot_download
@@ -112,7 +187,7 @@ except Exception as e:
 PYEOF
 
 echo "==> [5/7] 校验离线翻译依赖"
-if ! python -c "import ctranslate2, sentencepiece" 2>/dev/null; then
+if ! "$PY" -c "import ctranslate2, sentencepiece" 2>/dev/null; then
     echo "✗ ctranslate2 / sentencepiece 导入失败。"
     echo "  请确认用了预编译包： pip install 'sentencepiece==0.2.0' 'ctranslate2==4.3.1' --only-binary :all:"
     exit 1
@@ -128,6 +203,37 @@ MODEL_ARG=""
 if [ -d argos_models ] && [ -n "$(ls -A argos_models 2>/dev/null)" ]; then
     MODEL_ARG="--add-data argos_models:argos_models"
 fi
+# —— 捆绑常缺的 xcb 小库 ——
+# Qt 6.5+ 的 xcb 平台插件需要 libxcb-cursor，而多数发行版默认不装，
+# 用户一启动就是一堆 qt.qpa.plugin 报错。这几个都是叶子库(共约 94KB)，
+# 不直接与 X 服务器做协议交互，打包进来很安全。
+# 注意：libxcb.so.1 / libX11 / libc 绝【不能】打包 —— 它们必须与用户的
+# X 服务器和显卡驱动版本匹配，捆绑反而会引发难查的崩溃。
+XCB_ARGS=""
+XCB_FOUND=0
+XCB_MISS=""
+for _lib in libxcb-cursor.so.0 libxcb-image.so.0 libxcb-util.so.1 \
+            libxcb-render-util.so.0; do
+    _p=""
+    for _d in /usr/lib/x86_64-linux-gnu /usr/lib64 /usr/lib; do
+        [ -e "${_d}/${_lib}" ] && _p="${_d}/${_lib}" && break
+    done
+    if [ -n "${_p}" ]; then
+        XCB_ARGS="${XCB_ARGS} --add-binary ${_p}:."
+        XCB_FOUND=$((XCB_FOUND+1))
+    else
+        XCB_MISS="${XCB_MISS} ${_lib}"
+    fi
+done
+if [ "${XCB_FOUND}" -gt 0 ]; then
+    echo "    将捆绑 ${XCB_FOUND} 个 xcb 支持库(约 94KB)，减少用户端缺库导致的启动失败"
+fi
+if [ -n "${XCB_MISS}" ]; then
+    echo "    ! 编译环境缺少：${XCB_MISS}"
+    echo "      建议先安装后再编译，让产物自带这些库："
+    echo "        apt install -y libxcb-cursor0 libxcb-image0 libxcb-util1 libxcb-render-util0"
+fi
+
 # Kokoro 模型：含空格路径先复制到无空格临时目录再打包
 KOKORO_DATA=""
 if [ -d "$HOME/EnglishCoach Models/Kokoro" ]; then
@@ -143,9 +249,9 @@ DESTDIR="dist/${TAG}"
 rm -rf build "${APP_NAME}.spec" "$DESTDIR"
 mkdir -p "$DESTDIR"
 
-python -m PyInstaller \
+"$PY" -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $MODEL_ARG $KOKORO_DATA \
+    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \
@@ -182,13 +288,62 @@ fi
 echo "==> [7/7] 打包 tar.gz"
 TARBALL="EnglishCoach-${VERSION}-${TAG}.tar.gz"
 # 生成一个简易启动脚本，方便双击/命令行运行
-LAUNCH="${DESTDIR}/${APP_NAME}/启动 English Coach.sh"
+LAUNCH="${DESTDIR}/${APP_NAME}/English Coach.sh"
 cat > "$LAUNCH" <<'LAUNCHEOF'
 #!/bin/bash
+# English Coach 启动脚本 / launcher
+# 启动前先检查 Qt 运行所需的系统库，缺失时给出可直接复制的安装命令，
+# 而不是让用户面对一堆 qt.qpa.plugin 报错。
 cd "$(dirname "$0")"
+
+missing=""
+# Qt 6.5+ 的 xcb 平台插件必须依赖 libxcb-cursor，多数桌面默认不装
+if ! ldconfig -p 2>/dev/null | grep -q 'libxcb-cursor\.so'; then
+    missing="${missing} libxcb-cursor0"
+fi
+if ! ldconfig -p 2>/dev/null | grep -q 'libxkbcommon-x11\.so'; then
+    missing="${missing} libxkbcommon-x11-0"
+fi
+if ! ldconfig -p 2>/dev/null | grep -q 'libGL\.so'; then
+    missing="${missing} libgl1"
+fi
+
+if [ -n "$missing" ]; then
+    echo "=============================================================="
+    echo " 缺少运行所需的系统库 / Missing required system libraries:"
+    for m in $missing; do echo "   - $m"; done
+    echo ""
+    echo " 请按你的发行版执行 / Install them with:"
+    echo ""
+    if command -v apt >/dev/null 2>&1; then
+        echo "   sudo apt install -y$missing"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "   sudo dnf install -y xcb-util-cursor libxkbcommon-x11 mesa-libGL"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "   sudo pacman -S xcb-util-cursor libxkbcommon-x11"
+    else
+        echo "   请用你的包管理器安装上面列出的库"
+    fi
+    echo ""
+    echo " 装好后重新运行本脚本即可。"
+    echo " Run this script again once they are installed."
+    echo "=============================================================="
+    exit 1
+fi
+
 exec "./English Coach"
 LAUNCHEOF
 chmod +x "$LAUNCH" "${DESTDIR}/${APP_NAME}/English Coach" 2>/dev/null || true
+# 随产物附带安装/卸载脚本，让用户能像正常程序那样装进应用菜单
+for _s in Install.sh Uninstall.sh; do
+    if [ -f "$_s" ]; then
+        cp "$_s" "${DESTDIR}/${APP_NAME}/$_s"
+        chmod +x "${DESTDIR}/${APP_NAME}/$_s"
+        echo "    已附带 $_s"
+    else
+        echo "    ! 未找到 $_s，产物中将没有安装脚本"
+    fi
+done
 # 从 DESTDIR 内打包，让 tar 里是 "English Coach/..." 结构
 ( cd "$DESTDIR" && tar -czf "$TARBALL" "$APP_NAME" )
 echo ""
