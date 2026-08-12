@@ -1,19 +1,62 @@
-__pycache__/
-*.pyc
-build/
+# ============================================================
+#  English Coach — .gitignore
+#  仓库只放源码；编译产物、缓存与个人配置一律不进版本库。
+#  Source only. Build artefacts, caches and personal settings stay out.
+# ============================================================
+
+# ---- 编译产物 / Build output ----
+# PyInstaller 产出，体积以 GB 计，通过 GitHub Releases 分发，不入库。
+# PyInstaller output is gigabytes in size and is distributed via GitHub
+# Releases, never committed.
 dist/
+build/
 *.spec
-AppIcon.icns
-*.ico
-_kokoro_stage/
-argos_models/
-EnglishCoach Models/
-运行日志.txt
-翻译历史.txt
-*.zip
-.DS_Store
-Thumbs.db
-.idea/
-.vscode/
+_quarantine/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.Python
+
+# ---- 虚拟环境 / Virtual environments ----
+# .build-venv / .build-venv-gpu 由 Build Linux.sh 在没有 conda 时自动创建
+# .build-venv is created automatically by Build Linux.sh when conda is absent
 venv/
 .venv/
+env/
+ENV/
+.build-venv/
+.build-venv-gpu/
+
+# ---- 打包中间物 / Packaging intermediates ----
+*.icns
+*.ico
+_switch_preview.qml
+
+# ---- 运行期生成 / Generated at runtime ----
+# 翻译历史、运行日志、下载的模型缓存
+# Translation history, runtime logs, downloaded model caches
+运行日志.txt
+翻译历史.txt
+*.log
+.cache/
+
+# ---- 编辑器与系统 / Editors and OS ----
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 个人密钥 / Personal secrets ----
+# API Key 保存在系统 QSettings 中，不应出现在仓库里；
+# 若自建了本地配置文件，一并排除。
+# API keys live in the system's QSettings and must never be committed. Any
+# local config file you create is excluded here as well.
+.env
+secrets.json
+api_keys.json

@@ -13,3 +13,28 @@
 
 pyinstaller
 pillow          # 生成各平台图标 / icon generation (make_icon.py)
+
+# ---------------------------------------------------------------------------
+# 系统级依赖（不是 Python 包，pip 装不了，需用系统包管理器或 conda 安装）
+# System-level dependencies. These are NOT Python packages: pip cannot install
+# them, so use your system package manager or conda.
+#
+# Linux 编译必需 / Required to build on Linux:
+#   binutils    —— PyInstaller 需要其中的 objdump 分析二进制依赖，缺少会在
+#                  打包阶段报 "On Linux, objdump is required"
+#                  PyInstaller needs objdump from this package to analyse
+#                  binary dependencies; without it packaging fails with
+#                  "On Linux, objdump is required"
+#
+#       conda install -y binutils
+#       sudo apt install -y binutils          # Debian / Ubuntu
+#       sudo dnf install -y binutils          # Fedora / RHEL
+#       sudo pacman -S binutils               # Arch
+#
+#   Build Linux.sh 会自动检查并尝试安装，装不上时给出上述命令。
+#   Build Linux.sh checks for it and tries to install it automatically,
+#   falling back to printing the commands above.
+#
+# Linux 运行所需的 Qt 库见 README「常见问题」。
+# For the Qt runtime libraries needed on Linux, see Troubleshooting in README.
+# ---------------------------------------------------------------------------

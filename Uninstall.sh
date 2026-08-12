@@ -10,7 +10,15 @@
 # =============================================================================
 set -euo pipefail
 
+# 支持 CPU 与 GPU 两个变体：默认卸载 CPU 版，--gpu 卸载 GPU 版。
+# 脚本若就在某个安装目录内，则按该目录自动判断。
 SLUG="englishcoach"
+DISPLAY_NAME="English Coach"
+_self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${_self_dir}/English Coach GPU" ]; then
+    SLUG="englishcoach-gpu"
+    DISPLAY_NAME="English Coach GPU"
+fi
 
 SYSTEM=0
 PURGE=0
@@ -18,6 +26,8 @@ for arg in "$@"; do
     case "$arg" in
         --system) SYSTEM=1 ;;
         --purge)  PURGE=1 ;;
+        --gpu)    SLUG="englishcoach-gpu"; DISPLAY_NAME="English Coach GPU" ;;
+        --cpu)    SLUG="englishcoach";     DISPLAY_NAME="English Coach" ;;
         -h|--help)
             sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
@@ -39,7 +49,7 @@ else
     ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
 fi
 
-echo "==> English Coach 卸载 / uninstaller"
+echo "==> ${DISPLAY_NAME} 卸载 / uninstaller"
 echo "    程序目录 / program: ${TARGET_DIR}"
 echo
 
@@ -47,7 +57,7 @@ FOUND=0
 [ -d "${TARGET_DIR}" ] && FOUND=1
 [ -f "${DESKTOP_DIR}/${SLUG}.desktop" ] && FOUND=1
 if [ "$FOUND" = "0" ]; then
-    echo "  未找到已安装的 English Coach。"
+    echo "  未找到已安装的 ${DISPLAY_NAME}。"
     echo "  Nothing to remove at the location above."
     if [ "$SYSTEM" = "0" ]; then
         echo "  若当初是全系统安装，请用： sudo ./Uninstall.sh --system"

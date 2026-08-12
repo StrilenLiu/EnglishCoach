@@ -48,6 +48,18 @@ sacremoses
 # GPU 用户请改用 requirements-gpu.txt（CUDA 版 torch）。
 # transformers 4.40.2 pairs with torch 2.2.x and is the combination that works
 # on Big Sur. GPU users should use requirements-gpu.txt instead (CUDA torch).
+# Linux 上 PyPI 的 torch 默认是【CUDA 版】，会额外拖入 12 个 nvidia-* 包(数 GB)。
+# 下面这行 --extra-index-url 让 Linux 优先取 PyTorch 官方 CPU 索引里的轮子，
+# 无需手动指定就能装到 CPU 版；Windows 与 macOS 的默认轮子本就是 CPU 版，不受影响。
+# GPU 用户请改用 requirements-gpu.txt（Windows）或 Build Linux GPU.sh（Linux）。
+#
+# On Linux the default torch wheel on PyPI is the CUDA build and drags in twelve
+# nvidia-* packages (several GB). The --extra-index-url below makes Linux prefer
+# the CPU wheels from PyTorch's own index, so a plain install stays CPU-only.
+# Windows and macOS wheels are CPU-only by default and are unaffected. GPU users
+# should use requirements-gpu.txt (Windows) or Build Linux GPU.sh (Linux).
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 torch==2.2.2
 transformers==4.40.2
 kokoro

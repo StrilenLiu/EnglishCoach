@@ -14,10 +14,23 @@
 set -euo pipefail
 
 APP_NAME="English Coach"
-SLUG="englishcoach"
 
 # 脚本所在目录（即解压出来的产物目录），路径含空格也安全
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 识别是 CPU 版还是 GPU 版：GPU 版的可执行文件名为 "English Coach GPU"。
+# 两者可以并存，各自有独立的安装目录与菜单项。
+# 应用菜单里【一律显示英文名】，不做中文本地化 —— 即便在中文系统上，
+# 名称也保持 "English Coach" / "English Coach GPU"。
+if [ -f "${HERE}/English Coach GPU" ]; then
+    APP_NAME="English Coach GPU"
+    DISPLAY_NAME="English Coach GPU"
+    SLUG="englishcoach-gpu"
+else
+    APP_NAME="English Coach"
+    DISPLAY_NAME="English Coach"
+    SLUG="englishcoach"
+fi
 
 SYSTEM=0
 for arg in "$@"; do
@@ -102,14 +115,16 @@ if [ ! -f "${TARGET_DIR}/Uninstall.sh" ] && [ -f "${HERE}/Uninstall.sh" ]; then
 fi
 [ -f "${TARGET_DIR}/Uninstall.sh" ] && chmod +x "${TARGET_DIR}/Uninstall.sh"
 chmod +x "${TARGET_DIR}/${APP_NAME}"
-[ -f "${TARGET_DIR}/启动 English Coach.sh" ] && chmod +x "${TARGET_DIR}/启动 English Coach.sh"
+chmod +x "${TARGET_DIR}/${APP_NAME}.sh" 2>/dev/null || true
 find "${TARGET_DIR}" -maxdepth 1 -name '*.sh' -exec chmod +x {} \; 2>/dev/null || true
 
 # ---- 图标 ----
 echo "==> [2/4] 安装图标"
 mkdir -p "${ICON_DIR}"
 ICON_SRC=""
-for cand in "${TARGET_DIR}/icon_1024.png" "${TARGET_DIR}/_internal/icon_1024.png"; do
+for cand in "${TARGET_DIR}/icon_gpu_1024.png" "${TARGET_DIR}/icon_1024.png" \
+            "${TARGET_DIR}/_internal/icon_1024.png"; do
+    [ "$SLUG" = "englishcoach" ] && case "$cand" in *icon_gpu*) continue;; esac
     [ -f "$cand" ] && ICON_SRC="$cand" && break
 done
 if [ -n "${ICON_SRC}" ]; then
@@ -129,8 +144,7 @@ cat > "${DESKTOP_DIR}/${SLUG}.desktop" << EOF
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=English Coach
-Name[zh_CN]=英语导师
+Name=${DISPLAY_NAME}
 GenericName=Translation and Speech Tool
 GenericName[zh_CN]=翻译与朗读工具
 Comment=Chinese-English translation, text-to-speech and karaoke subtitles
@@ -156,8 +170,8 @@ echo
 echo "✓ 安装完成 / Installation complete"
 echo
 echo "  启动方式 / How to launch:"
-echo "    · 在应用菜单中搜索 “English Coach” 或 “英语导师”"
-echo "      Search for \"English Coach\" in your application menu"
+echo "    · 在应用菜单中搜索 “${DISPLAY_NAME}”"
+echo "      Search for \"${DISPLAY_NAME}\" in your application menu"
 echo "    · 或在终端运行 / or from a terminal:"
 echo "        \"${EXEC_PATH}\""
 echo

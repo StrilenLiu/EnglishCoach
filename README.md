@@ -21,7 +21,8 @@ Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/E
 | **Windows (GPU)** | [分卷 1 / part 1](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.001) · [分卷 2 / part 2](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.002) · [分卷 3 / part 3](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.003) · [分卷 4 / part 4](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Windows-x64-GPU.7z.004) | **四个分卷需全部下载**到同一目录，再右键第一个分卷用 7-Zip 解压<br>**All four parts are required** — download them into the same folder, then extract the first part with 7-Zip |
 | **macOS (Intel)** | [EnglishCoach-2.15.12-MacOS-Intel.dmg](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-Intel.dmg) | Intel 芯片，macOS 11 Big Sur 起<br>Intel Macs, macOS 11 Big Sur and newer |
 | **macOS (Apple Silicon)** | [EnglishCoach-2.15.12-MacOS-AppleSilicon.dmg](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-MacOS-AppleSilicon.dmg) | M 系列芯片原生运行，macOS 12 起<br>Native on M-series chips, macOS 12 and newer |
-| **Linux** | [EnglishCoach-2.15.12-Linux-x64.tar.gz](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64.tar.gz) | glibc 2.31 起（Ubuntu 20.04 及以上）<br>glibc 2.31 and newer (Ubuntu 20.04-era and later) |
+| **Linux (CPU)** | [EnglishCoach-2.15.12-Linux-x64-CPU.tar.gz](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64-CPU.tar.gz) | 通用版，推荐大多数用户；glibc 2.31 起（Ubuntu 20.04 及以上）<br>The general build — recommended for most users; glibc 2.31 and newer (Ubuntu 20.04-era and later) |
+| **Linux (GPU)** | [分卷 1 / part 1](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64-GPU.7z.001) · [分卷 2 / part 2](https://github.com/StrilenLiu/EnglishCoach/releases/download/v2.15.12/EnglishCoach-2.15.12-Linux-x64-GPU.7z.002) | 需 NVIDIA 显卡与驱动；**两个分卷需全部下载**到同一目录，再解压第一个分卷。无独显请用 CPU 版<br>Requires an NVIDIA card and its driver; **both parts are required** — download them into the same folder and extract the first one. Without a discrete GPU, use the CPU build |
 
 > 上面的链接指向 v2.15.12。以后发布新版时，[Releases 页面](https://github.com/StrilenLiu/EnglishCoach/releases/latest)总是指向最新版本。
 >
@@ -106,13 +107,13 @@ Once installed you can eject the disk image and delete the `.dmg` file.
 
 **Linux**
 
-下载 `EnglishCoach-<版本>-Linux-x64.tar.gz`，解压后运行启动脚本：
+下载 `EnglishCoach-<版本>-Linux-x64-CPU.tar.gz`，解压后运行启动脚本：
 
-Download `EnglishCoach-<version>-Linux-x64.tar.gz`, extract it, and run the launcher script:
+Download `EnglishCoach-<version>-Linux-x64-CPU.tar.gz`, extract it, and run the launcher script:
 
 ```bash
-tar -xzf EnglishCoach-2.15.12-Linux-x64.tar.gz
-cd EnglishCoach-2.15.12-Linux-x64
+tar -xzf EnglishCoach-2.15.12-Linux-x64-CPU.tar.gz
+cd "English Coach"
 chmod +x EnglishCoach        # 首次运行前加执行权限 / make it executable once
 ./EnglishCoach
 ```
@@ -259,6 +260,42 @@ sudo xattr -rd com.apple.quarantine "/Applications/English Coach.app"
 
 Click **More info → Run anyway**. This is the standard prompt for unsigned software and does not indicate a problem with the program.
 
+### Linux 编译：报 `On Linux, objdump is required` / objdump missing when building
+
+PyInstaller 需要 `binutils` 提供的 `objdump`。`Build Linux.sh` 会自动检查并尝试安装，失败时按提示手动装：
+
+PyInstaller needs `objdump` from `binutils`. `Build Linux.sh` checks for it and tries to install it; if that fails, install it manually:
+
+```bash
+conda install -y binutils            # conda 环境 / in a conda environment
+sudo apt install -y binutils         # Debian / Ubuntu
+sudo dnf install -y binutils         # Fedora / RHEL
+```
+
+### Linux 编译：CPU 版产物异常大（5GB 以上）/ CPU build is unexpectedly large
+
+多半是环境里残留着 CUDA 版 torch。**已安装的 torch 不会被 `--index-url` 替换** —— pip 见版本号满足就跳过。先确认：
+
+This usually means a CUDA torch build is left over in the environment. **An already-installed torch is not replaced by `--index-url`**, since pip skips it once the version matches. Check first:
+
+```bash
+python -c "import torch; print(torch.__version__)"
+```
+
+显示 `2.2.2+cu121` 之类就是 CUDA 版，按下面清理后重新编译：
+
+If it prints something like `2.2.2+cu121` it is the CUDA build. Clean it out and rebuild:
+
+```bash
+pip uninstall -y torch
+pip uninstall -y $(pip list 2>/dev/null | grep -oE "^nvidia-[a-z0-9-]+" | tr '\n' ' ') triton
+pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu --no-cache-dir
+```
+
+第二条命令必不可少：那 12 个 `nvidia-*` 包**不会随 torch 卸载而消失**，留着仍会被打包进产物。
+
+The second command matters: those twelve `nvidia-*` packages **are not removed together with torch**, and if left behind they still end up in the build.
+
 ### 首次朗读要等很久 / The first playback takes a long time
 
 Kokoro 离线朗读模型约 330MB，首次使用时下载，之后完全离线。中国大陆会自动改用 `hf-mirror.com` 镜像。
@@ -325,6 +362,23 @@ pip install https://github.com/explosion/spacy-models/releases/download/en_core_
 python english_coach.py
 ```
 
+**Linux 用户**：PyPI 上 Linux 的 torch 默认是 **CUDA 版**，会额外拖入 12 个 `nvidia-*` 包（共数 GB）。只要 CPU 版的话，先用官方 CPU 索引装 torch：
+
+**Linux users**: on PyPI the Linux torch wheel is the **CUDA build** and pulls in twelve `nvidia-*` packages, several gigabytes in total. For a CPU-only setup install torch from PyTorch's CPU index first:
+
+```bash
+pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements.txt
+```
+
+Windows 与 macOS 的默认轮子本就是 CPU 版，无需特殊处理。`Build Linux.sh` 已内置这一步。
+
+Linux 上还有第二个 CUDA 来源：`ctranslate2`（Argos 离线翻译用）的 x86_64 轮子固定内含 cuDNN，有 183MB，且没有 CPU 版可选。构建脚本会在打包后删除这些库文件，Argos 仍以 CPU 模式正常工作。
+
+There is a second source of CUDA on Linux: the x86_64 wheel of `ctranslate2` (used by Argos offline translation) always embeds cuDNN — 183MB — and no CPU-only variant exists. The build script deletes those library files after packaging; Argos continues to work in CPU mode.
+
+The Windows and macOS wheels are CPU-only by default and need nothing special. `Build Linux.sh` already does this automatically.
+
 **Windows GPU 用户**：先装 CUDA 版 torch，再装其余依赖，避免被 CPU 版覆盖。
 
 **Windows GPU users**: install CUDA torch first so the CPU wheel cannot overwrite it, then the rest:
@@ -363,7 +417,8 @@ Four build scripts are included. Each extracts the version automatically from `A
 | `Build MacOS.sh` | `dist/MacOS-Intel/` 或 `dist/MacOS-AppleSilicon/`（按 `uname -m` 自动判断）<br>`dist/MacOS-Intel/` or `dist/MacOS-AppleSilicon/`, selected automatically via `uname -m` |
 | `Build Windows.bat` | `dist/Windows-x64-CPU/` |
 | `Build Windows GPU.bat` | `dist/Windows-x64-GPU/`（CUDA）<br>`dist/Windows-x64-GPU/` (CUDA) |
-| `Build Linux.sh` | `dist/Linux-x64/` 与 tar.gz 压缩包<br>`dist/Linux-x64/` plus a tar.gz archive |
+| `Build Linux.sh` | `dist/Linux-x64-CPU/` 与 tar.gz 压缩包<br>`dist/Linux-x64-CPU/` plus a tar.gz archive |
+| `Build Linux GPU.sh` | `dist/Linux-x64-GPU/`（CUDA）<br>`dist/Linux-x64-GPU/` (CUDA) |
 
 **PyInstaller 不支持交叉编译** —— 每个平台的产物必须在该平台上编译。
 

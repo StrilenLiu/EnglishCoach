@@ -18,7 +18,23 @@ VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' english_coach.py | head -1)
 [ -z "$VERSION" ] && VERSION="0.0.0"
 MAIN="english_coach.py"
 CONDA_ENV="EnglishCoach"
-TAG="Linux-x64"
+# CPU / GPU 变体（由 Build Linux GPU.sh 覆盖为 GPU）
+BUILD_VARIANT="${BUILD_VARIANT:-CPU}"
+if [ "$BUILD_VARIANT" = "GPU" ]; then
+    TAG="Linux-x64-GPU"
+    # CUDA 12.1 版 torch，与 Windows GPU 版思路一致
+    TORCH_SPEC="torch==2.2.2"
+    TORCH_INDEX="https://download.pytorch.org/whl/cu121"
+    VENV_DIR="${VENV_DIR:-.build-venv-gpu}"
+    # GPU 版可执行文件与安装后的菜单项都叫 "English Coach GPU"，
+    # 可与 CPU 版并存互不覆盖
+    APP_NAME="English Coach GPU"
+else
+    TAG="Linux-x64-CPU"
+    TORCH_SPEC="torch==2.2.2"
+    TORCH_INDEX="https://download.pytorch.org/whl/cpu"
+    VENV_DIR="${VENV_DIR:-.build-venv}"
+fi
 # 多镜像：清华优先，失败回退官方源
 PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_FALLBACK="https://pypi.org/simple"
@@ -67,7 +83,8 @@ else
     if [ -z "$BASE_PY" ]; then
         echo "✗ 未找到 Python 解释器"; exit 1
     fi
-    VENV_DIR="${VENV_DIR:-.build-venv}"
+    # 兜底：VENV_DIR 不该为空，为空时用默认值而不是让后续路径拼成 "/bin/python"
+    [ -z "${VENV_DIR:-}" ] && VENV_DIR=".build-venv"
     # 已存在的虚拟环境若是低版本 Python 建的(比如换了容器/基础镜像)，
     # 直接复用会一直卡在版本检查上，这里自动识别并重建。
     if [ -x "${VENV_DIR}/bin/python" ]; then
@@ -114,6 +131,38 @@ echo "==> [2/7] 升级 pip 与打包工具"
 pip_install -U pip
 pip_install pyinstaller
 
+# —— 系统级工具检查 ——
+# PyInstaller 在 Linux 上需要 objdump(来自 binutils) 分析二进制依赖，缺了会在
+# 打包阶段才报错。binutils 不是 Python 包，pip / requirements.txt 装不了它，
+# 但 conda 可以。这里提前检查，能自动装就自动装。
+if ! command -v objdump >/dev/null 2>&1; then
+    echo "    缺少 objdump（PyInstaller 必需，来自 binutils），尝试自动安装…"
+    _ok=0
+    if [ "$USE_CONDA" = "1" ] && command -v conda >/dev/null 2>&1; then
+        conda install -y -q binutils >/dev/null 2>&1 && _ok=1
+        [ "$_ok" = "1" ] && echo "    已通过 conda 安装 binutils"
+    fi
+    if [ "$_ok" = "0" ] && command -v apt-get >/dev/null 2>&1; then
+        if [ "$(id -u)" = "0" ]; then
+            apt-get install -y -qq binutils >/dev/null 2>&1 && _ok=1
+        else
+            sudo -n apt-get install -y -qq binutils >/dev/null 2>&1 && _ok=1
+        fi
+        [ "$_ok" = "1" ] && echo "    已通过 apt 安装 binutils"
+    fi
+    if [ "$_ok" = "0" ] || ! command -v objdump >/dev/null 2>&1; then
+        echo ""
+        echo "✗ 缺少 objdump，PyInstaller 无法打包。请手动安装后重试："
+        echo ""
+        echo "    conda 环境 : conda install -y binutils"
+        echo "    Debian/Ubuntu: sudo apt install -y binutils"
+        echo "    Fedora/RHEL  : sudo dnf install -y binutils"
+        echo "    Arch         : sudo pacman -S binutils"
+        echo ""
+        exit 1
+    fi
+fi
+
 echo "==> [3/7] 安装运行依赖"
 # PyQt6 版本必须钉死：6.10 起的 Linux 轮子是 manylinux_2_34，要求 glibc >= 2.34，
 # 在 Debian 11 / Ubuntu 20.04(glibc 2.31) 上装不了 —— pip 会退去下源码包现场编译，
@@ -146,7 +195,37 @@ pip_install -U edge-tts
 
 # Kokoro 本地离线 TTS（Linux x86_64 与 mac 用同一套钉死版本，确保行为一致）
 echo "    安装 Kokoro 离线 TTS 依赖..."
-pip_install "torch==2.2.2"
+# 关键：Linux 上 PyPI 的 torch 默认就是【CUDA 版】，还会自动拖进 12 个 nvidia-* 包
+# (cudnn / cublas / cusparse / nccl 等)，能让 CPU 版产物凭空多出好几 GB。
+# Windows 与 macOS 的默认轮子本就是 CPU 版，只有 Linux 有这个行为，
+# 因此两个变体都必须【显式】指定索引，不能依赖默认。
+echo "    变体 ${BUILD_VARIANT}：使用索引 ${TORCH_INDEX}"
+"$PY" -m pip install "${TORCH_SPEC}" --index-url "${TORCH_INDEX}" || {
+    echo "    ! 指定索引安装失败，回退到默认源"
+    [ "$BUILD_VARIANT" = "CPU" ] && echo "      注意：默认源在 Linux 上是 CUDA 版，产物会明显变大"
+    pip_install "${TORCH_SPEC}"
+}
+# 校验：CPU 版不该带 +cu，GPU 版必须带。提前发现，不必等打包完才看出体积异常。
+BUILD_VARIANT="$BUILD_VARIANT" "$PY" - <<'TORCHCHK'
+import os, sys
+want = os.environ.get("BUILD_VARIANT", "CPU")
+try:
+    import torch
+    v = torch.__version__
+    is_cuda = ("+cu" in v) or ("cu1" in v)
+    print(f"    torch {v}")
+    if want == "CPU" and is_cuda:
+        print("    [!] 警告：CPU 版却装成了 CUDA 版 torch，产物会大出数 GB")
+        print("        多为 pip 全局镜像源劫持了 --index-url，可试 --no-cache-dir")
+    elif want == "GPU" and not is_cuda:
+        print("    [!] 警告：GPU 版却装成了 CPU 版 torch，将【无法使用显卡加速】")
+        print("        请检查 CUDA 索引是否可达")
+    else:
+        print(f"    已确认为 {want} 版")
+except Exception as e:
+    print(f"    [!] 无法导入 torch: {e}")
+    sys.exit(1)
+TORCHCHK
 pip_install "transformers==4.40.2"
 pip_install kokoro soundfile
 pip_install lameenc
@@ -197,7 +276,11 @@ echo "    离线翻译依赖 OK"
 echo "==> [6/7] PyInstaller 编译"
 # 图标：Linux 窗口图标由程序内部 SVG 设置，PyInstaller 不强制需要 .ico/.icns
 ICON_ARG=""
-[ -f icon_1024.png ] && ICON_ARG="--icon icon_1024.png"
+if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_1024.png ]; then
+    ICON_ARG="--icon icon_gpu_1024.png"
+elif [ -f icon_1024.png ]; then
+    ICON_ARG="--icon icon_1024.png"
+fi
 # 内置 Argos 模型目录一并打包
 MODEL_ARG=""
 if [ -d argos_models ] && [ -n "$(ls -A argos_models 2>/dev/null)" ]; then
@@ -228,6 +311,22 @@ done
 if [ "${XCB_FOUND}" -gt 0 ]; then
     echo "    将捆绑 ${XCB_FOUND} 个 xcb 支持库(约 94KB)，减少用户端缺库导致的启动失败"
 fi
+# —— CPU 变体：排除 CUDA 相关模块 ——
+# Linux 上有【两个】CUDA 来源，都要处理：
+#   1. torch —— PyPI 默认是 CUDA 版，已在装依赖时用 /whl/cpu 索引解决
+#   2. ctranslate2 —— Linux x86_64 轮子固定内含 cuDNN(183MB，arm64 才 15MB)，
+#      没有 CPU 版可选，只能在打包时排除
+# 排除后 Argos 离线翻译仍在 CPU 上正常工作。
+CUDA_EXCLUDE=""
+if [ "$BUILD_VARIANT" = "CPU" ]; then
+    for _m in nvidia nvidia.cudnn nvidia.cublas nvidia.cuda_runtime \
+              nvidia.cuda_nvrtc nvidia.cuda_cupti nvidia.cufft nvidia.curand \
+              nvidia.cusolver nvidia.cusparse nvidia.nccl nvidia.nvtx triton; do
+        CUDA_EXCLUDE="${CUDA_EXCLUDE} --exclude-module ${_m}"
+    done
+    echo "    CPU 变体：打包时排除 CUDA 模块"
+fi
+
 if [ -n "${XCB_MISS}" ]; then
     echo "    ! 编译环境缺少：${XCB_MISS}"
     echo "      建议先安装后再编译，让产物自带这些库："
@@ -251,7 +350,7 @@ mkdir -p "$DESTDIR"
 
 "$PY" -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS \
+    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CUDA_EXCLUDE \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \
@@ -334,6 +433,34 @@ fi
 exec "./English Coach"
 LAUNCHEOF
 chmod +x "$LAUNCH" "${DESTDIR}/${APP_NAME}/English Coach" 2>/dev/null || true
+# CPU 变体：清理 PyInstaller 仍复制进来的 CUDA 动态库。
+# --exclude-module 只能拦 Python 模块，管不到 ctranslate2.libs/ 里的 .so 文件，
+# 必须在这里按文件名删掉。删除后 Argos 走 CPU 推理，功能不受影响。
+if [ "$BUILD_VARIANT" = "CPU" ]; then
+    _appdir="${DESTDIR}/${APP_NAME}"
+    _freed=0
+    for _pat in 'libcudnn*' 'libcublas*' 'libcudart*' 'libcufft*' 'libcurand*' \
+                'libcusolver*' 'libcusparse*' 'libnccl*' 'libnvrtc*' 'libcupti*' \
+                'libnvToolsExt*' 'libnvJitLink*'; do
+        while IFS= read -r -d '' _f; do
+            _sz=$(stat -c%s "$_f" 2>/dev/null || echo 0)
+            _freed=$((_freed + _sz))
+            rm -f "$_f"
+        done < <(find "$_appdir" -name "$_pat" -type f -print0 2>/dev/null)
+    done
+    # nvidia 包目录整体移除
+    if [ -d "${_appdir}/_internal/nvidia" ]; then
+        _sz=$(du -sb "${_appdir}/_internal/nvidia" 2>/dev/null | cut -f1)
+        _freed=$((_freed + ${_sz:-0}))
+        rm -rf "${_appdir}/_internal/nvidia"
+    fi
+    if [ "$_freed" -gt 0 ]; then
+        echo "    已清除 CUDA 库，节省 $((_freed / 1024 / 1024)) MB"
+    fi
+    # 清理后自检：确认程序仍能导入关键模块
+    echo "    验证清理后依赖完整性..."
+fi
+
 # 随产物附带安装/卸载脚本，让用户能像正常程序那样装进应用菜单
 for _s in Install.sh Uninstall.sh; do
     if [ -f "$_s" ]; then
