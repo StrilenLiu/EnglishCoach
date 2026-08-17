@@ -20,20 +20,31 @@ pillow          # 生成各平台图标 / icon generation (make_icon.py)
 # them, so use your system package manager or conda.
 #
 # Linux 编译必需 / Required to build on Linux:
-#   binutils    —— PyInstaller 需要其中的 objdump 分析二进制依赖，缺少会在
-#                  打包阶段报 "On Linux, objdump is required"
-#                  PyInstaller needs objdump from this package to analyse
-#                  binary dependencies; without it packaging fails with
-#                  "On Linux, objdump is required"
+#   binutils  —— 提供 objdump，PyInstaller 用它分析二进制依赖；缺少会在打包
+#                阶段报 "On Linux, objdump is required"
+#                Provides objdump, which PyInstaller uses to analyse binary
+#                dependencies; without it packaging fails with
+#                "On Linux, objdump is required"
+#   curl      —— 下载 Argos 中英离线翻译模型；缺少则模型打不进产物，
+#                用户端离线翻译失效
+#                Downloads the Argos offline translation models; without it
+#                the models are missing from the build and offline
+#                translation fails for users
+#   tar       —— 打包最终产物 / packages the final archive
 #
-#       conda install -y binutils
-#       sudo apt install -y binutils          # Debian / Ubuntu
-#       sudo dnf install -y binutils          # Fedora / RHEL
-#       sudo pacman -S binutils               # Arch
+#       conda install -y binutils curl tar
+#       sudo apt install -y binutils curl tar      # Debian / Ubuntu
+#       sudo dnf install -y binutils curl tar      # Fedora / RHEL
+#       sudo pacman -S binutils curl tar           # Arch
+#       sudo apk add binutils curl tar             # Alpine
 #
-#   Build Linux.sh 会自动检查并尝试安装，装不上时给出上述命令。
-#   Build Linux.sh checks for it and tries to install it automatically,
-#   falling back to printing the commands above.
+#   Build Linux.sh 在开始安装依赖【之前】会统一检查这些命令，缺失时依次尝试
+#   conda、apt、dnf、yum、pacman、apk、zypper 自动安装，都失败才退出并打印
+#   上述命令 —— 不会等到编译中途才失败。
+#   Build Linux.sh checks all of these BEFORE installing any dependency and
+#   tries conda, apt, dnf, yum, pacman, apk and zypper in turn, only exiting
+#   with the commands above if every attempt fails — so the build never dies
+#   halfway through for a missing system tool.
 #
 # Linux 运行所需的 Qt 库见 README「常见问题」。
 # For the Qt runtime libraries needed on Linux, see Troubleshooting in README.

@@ -155,36 +155,82 @@ echo "==> [2/8] 升级 pip 与打包工具"
 pip_install -U pip
 pip_install pyinstaller
 
-# —— 系统级工具检查 ——
-# PyInstaller 在 Linux 上需要 objdump(来自 binutils) 分析二进制依赖，缺了会在
-# 打包阶段才报错。binutils 不是 Python 包，pip / requirements.txt 装不了它，
-# 但 conda 可以。这里提前检查，能自动装就自动装。
-if ! command -v objdump >/dev/null 2>&1; then
-    echo "    缺少 objdump（PyInstaller 必需，来自 binutils），尝试自动安装…"
-    _ok=0
+# ============================================================================
+#  系统级工具检查（统一处理，避免每次缺一个工具就在半途失败）
+#
+#  这些是【系统命令】不是 Python 包，pip / requirements.txt 装不了；
+#  conda 与系统包管理器可以。缺失时按 conda -> apt/dnf/pacman/apk 顺序尝试
+#  自动安装，都不行才退出并给出各发行版的手动命令。
+#
+#  命令 -> 各平台包名对照：
+#    objdump : binutils      —— PyInstaller 分析二进制依赖必需
+#    curl    : curl          —— 下载 Argos 离线翻译模型
+#    tar     : tar           —— 打包产物
+# ============================================================================
+_pkg_for () {   # $1=命令名 $2=包管理器 -> 输出包名
+    case "$1" in
+        objdump) echo "binutils" ;;
+        curl)    echo "curl" ;;
+        tar)     echo "tar" ;;
+        *)       echo "$1" ;;
+    esac
+}
+
+_try_install () {   # $1=包名 ; 成功返回 0
+    local pkg="$1" ok=1
+    # 1) conda（用户自己的环境，无需 root）
     if [ "$USE_CONDA" = "1" ] && command -v conda >/dev/null 2>&1; then
-        conda install -y -q binutils >/dev/null 2>&1 && _ok=1
-        [ "$_ok" = "1" ] && echo "    已通过 conda 安装 binutils"
+        conda install -y -q "$pkg" >/dev/null 2>&1 && return 0
     fi
-    if [ "$_ok" = "0" ] && command -v apt-get >/dev/null 2>&1; then
-        if [ "$(id -u)" = "0" ]; then
-            apt-get install -y -qq binutils >/dev/null 2>&1 && _ok=1
-        else
-            sudo -n apt-get install -y -qq binutils >/dev/null 2>&1 && _ok=1
-        fi
-        [ "$_ok" = "1" ] && echo "    已通过 apt 安装 binutils"
+    # 2) 系统包管理器；非 root 时用免密 sudo，不弹密码提示卡住脚本
+    local SUDO=""
+    if [ "$(id -u)" != "0" ]; then
+        command -v sudo >/dev/null 2>&1 && SUDO="sudo -n"
     fi
-    if [ "$_ok" = "0" ] || ! command -v objdump >/dev/null 2>&1; then
-        echo ""
-        echo "✗ 缺少 objdump，PyInstaller 无法打包。请手动安装后重试："
-        echo ""
-        echo "    conda 环境 : conda install -y binutils"
-        echo "    Debian/Ubuntu: sudo apt install -y binutils"
-        echo "    Fedora/RHEL  : sudo dnf install -y binutils"
-        echo "    Arch         : sudo pacman -S binutils"
-        echo ""
-        exit 1
+    if command -v apt-get >/dev/null 2>&1; then
+        $SUDO apt-get update -qq >/dev/null 2>&1 || true
+        $SUDO apt-get install -y -qq "$pkg" >/dev/null 2>&1 && return 0
+    elif command -v dnf >/dev/null 2>&1; then
+        $SUDO dnf install -y -q "$pkg" >/dev/null 2>&1 && return 0
+    elif command -v yum >/dev/null 2>&1; then
+        $SUDO yum install -y -q "$pkg" >/dev/null 2>&1 && return 0
+    elif command -v pacman >/dev/null 2>&1; then
+        $SUDO pacman -S --noconfirm --quiet "$pkg" >/dev/null 2>&1 && return 0
+    elif command -v apk >/dev/null 2>&1; then
+        $SUDO apk add --quiet "$pkg" >/dev/null 2>&1 && return 0
+    elif command -v zypper >/dev/null 2>&1; then
+        $SUDO zypper --non-interactive --quiet install "$pkg" >/dev/null 2>&1 && return 0
     fi
+    return 1
+}
+
+_missing_tools=""
+for _cmd in objdump curl tar; do
+    command -v "$_cmd" >/dev/null 2>&1 && continue
+    _pkg="$(_pkg_for "$_cmd")"
+    echo "    缺少 ${_cmd}（来自 ${_pkg}），尝试自动安装…"
+    if _try_install "$_pkg" && command -v "$_cmd" >/dev/null 2>&1; then
+        echo "    ✓ 已安装 ${_pkg}"
+    else
+        _missing_tools="${_missing_tools} ${_pkg}"
+    fi
+done
+
+if [ -n "$_missing_tools" ]; then
+    echo ""
+    echo "✗ 以下系统工具缺失且无法自动安装：${_missing_tools}"
+    echo "  它们不是 Python 包，请用下列方式之一手动安装后重试："
+    echo ""
+    echo "    conda 环境    : conda install -y${_missing_tools}"
+    echo "    Debian/Ubuntu : sudo apt install -y${_missing_tools}"
+    echo "    Fedora/RHEL   : sudo dnf install -y${_missing_tools}"
+    echo "    Arch          : sudo pacman -S${_missing_tools}"
+    echo "    Alpine        : sudo apk add${_missing_tools}"
+    echo ""
+    echo "  说明：objdump 来自 binutils，PyInstaller 用它分析二进制依赖；"
+    echo "        curl 用于下载 Argos 离线翻译模型；tar 用于打包产物。"
+    echo ""
+    exit 1
 fi
 
 echo "==> [3/8] 安装运行依赖"
@@ -322,8 +368,14 @@ fetch_model () {
         fi
     done
     echo "  仓库未找到，开始下载 $fname ..."
+    # curl 已在系统工具检查中保证存在；仍留 wget 作为备选，
+    # 以防某些环境里 curl 存在但被策略限制。
     # --http1.1 避开 HTTP/2 stream reset；-C - 支持断点续传
-    curl --http1.1 -L --retry 10 --retry-delay 5 -C - -o "$dst" "$url" || true
+    if command -v curl >/dev/null 2>&1; then
+        curl --http1.1 -L --retry 10 --retry-delay 5 -C - -o "$dst" "$url" || true
+    elif command -v wget >/dev/null 2>&1; then
+        wget -c -t 10 -O "$dst" "$url" || true
+    fi
     if is_complete "$dst"; then
         mkdir -p "$ARGOS_CACHE"
         cp "$dst" "$ARGOS_CACHE/$fname" 2>/dev/null || true
@@ -331,13 +383,8 @@ fetch_model () {
     fi
 }
 
-if ! command -v curl >/dev/null 2>&1; then
-    echo "  [警告] 未找到 curl，无法下载 Argos 模型"
-    echo "         Debian/Ubuntu: sudo apt install -y curl"
-else
-    fetch_model "en_zh.argosmodel" "$EN_ZH_URL"
-    fetch_model "zh_en.argosmodel" "$ZH_EN_URL"
-fi
+fetch_model "en_zh.argosmodel" "$EN_ZH_URL"
+fetch_model "zh_en.argosmodel" "$ZH_EN_URL"
 
 # 完整性校验：缺失时明确告警，避免编出一个离线翻译不可用的包却毫无察觉
 _argos_ok=1
