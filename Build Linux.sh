@@ -18,6 +18,9 @@ VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' english_coach.py | head -1)
 [ -z "$VERSION" ] && VERSION="0.0.0"
 MAIN="english_coach.py"
 CONDA_ENV="EnglishCoach"
+# 允许用户直接指定解释器，绕过一切自动探测：
+#   PY=/path/to/envs/EnglishCoach/bin/python bash "Build Linux.sh"
+PY_OVERRIDE="${PY:-}"
 # CPU / GPU 变体（由 Build Linux GPU.sh 覆盖为 GPU）
 BUILD_VARIANT="${BUILD_VARIANT:-CPU}"
 if [ "$BUILD_VARIANT" = "GPU" ]; then
@@ -44,7 +47,7 @@ pip_install () {
     "$PY" -m pip install "$@" -i "$PIP_FALLBACK"
 }
 
-echo "==> [1/7] 准备 Python 环境"
+echo "==> [1/8] 准备 Python 环境"
 # 有 conda 就用指定的 conda 环境；没有(如 Docker / CI 容器)则直接用当前 Python。
 # 这样在 python:3.10-bullseye 这类镜像里可以零配置直接编译，
 # 而 glibc 2.31 的底座正好保证产物能兼容 Ubuntu 20.04 及以上。
@@ -77,7 +80,23 @@ fi
 # 直接 pip 安装会被拒绝(externally-managed-environment)；二是避免把一堆
 # 依赖装进系统目录污染环境。
 if [ "$USE_CONDA" = "1" ]; then
-    PY=python
+    # 不能直接用 "python" —— conda 装在非默认路径时，PATH 里的 python 未必是
+    # 该环境的解释器（尤其非交互 shell 下 conda 的 PATH 注入可能不完整）。
+    # 依次尝试：conda 报告的环境前缀 -> CONDA_PREFIX -> PATH 兜底。
+    PY=""
+    _env_prefix="$(conda info --envs 2>/dev/null \
+        | awk -v e="$CONDA_ENV" '$1==e {print $NF}' | head -1)"
+    for _cand in "${_env_prefix}/bin/python" \
+                 "${CONDA_PREFIX:-}/bin/python" \
+                 "$(command -v python 2>/dev/null)"; do
+        if [ -n "$_cand" ] && [ -x "$_cand" ]; then PY="$_cand"; break; fi
+    done
+    if [ -z "$PY" ]; then
+        echo "✗ 无法定位 conda 环境 ${CONDA_ENV} 的 Python 解释器"
+        echo "  可手动指定后重试： PY=/你的路径/envs/${CONDA_ENV}/bin/python bash \"Build Linux.sh\""
+        exit 1
+    fi
+    echo "    conda 环境解释器: $PY"
 else
     BASE_PY="$(command -v python3 || command -v python)"
     if [ -z "$BASE_PY" ]; then
@@ -112,6 +131,11 @@ else
     fi
     PY="$(cd "${VENV_DIR}/bin" && pwd)/python"
 fi
+# 用户显式指定的优先级最高
+if [ -n "$PY_OVERRIDE" ] && [ -x "$PY_OVERRIDE" ]; then
+    PY="$PY_OVERRIDE"
+    echo "    使用指定的解释器: $PY"
+fi
 if [ -z "$PY" ] || [ ! -x "$PY" ]; then
     echo "✗ 未找到可用的 Python 解释器"; exit 1
 fi
@@ -127,7 +151,7 @@ if sys.version_info < (3, 10):
     sys.exit(1)
 PYCHK
 
-echo "==> [2/7] 升级 pip 与打包工具"
+echo "==> [2/8] 升级 pip 与打包工具"
 pip_install -U pip
 pip_install pyinstaller
 
@@ -163,7 +187,7 @@ if ! command -v objdump >/dev/null 2>&1; then
     fi
 fi
 
-echo "==> [3/7] 安装运行依赖"
+echo "==> [3/8] 安装运行依赖"
 # PyQt6 版本必须钉死：6.10 起的 Linux 轮子是 manylinux_2_34，要求 glibc >= 2.34，
 # 在 Debian 11 / Ubuntu 20.04(glibc 2.31) 上装不了 —— pip 会退去下源码包现场编译，
 # 而编译 PyQt6 需要 qmake 工具链，最终报 PyProjectOptionException('qmake')。
@@ -251,7 +275,7 @@ if ! command -v espeak-ng >/dev/null 2>&1; then
     echo "          Fedora/RedHat: sudo dnf install espeak-ng），Kokoro 英文音素化更稳。"
 fi
 
-echo "==> [4/7] 预下载 Kokoro 模型（约 330MB，首次较慢，可离线跳过）"
+echo "==> [4/8] 预下载 Kokoro 模型（约 330MB，首次较慢，可离线跳过）"
 "$PY" - <<'PYEOF' || echo "  ⚠ Kokoro 模型预下载失败，离线英文嗓音在无网时将不可用"
 import os
 try:
@@ -265,7 +289,71 @@ except Exception as e:
     raise
 PYEOF
 
-echo "==> [5/7] 校验离线翻译依赖"
+echo "==> [5/8] 准备 Argos 中英离线模型（打包进产物）"
+# 此前 Linux 脚本漏了这一步：后面的 MODEL_ARG 会引用 argos_models 目录，
+# 目录不存在时 MODEL_ARG 为空，模型打不进产物，离线翻译在用户端直接失效。
+# 逻辑与 mac / Windows 版一致，仅把 stat 换成 Linux 语法(-c%s)。
+mkdir -p argos_models
+EN_ZH_URL="https://argos-net.com/v1/translate-en_zh-1_9.argosmodel"
+ZH_EN_URL="https://argos-net.com/v1/translate-zh_en-1_9.argosmodel"
+
+# 公共模型仓库查找顺序（找到完整的就复用，避免每个版本重复下载）
+ARGOS_CACHE="$HOME/EnglishCoach Models/Argos"
+MODEL_REPOS=(
+    "${ENGLISHCOACH_MODELS:-}"
+    "$ARGOS_CACHE"
+    "$HOME/EnglishCoach Models"
+    "../_models"
+)
+
+is_complete () {   # 文件存在且 > 40MB
+    [ -f "$1" ] && [ "$(stat -c%s "$1" 2>/dev/null || echo 0)" -gt 40000000 ]
+}
+
+fetch_model () {
+    local fname="$1" url="$2" dst="argos_models/$1"
+    if is_complete "$dst"; then echo "  已就绪 $dst（本目录）"; return 0; fi
+    for repo in "${MODEL_REPOS[@]}"; do
+        [ -z "$repo" ] && continue
+        if is_complete "$repo/$fname"; then
+            cp "$repo/$fname" "$dst"
+            echo "  ✓ 从仓库复用 $repo/$fname"
+            return 0
+        fi
+    done
+    echo "  仓库未找到，开始下载 $fname ..."
+    # --http1.1 避开 HTTP/2 stream reset；-C - 支持断点续传
+    curl --http1.1 -L --retry 10 --retry-delay 5 -C - -o "$dst" "$url" || true
+    if is_complete "$dst"; then
+        mkdir -p "$ARGOS_CACHE"
+        cp "$dst" "$ARGOS_CACHE/$fname" 2>/dev/null || true
+        echo "  ✓ 已缓存到 ~/EnglishCoach Models/Argos/$fname（以后复用）"
+    fi
+}
+
+if ! command -v curl >/dev/null 2>&1; then
+    echo "  [警告] 未找到 curl，无法下载 Argos 模型"
+    echo "         Debian/Ubuntu: sudo apt install -y curl"
+else
+    fetch_model "en_zh.argosmodel" "$EN_ZH_URL"
+    fetch_model "zh_en.argosmodel" "$ZH_EN_URL"
+fi
+
+# 完整性校验：缺失时明确告警，避免编出一个离线翻译不可用的包却毫无察觉
+_argos_ok=1
+for f in argos_models/en_zh.argosmodel argos_models/zh_en.argosmodel; do
+    if ! is_complete "$f"; then
+        echo "  [警告] $f 不完整或缺失，离线翻译将不可用。"
+        _argos_ok=0
+    fi
+done
+if [ "$_argos_ok" = "0" ]; then
+    echo "         可手动下载后放到 ~/EnglishCoach Models/Argos/ 再重新编译："
+    echo "           $EN_ZH_URL"
+    echo "           $ZH_EN_URL"
+fi
+
+echo "==> [6/8] 校验离线翻译依赖"
 if ! "$PY" -c "import ctranslate2, sentencepiece" 2>/dev/null; then
     echo "✗ ctranslate2 / sentencepiece 导入失败。"
     echo "  请确认用了预编译包： pip install 'sentencepiece==0.2.0' 'ctranslate2==4.3.1' --only-binary :all:"
@@ -273,7 +361,7 @@ if ! "$PY" -c "import ctranslate2, sentencepiece" 2>/dev/null; then
 fi
 echo "    离线翻译依赖 OK"
 
-echo "==> [6/7] PyInstaller 编译"
+echo "==> [7/8] PyInstaller 编译"
 # 图标：Linux 窗口图标由程序内部 SVG 设置，PyInstaller 不强制需要 .ico/.icns
 ICON_ARG=""
 if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_1024.png ]; then
@@ -384,7 +472,7 @@ if [ -d "dist/${APP_NAME}" ]; then
     mv "dist/${APP_NAME}" "${DESTDIR}/"
 fi
 
-echo "==> [7/7] 打包 tar.gz"
+echo "==> [8/8] 打包 tar.gz"
 TARBALL="EnglishCoach-${VERSION}-${TAG}.tar.gz"
 # 生成一个简易启动脚本，方便双击/命令行运行
 LAUNCH="${DESTDIR}/${APP_NAME}/English Coach.sh"
@@ -459,6 +547,16 @@ if [ "$BUILD_VARIANT" = "CPU" ]; then
     fi
     # 清理后自检：确认程序仍能导入关键模块
     echo "    验证清理后依赖完整性..."
+fi
+
+# 图标 png 复制到产物根目录：Install.sh 要用它注册应用菜单图标，
+# PyInstaller 的 --icon 只影响可执行文件自身，不会把源图放进产物。
+if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_1024.png ]; then
+    cp icon_gpu_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
+        echo "    已附带 icon_gpu_1024.png（菜单图标）"
+elif [ -f icon_1024.png ]; then
+    cp icon_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
+        echo "    已附带 icon_1024.png（菜单图标）"
 fi
 
 # 随产物附带安装/卸载脚本，让用户能像正常程序那样装进应用菜单
