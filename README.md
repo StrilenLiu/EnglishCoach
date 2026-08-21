@@ -296,6 +296,49 @@ pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu --no-c
 
 The second command matters: those twelve `nvidia-*` packages **are not removed together with torch**, and if left behind they still end up in the build.
 
+### Linux：Wayland 下启动即崩溃 / Crash on Wayland
+
+```
+qt.qpa.wayland: Failed to create popup. Ensure popup ... has a transientParent set.
+The Wayland connection experienced a fatal error
+```
+
+Qt 的工具提示在 Wayland 下会触发协议错误并直接断开连接。启动脚本与应用菜单项都已默认改走 XWayland（xcb），从源码运行时可自行指定：
+
+Qt's tooltips trigger a protocol error under Wayland that drops the connection. Both the launcher script and the application-menu entry already fall back to XWayland (xcb); when running from source, set it yourself:
+
+```bash
+QT_QPA_PLATFORM=xcb python english_coach.py
+```
+
+### Linux 编译：产物报 `undefined symbol` / undefined symbol errors in the build
+
+```
+ImportError: .../pyexpat...so: undefined symbol: XML_SetAllocTrackerActivationThreshold
+```
+
+在 conda 环境里编译时，Python 的 C 扩展链接的是 conda 目录下的库而非系统库。若这些库没被打进产物，程序在别的机器上就会回退去找系统库，版本较旧时便缺少符号。构建脚本已自动捆绑 conda 的 `libexpat`、`libffi`、`libsqlite3` 等运行库；若仍出现类似报错，改用 Docker 编译最稳妥（见上方[自行编译](#自行编译--building)）。
+
+When building inside a conda environment, Python's C extensions link against libraries in the conda prefix rather than the system ones. If those are not bundled, the program falls back to the system copies on other machines and fails when they are older. The build script now bundles conda's `libexpat`, `libffi`, `libsqlite3` and similar runtime libraries automatically; if a comparable error persists, building in Docker is the most reliable route — see [Building](#自行编译--building) above.
+
+### 报错提到代理连接被拒绝 / Errors about a refused proxy connection
+
+```
+ProxyError('Unable to connect to proxy', ... host='127.0.0.1', port=7897 ... 连接被拒绝)
+```
+
+系统里配置了代理环境变量，但代理软件（Clash 等）没在运行。启动代理，或先清掉这些变量：
+
+Proxy environment variables are set but the proxy application (Clash and similar) is not running. Either start it, or clear the variables first:
+
+```bash
+unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+```
+
+国内引擎（DeepSeek、通义千问等）与离线功能本就不需要代理，清掉后即可正常使用。
+
+The Chinese engines (DeepSeek, Qwen and others) and all offline features do not need a proxy at all, so clearing these variables is usually enough.
+
 ### 首次朗读要等很久 / The first playback takes a long time
 
 Kokoro 离线朗读模型约 330MB，首次使用时下载，之后完全离线。中国大陆会自动改用 `hf-mirror.com` 镜像。

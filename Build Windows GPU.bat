@@ -11,6 +11,15 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 set APP_NAME=English Coach GPU
+
+REM ==========================================================================
+REM  产物完整性拦截 / Build integrity gate
+REM  任何会让产物功能残缺的问题都必须阻断编译。
+REM  设 STRICT=0 可强行忽略：  set STRICT=0 ^&^& "Build Windows GPU.bat"
+REM ==========================================================================
+if not defined STRICT set STRICT=1
+set "BUILD_PROBLEMS="
+set "PROBLEM_COUNT=0"
 rem Auto-extract version from english_coach.py (single source of truth)
 for /f tokens^=2^ delims^=^" %%A in ('findstr /b /c:"APP_VERSION" english_coach.py') do set "VERSION=%%A"
 if not defined VERSION set VERSION=0.0.0
@@ -93,7 +102,7 @@ if errorlevel 1 (
 )
 REM Verify CUDA available (False = driver/version mismatch, will fall back to CPU)
 python -c "import torch;print('torch',torch.__version__,'| CUDA available:',torch.cuda.is_available(),'|',(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'))"
-python -c "import torch,transformers,kokoro;print('Kokoro deps OK, transformers',transformers.__version__)" || echo   [!] Kokoro dependency check failed
+python -c "import torch,transformers,kokoro;print('Kokoro deps OK, transformers',transformers.__version__)" || call :problem "Kokoro dependency chain check failed" "Offline speech synthesis will not work"
 echo     Pre-download Kokoro model (~330MB, first time slow)...
 python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Kokoro');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='hexgrad/Kokoro-82M',local_dir=t);print('Kokoro model ready:',t)" || echo   [!] Kokoro model predownload failed
 
@@ -129,6 +138,10 @@ if exist "%DESTDIR%" rmdir /s /q "%DESTDIR%"
 if not exist dist mkdir dist
 mkdir "%DESTDIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
+
+REM 编译前结算：功能性缺失在此拦截
+call :gate
+if errorlevel 1 goto :end
 
 echo ==^> [6/7] PyInstaller build
 python -m PyInstaller ^
@@ -174,6 +187,36 @@ set OUT=%DESTDIR%\EnglishCoach-%VERSION%-Windows-x64-GPU.zip
 if exist "%OUT%" del /q "%OUT%"
 rem Move the PyInstaller output into this platform's folder, keep dist root clean
 if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
+REM ---- 产物实物校验 ----
+echo     Verifying build output ...
+if not exist "%DESTDIR%\%APP_NAME%\%APP_NAME%.exe" (
+    call :problem "Executable missing from the build" "The program cannot start at all"
+)
+if not exist "%DESTDIR%\%APP_NAME%\_internal" (
+    call :problem "_internal folder missing from the build" "All bundled libraries are absent"
+)
+set "ARGOS_N=0"
+for /r "%DESTDIR%\%APP_NAME%" %%F in (*.argosmodel) do (
+    if %%~zF GTR 30000000 set /a ARGOS_N+=1
+)
+if %ARGOS_N% LSS 2 (
+    call :problem "Argos offline translation models incomplete in the build" "Offline translation will not work for users"
+) else (
+    echo       OK - Argos models: %ARGOS_N%
+)
+set "KOK_N=0"
+for /r "%DESTDIR%\%APP_NAME%" %%F in (*.pth *.safetensors *.onnx) do (
+    if %%~zF GTR 10000000 set /a KOK_N+=1
+)
+if %KOK_N% LSS 1 (
+    call :problem "No Kokoro model weights in the build" "Offline speech needs a network download on first use"
+) else (
+    echo       OK - Kokoro weights: %KOK_N%
+)
+
+call :gate
+if errorlevel 1 goto :end
+
 REM --- 随产物附带安装/卸载脚本（必须在打包成 zip 之前放进去）---
 for %%S in (Install.bat Uninstall.bat) do (
     if exist "%%S" (
@@ -237,6 +280,34 @@ REM succeed (errorlevel 0) if file exists and > 40MB
 if not exist "%~1" exit /b 1
 for %%A in ("%~1") do if %%~zA GTR 40000000 (exit /b 0)
 exit /b 1
+
+:problem
+set /a PROBLEM_COUNT+=1
+echo   [X] %~1
+echo       Impact: %~2
+set "BUILD_PROBLEMS=1"
+exit /b 0
+
+:gate
+if not defined BUILD_PROBLEMS exit /b 0
+echo.
+echo ============================================================
+echo   BUILD BLOCKED - the output would be functionally incomplete
+echo   编译被拦截：产物将存在功能缺失（共 %PROBLEM_COUNT% 项，见上方 [X] 行）
+echo ============================================================
+echo.
+if "%STRICT%"=="1" (
+    echo   已中止，未产出安装包。修复上述问题后重新编译即可。
+    echo   Aborted; no package was produced. Fix the issues above and rebuild.
+    echo.
+    echo       set STRICT=0 ^&^& "Build Windows GPU.bat"
+    echo.
+    exit /b 1
+)
+echo   STRICT=0: 已知问题被忽略，继续编译（产物功能不完整）。
+echo.
+set "BUILD_PROBLEMS="
+exit /b 0
 
 :end
 endlocal

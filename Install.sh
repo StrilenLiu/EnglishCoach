@@ -137,9 +137,14 @@ fi
 # ---- 桌面项 ----
 echo "==> [3/4] 创建应用菜单入口"
 mkdir -p "${DESKTOP_DIR}"
-# Exec 用绝对路径并转义空格（desktop 规范要求用反斜杠转义，不能用引号）
+# Exec 含空格的路径必须用【双引号】包裹 —— 这是 freedesktop 桌面项规范的要求。
+# 之前用反斜杠转义空格并不合规，GNOME 等桌面会静默失败：点击菜单项毫无反应、
+# 也不报错。同时给出 Path=（工作目录），确保程序能定位到同级的 _internal。
 EXEC_PATH="${TARGET_DIR}/${APP_NAME}"
-EXEC_ESCAPED="${EXEC_PATH// /\\ }"
+# 从菜单启动时不经过启动脚本，因此这里也要处理 Wayland：
+# Qt 的工具提示在 Wayland 下会触发协议错误导致程序直接退出，走 XWayland(xcb)
+# 可避开。用 env 包一层，既设好平台又保持路径的双引号。
+EXEC_ESCAPED="env QT_QPA_PLATFORM=xcb \"${EXEC_PATH}\""
 cat > "${DESKTOP_DIR}/${SLUG}.desktop" << EOF
 [Desktop Entry]
 Type=Application
@@ -150,6 +155,7 @@ GenericName[zh_CN]=翻译与朗读工具
 Comment=Chinese-English translation, text-to-speech and karaoke subtitles
 Comment[zh_CN]=中英翻译、语音朗读与卡拉OK字幕
 Exec=${EXEC_ESCAPED}
+Path=${TARGET_DIR}
 Icon=${SLUG}
 Terminal=false
 Categories=Education;Utility;Office;

@@ -11,6 +11,15 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 set APP_NAME=English Coach
+
+REM ==========================================================================
+REM  产物完整性拦截 / Build integrity gate
+REM  任何会让产物功能残缺的问题都必须阻断编译，不再"警告一下就假装成功"。
+REM  设 STRICT=0 可强行忽略：  set STRICT=0 ^&^& "Build Windows.bat"
+REM ==========================================================================
+if not defined STRICT set STRICT=1
+set "BUILD_PROBLEMS="
+set "PROBLEM_COUNT=0"
 rem Auto-extract version from english_coach.py (single source of truth)
 for /f tokens^=2^ delims^=^" %%A in ('findstr /b /c:"APP_VERSION" english_coach.py') do set "VERSION=%%A"
 if not defined VERSION set VERSION=0.0.0
@@ -80,13 +89,13 @@ rem return a 0-byte placeholder that triggers a "Wheel is invalid" error. Check 
 rem skip if already installed (no noisy error), else install from the official GitHub wheel.
 python -c "import en_core_web_sm" >nul 2>&1
 if errorlevel 1 (
-  python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || echo   [!] en_core_web_sm preinstall failed; first offline EN read will download it
+  python -m pip install "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" || call :pipinstall en_core_web_sm || call :problem "spaCy model en_core_web_sm not installed" "Offline English speech needs it; first use will require a network download"
 ) else (
   echo   [OK] en_core_web_sm already installed, skipping
 )
-python -c "import torch,transformers,kokoro;print('Kokoro deps OK, torch',torch.__version__,'transformers',transformers.__version__)" || echo   [!] Kokoro dependency check failed
+python -c "import torch,transformers,kokoro;print('Kokoro deps OK, torch',torch.__version__,'transformers',transformers.__version__)" || call :problem "Kokoro dependency chain check failed" "Offline speech synthesis will not work"
 echo     Pre-download Kokoro model (~330MB, first time slow)...
-python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Kokoro');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='hexgrad/Kokoro-82M',local_dir=t);print('Kokoro model ready:',t)" || echo   [!] Kokoro model predownload failed; offline EN voices unavailable without network
+python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Kokoro');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='hexgrad/Kokoro-82M',local_dir=t);print('Kokoro model ready:',t)" || call :problem "Kokoro offline speech model was not downloaded" "The build contains no model; users must be online for first playback"
 
 echo ==^> [3/7] Prepare Argos en/zh offline models (cache subdir: argos)
 if not exist argos_models mkdir argos_models
@@ -120,6 +129,10 @@ if exist "%DESTDIR%" rmdir /s /q "%DESTDIR%"
 if not exist dist mkdir dist
 mkdir "%DESTDIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
+
+REM 编译前结算：功能性缺失在此拦截，不浪费后续十几分钟的打包时间
+call :gate
+if errorlevel 1 goto :end
 
 echo ==^> [6/7] PyInstaller build
 python -m PyInstaller ^
@@ -166,6 +179,39 @@ if exist "%OUT%" del /q "%OUT%"
 REM Zip the whole app folder (so the zip contains "English Coach\English Coach.exe")
 rem Move the PyInstaller output into this platform's folder, keep dist root clean
 if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
+REM ---- 产物实物校验 ----
+REM 前面查的是"过程有没有报错"，这里查的是"产物里到底有没有东西"。
+REM 两者缺一不可：曾出现过程无报错、产物却缺模型的情况。
+echo     Verifying build output ...
+if not exist "%DESTDIR%\%APP_NAME%\%APP_NAME%.exe" (
+    call :problem "Executable missing from the build" "The program cannot start at all"
+)
+if not exist "%DESTDIR%\%APP_NAME%\_internal" (
+    call :problem "_internal folder missing from the build" "All bundled libraries are absent"
+)
+set "ARGOS_N=0"
+for /r "%DESTDIR%\%APP_NAME%" %%F in (*.argosmodel) do (
+    if %%~zF GTR 30000000 set /a ARGOS_N+=1
+)
+if %ARGOS_N% LSS 2 (
+    call :problem "Argos offline translation models incomplete in the build" "Offline translation will not work for users"
+) else (
+    echo       OK - Argos models: %ARGOS_N%
+)
+set "KOK_N=0"
+for /r "%DESTDIR%\%APP_NAME%" %%F in (*.pth *.safetensors *.onnx) do (
+    if %%~zF GTR 10000000 set /a KOK_N+=1
+)
+if %KOK_N% LSS 1 (
+    call :problem "No Kokoro model weights in the build" "Offline speech needs a network download on first use"
+) else (
+    echo       OK - Kokoro weights: %KOK_N%
+)
+
+REM 打包后结算：产物已生成但内容不合格，同样阻断，避免误当成品发布
+call :gate
+if errorlevel 1 goto :end
+
 REM --- 随产物附带安装/卸载脚本（必须在打包成 zip 之前放进去）---
 for %%S in (Install.bat Uninstall.bat) do (
     if exist "%%S" (
@@ -229,6 +275,43 @@ REM succeed (errorlevel 0) if file exists and > 40MB
 if not exist "%~1" exit /b 1
 for %%A in ("%~1") do if %%~zA GTR 40000000 (exit /b 0)
 exit /b 1
+
+REM ==========================================================================
+REM  :problem  记录一个会导致产物功能残缺的问题
+REM      %1 = 简述   %2 = 影响
+REM ==========================================================================
+:problem
+set /a PROBLEM_COUNT+=1
+echo   [X] %~1
+echo       Impact: %~2
+set "BUILD_PROBLEMS=1"
+exit /b 0
+
+REM ==========================================================================
+REM  :gate  结算已记录的问题。STRICT=1 时阻断编译并以非 0 退出。
+REM ==========================================================================
+:gate
+if not defined BUILD_PROBLEMS exit /b 0
+echo.
+echo ============================================================
+echo   BUILD BLOCKED - the output would be functionally incomplete
+echo   编译被拦截：产物将存在功能缺失（共 %PROBLEM_COUNT% 项，见上方 [X] 行）
+echo ============================================================
+echo.
+if "%STRICT%"=="1" (
+    echo   已中止，未产出安装包。修复上述问题后重新编译即可。
+    echo   Aborted; no package was produced. Fix the issues above and rebuild.
+    echo.
+    echo   如确需在明知功能缺失的情况下强行编译：
+    echo   To build anyway despite the missing features:
+    echo       set STRICT=0 ^&^& "Build Windows.bat"
+    echo.
+    exit /b 1
+)
+echo   STRICT=0: 已知问题被忽略，继续编译（产物功能不完整）。
+echo.
+set "BUILD_PROBLEMS="
+exit /b 0
 
 :end
 endlocal

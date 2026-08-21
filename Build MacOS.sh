@@ -9,6 +9,39 @@
 set -e
 
 APP_NAME="English Coach"
+
+# ============================================================================
+#  产物完整性拦截 / Build integrity gate
+#  任何会让产物功能残缺的问题都必须阻断编译，绝不"警告一下就假装成功"。
+#  STRICT=0 可强行忽略：STRICT=0 bash "Build MacOS.sh"
+# ============================================================================
+STRICT="${STRICT:-1}"
+BUILD_PROBLEMS=""
+record_problem () {
+    BUILD_PROBLEMS="${BUILD_PROBLEMS}
+  ✗ $1
+      影响：$2
+      处理：$3"
+}
+gate_check () {
+    [ -z "$BUILD_PROBLEMS" ] && return 0
+    echo ""
+    echo "============================================================"
+    echo "  编译被拦截：产物将存在功能缺失"
+    echo "  Build blocked: the output would be functionally incomplete"
+    echo "============================================================"
+    echo "$BUILD_PROBLEMS"
+    echo ""
+    if [ "$STRICT" = "1" ]; then
+        echo "  已中止，未产出安装包。修复后重新编译即可。"
+        echo "  如确需强行编译： STRICT=0 bash \"Build MacOS.sh\""
+        echo ""
+        exit 1
+    fi
+    echo "  STRICT=0：已知问题被忽略，继续编译（产物功能不完整）。"
+    echo ""
+    BUILD_PROBLEMS=""
+}
 # 版本号自动从 english_coach.py 提取(单一事实来源，不再手工维护)
 VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' english_coach.py | head -1)
 [ -z "$VERSION" ] && VERSION="0.0.0"
@@ -105,11 +138,15 @@ else
   python -m pip install \
     "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
     || pip_install en_core_web_sm \
-    || echo "  ⚠ en_core_web_sm 预装失败，首次离线英文朗读会自动下载（需联网）"
+    || record_problem "spaCy 英文模型 en_core_web_sm 未安装" \
+        "离线英文朗读的分词依赖它，缺失时首次使用需联网下载" \
+        "手动安装 en_core_web_sm-3.7.1 的 whl 后重试"
 fi
 # 校验 Kokoro 关键链路：torch 没被 transformers 禁用
 python -c "import torch,transformers,kokoro;print('  ✓ Kokoro 依赖链 OK, torch',torch.__version__,'transformers',transformers.__version__)" \
-  || echo "  ⚠ Kokoro 依赖校验未通过，离线朗读可能不可用"
+  || record_problem "Kokoro 依赖链校验未通过" \
+        "离线朗读功能将无法使用" \
+        "检查上方 pip 输出，确认 torch / transformers / kokoro 均已正确安装"
 # espeak-ng 是 Kokoro 英文 G2P 的后备依赖（mac 用 brew）
 if ! command -v espeak-ng >/dev/null 2>&1; then
     echo "    提示：可选 brew install espeak-ng（Kokoro 英文音素化更稳，多数情况非必需）"
@@ -117,7 +154,9 @@ fi
 # 预下载 Kokoro 模型到 HF 缓存，并复制到打包目录，确保离线可用
 echo "    预下载 Kokoro 模型（约 330MB，首次较慢）..."
 KOKORO_REPO="$HOME/EnglishCoach Models/Kokoro"
-python - <<'PYEOF' || echo "  ⚠ Kokoro 模型预下载失败，离线英文嗓音在无网时将不可用"
+python - <<'PYEOF' || record_problem "Kokoro 离线朗读模型未能下载" \
+        "产物内不含模型，用户首次朗读必须联网" \
+        "大陆可先设 export HF_ENDPOINT=https://hf-mirror.com 后重试"
 import os
 try:
     from huggingface_hub import snapshot_download
@@ -188,12 +227,21 @@ fetch_model "en_zh.argosmodel" "$EN_ZH_URL"
 fetch_model "zh_en.argosmodel" "$ZH_EN_URL"
 
 # 完整性校验
+_argos_ok=1
 for f in argos_models/en_zh.argosmodel argos_models/zh_en.argosmodel; do
     if ! is_complete "$f"; then
-        echo "  [警告] $f 不完整或缺失，离线翻译将不可用。"
-        echo "         请手动下载完整模型放到 ~/EnglishCoach Models/ 后重试。"
+        echo "  [缺失] $f 不完整或缺失"
+        _argos_ok=0
     fi
 done
+if [ "$_argos_ok" = "0" ]; then
+    record_problem "Argos 中英离线翻译模型缺失或不完整" \
+        "产物内不含离线翻译模型，Argos 引擎在用户端完全不可用" \
+        "确认网络后重试，或手动下载到 ~/EnglishCoach Models/Argos/ ：$EN_ZH_URL 与 $ZH_EN_URL"
+fi
+
+# 编译前结算：功能性缺失在此拦截，不浪费后续打包时间
+gate_check
 
 echo "==> [4/8] 生成图标"
 [ -f make_icon.py ] && python make_icon.py

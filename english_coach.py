@@ -34,6 +34,82 @@ EnglishCoach - 英语助手工具
 
 import sys
 import os
+
+# ============================================================================
+#  Hugging Face 端点与离线模型：必须在【任何】import huggingface_hub /
+#  transformers / kokoro 之前完成设置。
+#
+#  原因：huggingface_hub 在【模块导入时】就把 ENDPOINT 读成常量固定下来，
+#  之后再改环境变量完全无效。此前这段逻辑写在函数内部，等执行到时
+#  transformers 早已把 huggingface_hub 导入完毕，于是设了也白设 ——
+#  大陆用户依然去连 huggingface.co 并失败。
+# ============================================================================
+def _ec_bootstrap_hf():
+    # ---- 1) 本地已有模型则直接离线，完全不联网 ----
+    cands = []
+    if os.environ.get("ENGLISHCOACH_MODELS"):
+        cands.append(os.path.join(os.environ["ENGLISHCOACH_MODELS"], "Kokoro"))
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        cands.append(os.path.join(mei, "kokoro_model"))
+    try:
+        here = os.path.dirname(os.path.abspath(
+            sys.executable if getattr(sys, "frozen", False) else __file__))
+        cands.append(os.path.join(here, "kokoro_model"))
+    except Exception:
+        pass
+    cands.append(os.path.expanduser("~/EnglishCoach Models/Kokoro"))
+
+    for d in cands:
+        if not os.path.isdir(d):
+            continue
+        # HF 缓存结构（hub/models--hexgrad--Kokoro-82M）能让模型与音色
+        # 全部离线可用，是首选
+        if os.path.isdir(os.path.join(d, "hub")):
+            os.environ.setdefault("HF_HOME", d)
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            os.environ["ENGLISHCOACH_KOKORO_DIR"] = d
+            return
+        # 扁平目录（snapshot_download(local_dir=...) 的产物）：
+        # 记下路径，稍后直接把权重路径喂给 KModel
+        if any(f.endswith((".pth", ".safetensors", ".onnx"))
+               for _r, _d, fs in os.walk(d) for f in fs):
+            os.environ["ENGLISHCOACH_KOKORO_DIR"] = d
+            return
+
+    # ---- 2) 无本地模型：大陆自动走镜像，避免直连失败 ----
+    if os.environ.get("HF_ENDPOINT"):
+        return
+    cn = False
+    cand_langs = []
+    try:
+        import locale as _loc
+        cand_langs.append(_loc.getdefaultlocale()[0] or "")
+    except Exception:
+        pass
+    for v in ("LC_ALL", "LC_CTYPE", "LANG", "LANGUAGE"):
+        cand_langs.append(os.environ.get(v, "") or "")
+    if any(c.lower().replace("-", "_").startswith("zh_cn") for c in cand_langs):
+        cn = True
+    if not cn:
+        tz = os.environ.get("TZ", "")
+        if not tz:
+            try:
+                with open("/etc/timezone", encoding="utf-8") as f:
+                    tz = f.read().strip()
+            except Exception:
+                try:
+                    tz = os.path.realpath("/etc/localtime")
+                except Exception:
+                    tz = ""
+        if any(k in tz for k in ("Shanghai", "Chongqing", "Harbin",
+                                 "Urumqi", "PRC")):
+            cn = True
+    if cn:
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+
+_ec_bootstrap_hf()
 import json
 import re
 import asyncio
@@ -202,6 +278,28 @@ def _log_path():
         import os
         LOG_FILE = os.path.join(_app_data_dir(), "运行日志.txt")
     return LOG_FILE
+
+def _network_hint(err):
+    """按实际错误给出网络提示。不假设用户用哪款代理软件——代理来自系统环境
+    变量(http_proxy/https_proxy)，各人配置不同，因此只描述现象与通用做法。"""
+    t = str(err)
+    import os as _os
+    _pv = next((_os.environ.get(k) for k in
+                ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY",
+                 "all_proxy", "ALL_PROXY") if _os.environ.get(k)), None)
+    if "ProxyError" in t or "Unable to connect to proxy" in t:
+        if _pv:
+            return (f"（系统已配置代理 {_pv}，但连接被拒绝：请确认代理软件正在运行，"
+                    f"或清除代理环境变量后重试）")
+        return "（代理连接失败：请确认代理软件正在运行，或取消代理设置后重试）"
+    if "SSLError" in t or "CERTIFICATE" in t.upper():
+        return "（TLS 握手失败：可能是代理或防火墙拦截，请检查网络环境）"
+    if "Timed out" in t or "timeout" in t.lower():
+        return "（连接超时：请检查网络；若该服务在本地区受限，需自行配置网络代理）"
+    if _pv:
+        return f"（当前经由代理 {_pv} 访问，若异常请检查代理是否正常工作）"
+    return "（请检查网络连接；部分线上引擎在部分地区需自行配置网络代理）"
+
 
 def _log_error(msg):
     """把出错记录追加到日志文件（带时间戳）。"""
@@ -2844,7 +2942,7 @@ class TranslateWorker(QThread):
                 return
             self.finished_ok.emit(out.strip())
         except requests.exceptions.RequestException as e:
-            self.failed.emit(f"网络错误: {e}\n（大陆环境请确认代理 / Clash Verge 是否开启）")
+            self.failed.emit(f"网络错误: {e}\n{_network_hint(e)}")
         except RuntimeError as e:
             self.failed.emit(str(e))
         except Exception as e:
@@ -3615,23 +3713,78 @@ def _get_kokoro_pipeline(lang_code="a"):
     if lang_code in _KOKORO_PIPELINES:
         return _KOKORO_PIPELINES[lang_code]
     try:
-        # 打包后优先用内置模型目录（离线可用），避免联网下载
+        # 优先使用【本地已有的模型】，避免联网下载。按顺序查找：
+        #   1) 打包产物内置目录（PyInstaller 的 _MEIPASS，仅打包版有）
+        #   2) 可执行文件/源码同级的 kokoro_model 目录
+        #   3) 构建脚本使用的公共模型仓库 ~/EnglishCoach Models/Kokoro
+        #      —— 从源码运行时此前完全没有这一步，导致明明本地有模型
+        #         仍去联网下载。
         import os as _os
-        base = getattr(sys, "_MEIPASS", None)
-        if base:
-            bundled = _os.path.join(base, "kokoro_model")
-            if _os.path.isdir(bundled):
+        _cands = []
+        _mei = getattr(sys, "_MEIPASS", None)
+        if _mei:
+            _cands.append(_os.path.join(_mei, "kokoro_model"))
+        try:
+            _here = _os.path.dirname(_os.path.abspath(
+                sys.executable if getattr(sys, "frozen", False) else __file__))
+            _cands.append(_os.path.join(_here, "kokoro_model"))
+        except Exception:
+            pass
+        _cands.append(_os.path.expanduser("~/EnglishCoach Models/Kokoro"))
+        if _os.environ.get("ENGLISHCOACH_MODELS"):
+            _cands.insert(0, _os.path.join(
+                _os.environ["ENGLISHCOACH_MODELS"], "Kokoro"))
+        for _b in _cands:
+            # 认作可用需含实际权重文件，避免空目录让 HF 进入离线模式后报错
+            if _os.path.isdir(_b) and any(
+                    f.endswith((".pth", ".onnx", ".safetensors", ".bin"))
+                    for _r, _d, _fs in _os.walk(_b) for f in _fs):
                 _os.environ.setdefault("HF_HUB_OFFLINE", "1")
-                _os.environ.setdefault("HF_HOME", bundled)
+                _os.environ.setdefault("HF_HOME", _b)
+                break
         # 中国大陆：huggingface.co 被封，Kokoro 首次下载模型会失败。
         # 若用户未自行设置 HF_ENDPOINT，且系统区域/语言为中国大陆，则默认走
         # hf-mirror.com 公益镜像，无需 VPN 即可下载（用户可用环境变量覆盖）。
         try:
             if not _os.environ.get("HF_ENDPOINT"):
-                import locale as _loc
-                _lang = (_loc.getdefaultlocale()[0] or "")
-                _tz = _os.environ.get("TZ", "")
-                if _lang.lower().startswith("zh_cn") or "Shanghai" in _tz:
+                _cn = False
+                # ① 语言环境。Linux 上除 LANG 外还要看 LC_ALL / LANGUAGE，
+                #    getdefaultlocale 在部分环境下会返回 None。
+                try:
+                    import locale as _loc
+                    _cands = [(_loc.getdefaultlocale()[0] or "")]
+                except Exception:
+                    _cands = []
+                for _v in ("LC_ALL", "LC_CTYPE", "LANG", "LANGUAGE"):
+                    _cands.append(_os.environ.get(_v, "") or "")
+                if any(c.lower().replace("-", "_").startswith("zh_cn")
+                       for c in _cands):
+                    _cn = True
+                # ② 时区。Linux 上 TZ 环境变量通常为空，真正的时区在
+                #    /etc/timezone 或 /etc/localtime 的软链接目标里 —— 这正是
+                #    大陆检测此前在 Linux 上失效、导致仍去连 huggingface.co 的原因。
+                if not _cn:
+                    _tzname = _os.environ.get("TZ", "")
+                    if not _tzname:
+                        try:
+                            with open("/etc/timezone", encoding="utf-8") as _f:
+                                _tzname = _f.read().strip()
+                        except Exception:
+                            try:
+                                _tzname = _os.path.realpath("/etc/localtime")
+                            except Exception:
+                                _tzname = ""
+                    if not _tzname:
+                        try:                      # 兜底：Python 3.9+ 的时区库
+                            from tzlocal import get_localzone_name as _gz
+                            _tzname = _gz() or ""
+                        except Exception:
+                            pass
+                    if any(k in _tzname for k in
+                           ("Shanghai", "Chongqing", "Harbin", "Urumqi",
+                            "Asia/Beijing", "PRC", "CST-8")):
+                        _cn = True
+                if _cn:
                     _os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
         except Exception:
             pass
@@ -3644,10 +3797,43 @@ def _get_kokoro_pipeline(lang_code="a"):
                 device = "cuda"
         except Exception:
             pass
+        # 若本地有扁平结构的模型目录（构建脚本用 local_dir 下载的产物），
+        # 直接把权重与配置路径喂给 KModel —— 只设 HF_HOME 对这种结构无效，
+        # 因为 hf_hub_download 找的是 hub/models--.../ 缓存布局，
+        # 结果仍会去联网下载，正是"本地明明有模型却还要联网"的原因。
+        _local_dir = _os.environ.get("ENGLISHCOACH_KOKORO_DIR", "")
+        _kmodel = None
+        if _local_dir and not _os.path.isdir(_os.path.join(_local_dir, "hub")):
+            try:
+                _cfg = _wt = None
+                for _r, _d, _fs in _os.walk(_local_dir):
+                    for _f in _fs:
+                        if _f == "config.json" and _cfg is None:
+                            _cfg = _os.path.join(_r, _f)
+                        elif _f.endswith(".pth") and _wt is None:
+                            _wt = _os.path.join(_r, _f)
+                if _cfg and _wt:
+                    from kokoro import KModel
+                    _kmodel = KModel(config=_cfg, model=_wt)
+                    if device:
+                        _kmodel = _kmodel.to(device)
+                    _kmodel = _kmodel.eval()
+            except Exception as _e:
+                print(f"[Kokoro] 本地模型加载失败，将回退默认方式: {_e}")
+                _kmodel = None
         try:
-            p = KPipeline(lang_code=lang_code, device=device)
+            if _kmodel is not None:
+                p = KPipeline(lang_code=lang_code, model=_kmodel, device=device)
+            else:
+                p = KPipeline(lang_code=lang_code, device=device)
         except TypeError:
-            p = KPipeline(lang_code=lang_code)   # 老版本不支持 device 参数
+            if _kmodel is not None:
+                try:
+                    p = KPipeline(lang_code=lang_code, model=_kmodel)
+                except TypeError:
+                    p = KPipeline(lang_code=lang_code)
+            else:
+                p = KPipeline(lang_code=lang_code)   # 老版本不支持 device 参数
         _KOKORO_PIPELINES[lang_code] = p
         return p
     except Exception as e:
@@ -4372,7 +4558,7 @@ def readme_html_zh():
        最匹配的区间（近似匹配，可能略有偏差）。灰色联动区间也可直接朗读。</p>
     <div class="t2">常见问题</div>
     <ul>
-      <li><b>翻译/朗读报错？</b> 多为网络或 Key 问题；大陆请确认代理 / Clash Verge 已开启，
+      <li><b>翻译/朗读报错？</b> 多为网络或 Key 问题；若使用了网络代理请确认其正在运行，
           或改用离线引擎（Argos 翻译 / Kokoro 朗读）。</li>
       <li><b>卡拉OK字幕？</b> 朗读时逐词高亮青蓝绿，跟随进度。</li>
       <li><b>Key 存在哪？</b> 保存在本机 (QSettings)，不上传。</li>

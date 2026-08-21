@@ -17,7 +17,11 @@ APP_NAME="English Coach"
 VERSION=$(sed -n 's/^APP_VERSION = "\(.*\)"/\1/p' english_coach.py | head -1)
 [ -z "$VERSION" ] && VERSION="0.0.0"
 MAIN="english_coach.py"
-CONDA_ENV="EnglishCoach"
+# conda 环境名：GPU 变体优先用 EnglishCoach-GPU（若存在），
+# 否则与 CPU 共用 EnglishCoach。共用时两个变体会互相覆盖 torch ——
+# pip 见"版本已满足"就跳过安装，于是 GPU 版装成了 CPU 版。
+# 可用 CONDA_ENV 环境变量强制指定。
+CONDA_ENV="${CONDA_ENV:-EnglishCoach}"
 # 允许用户直接指定解释器，绕过一切自动探测：
 #   PY=/path/to/envs/EnglishCoach/bin/python bash "Build Linux.sh"
 PY_OVERRIDE="${PY:-}"
@@ -29,6 +33,12 @@ if [ "$BUILD_VARIANT" = "GPU" ]; then
     TORCH_SPEC="torch==2.2.2"
     TORCH_INDEX="https://download.pytorch.org/whl/cu121"
     VENV_DIR="${VENV_DIR:-.build-venv-gpu}"
+    # 若存在专用的 GPU conda 环境就优先用它，避免与 CPU 版共用同一 env
+    if [ -z "${CONDA_ENV_EXPLICIT:-}" ] && command -v conda >/dev/null 2>&1; then
+        if conda info --envs 2>/dev/null | grep -qE "^EnglishCoach-GPU[[:space:]]"; then
+            CONDA_ENV="EnglishCoach-GPU"
+        fi
+    fi
     # GPU 版可执行文件与安装后的菜单项都叫 "English Coach GPU"，
     # 可与 CPU 版并存互不覆盖
     APP_NAME="English Coach GPU"
@@ -38,6 +48,50 @@ else
     TORCH_INDEX="https://download.pytorch.org/whl/cpu"
     VENV_DIR="${VENV_DIR:-.build-venv}"
 fi
+# ============================================================================
+#  产物完整性拦截 / Build integrity gate
+#
+#  原则：任何会让产物功能残缺的问题，都必须【阻断编译】并说清原因，
+#  绝不允许"打印一行警告然后假装编译成功" —— 那会把问题一路带到用户手上。
+#
+#  STRICT=1（默认）：发现问题即失败，退出码非 0
+#  STRICT=0        ：仅警告并继续，供明知故犯的场景使用
+#      STRICT=0 bash "Build Linux.sh"
+# ============================================================================
+STRICT="${STRICT:-1}"
+BUILD_PROBLEMS=""
+
+record_problem () {   # $1=简述  $2=后果  $3=修复建议
+    BUILD_PROBLEMS="${BUILD_PROBLEMS}
+  ✗ $1
+      影响：$2
+      处理：$3"
+}
+
+gate_check () {       # 在关键节点结算已记录的问题
+    [ -z "$BUILD_PROBLEMS" ] && return 0
+    echo ""
+    echo "============================================================"
+    echo "  编译被拦截：产物将存在功能缺失"
+    echo "  Build blocked: the output would be functionally incomplete"
+    echo "============================================================"
+    echo "$BUILD_PROBLEMS"
+    echo ""
+    if [ "$STRICT" = "1" ]; then
+        echo "  已中止，未产出安装包。修复后重新编译即可。"
+        echo "  Aborted; no package was produced. Fix the above and rebuild."
+        echo ""
+        echo "  如确实需要在明知功能缺失的情况下强行编译："
+        echo "  To build anyway despite the missing features:"
+        echo "      STRICT=0 bash \"$(basename "${BASH_SOURCE[0]}")\""
+        echo ""
+        exit 1
+    fi
+    echo "  STRICT=0：已知问题被忽略，继续编译（产物功能不完整）。"
+    echo ""
+    BUILD_PROBLEMS=""
+}
+
 # 多镜像：清华优先，失败回退官方源
 PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_FALLBACK="https://pypi.org/simple"
@@ -270,6 +324,26 @@ echo "    安装 Kokoro 离线 TTS 依赖..."
 # Windows 与 macOS 的默认轮子本就是 CPU 版，只有 Linux 有这个行为，
 # 因此两个变体都必须【显式】指定索引，不能依赖默认。
 echo "    变体 ${BUILD_VARIANT}：使用索引 ${TORCH_INDEX}"
+# 关键：pip 见"版本已满足"就跳过安装，--index-url 便形同虚设 —— 复用旧虚拟环境时
+# CPU/GPU 变体会互相串味(GPU 版装成 CPU 版，或反之)。先卸载已装的 torch，
+# 强制从指定索引重新安装。
+_cur_tv="$("$PY" -c 'import torch;print(torch.__version__)' 2>/dev/null || true)"
+if [ -n "$_cur_tv" ]; then
+    case "$_cur_tv" in
+        *+cu*|*cu1*) _cur_variant=GPU ;;
+        *)           _cur_variant=CPU ;;
+    esac
+    if [ "$_cur_variant" != "$BUILD_VARIANT" ]; then
+        echo "    环境中已有 ${_cur_variant} 版 torch ${_cur_tv}，与本次(${BUILD_VARIANT})不符，先卸载"
+        "$PY" -m pip uninstall -y torch >/dev/null 2>&1 || true
+        # CUDA 版会连带 12 个 nvidia-* 包，切到 CPU 时必须一并清掉，
+        # 否则它们仍会被打进产物白白撑大体积
+        if [ "$BUILD_VARIANT" = "CPU" ]; then
+            _nv=$("$PY" -m pip list 2>/dev/null | awk '/^nvidia-/{print $1}' | tr '\n' ' ')
+            [ -n "$_nv" ] && "$PY" -m pip uninstall -y $_nv triton >/dev/null 2>&1 || true
+        fi
+    fi
+fi
 "$PY" -m pip install "${TORCH_SPEC}" --index-url "${TORCH_INDEX}" || {
     echo "    ! 指定索引安装失败，回退到默认源"
     [ "$BUILD_VARIANT" = "CPU" ] && echo "      注意：默认源在 Linux 上是 CUDA 版，产物会明显变大"
@@ -285,17 +359,34 @@ try:
     is_cuda = ("+cu" in v) or ("cu1" in v)
     print(f"    torch {v}")
     if want == "CPU" and is_cuda:
-        print("    [!] 警告：CPU 版却装成了 CUDA 版 torch，产物会大出数 GB")
-        print("        多为 pip 全局镜像源劫持了 --index-url，可试 --no-cache-dir")
+        print("    [X] CPU 版却装成了 CUDA 版 torch")
+        sys.exit(2)
     elif want == "GPU" and not is_cuda:
-        print("    [!] 警告：GPU 版却装成了 CPU 版 torch，将【无法使用显卡加速】")
-        print("        请检查 CUDA 索引是否可达")
+        print("    [X] GPU 版却装成了 CPU 版 torch")
+        sys.exit(3)
     else:
         print(f"    已确认为 {want} 版")
 except Exception as e:
     print(f"    [!] 无法导入 torch: {e}")
     sys.exit(1)
 TORCHCHK
+_tchk=$?
+if [ "$_tchk" = "2" ]; then
+    record_problem \
+        "CPU 变体装成了 CUDA 版 torch" \
+        "产物会凭空大出数 GB，且包含 CPU 版根本用不到的 CUDA 组件" \
+        "多为 pip 全局镜像源劫持了 --index-url。可先 pip uninstall -y torch 及全部 nvidia-* 包，再加 --no-cache-dir 重装"
+elif [ "$_tchk" = "3" ]; then
+    record_problem \
+        "GPU 变体装成了 CPU 版 torch" \
+        "产物体积与 CPU 版无异，且【完全无法使用显卡加速】—— 名为 GPU 版实则不是" \
+        "确认能访问 ${TORCH_INDEX}；若复用了旧虚拟环境，删除 ${VENV_DIR} 后重新编译"
+elif [ "$_tchk" != "0" ]; then
+    record_problem \
+        "torch 无法导入" \
+        "离线朗读功能将完全不可用" \
+        "检查上方 pip 安装输出"
+fi
 pip_install "transformers==4.40.2"
 pip_install kokoro soundfile
 pip_install lameenc
@@ -311,10 +402,16 @@ else
   "$PY" -m pip install \
     "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" \
     || pip_install en_core_web_sm \
-    || echo "  ⚠ en_core_web_sm 预装失败，首次离线英文朗读会自动下载（需联网）"
+    || record_problem \
+        "spaCy 英文模型 en_core_web_sm 未安装" \
+        "离线英文朗读的分词依赖它，缺失时首次使用需联网下载" \
+        "手动安装：pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
 fi
 "$PY" -c "import torch,transformers,kokoro;print('  ✓ Kokoro 依赖链 OK, torch',torch.__version__,'transformers',transformers.__version__)" \
-  || echo "  ⚠ Kokoro 依赖校验未通过，离线朗读可能不可用"
+  || record_problem \
+        "Kokoro 依赖链校验未通过" \
+        "离线朗读功能将无法使用" \
+        "检查上方 pip 安装输出，确认 torch / transformers / kokoro 均已正确安装"
 # espeak-ng 是 Kokoro 英文 G2P 的后备依赖（Linux 用系统包管理器）
 if ! command -v espeak-ng >/dev/null 2>&1; then
     echo "    提示：可选安装 espeak-ng（Debian/Ubuntu: sudo apt install espeak-ng；"
@@ -322,18 +419,56 @@ if ! command -v espeak-ng >/dev/null 2>&1; then
 fi
 
 echo "==> [4/8] 预下载 Kokoro 模型（约 330MB，首次较慢，可离线跳过）"
-"$PY" - <<'PYEOF' || echo "  ⚠ Kokoro 模型预下载失败，离线英文嗓音在无网时将不可用"
-import os
-try:
-    from huggingface_hub import snapshot_download
-    target = os.path.expanduser("~/EnglishCoach Models/Kokoro")
-    os.makedirs(target, exist_ok=True)
-    snapshot_download(repo_id="hexgrad/Kokoro-82M", local_dir=target)
-    print("  ✓ Kokoro 模型已就绪:", target)
-except Exception as e:
-    print("  Kokoro 预下载异常:", e)
-    raise
+if ! "$PY" - <<'PYEOF'
+import os, sys
+target = os.path.expanduser("~/EnglishCoach Models/Kokoro")
+os.makedirs(target, exist_ok=True)
+
+# 已有完整模型就直接复用，不重复下载
+def _has_weights(d):
+    return any(f.endswith((".pth", ".onnx", ".safetensors", ".bin"))
+               for _r, _d, fs in os.walk(d) for f in fs)
+# 已是缓存结构且含权重才算就绪；扁平旧目录会重新按缓存结构下载一次
+if os.path.isdir(os.path.join(target, "hub")) and _has_weights(target):
+    print("  ✓ 已有 Kokoro 模型，跳过下载:", target)
+    sys.exit(0)
+
+# 端点顺序：用户指定 > 大陆镜像 > 官方。构建机常在大陆，直连 huggingface.co
+# 会失败，此前没有镜像回退，导致产物缺模型、用户端仍需联网。
+endpoints = []
+if os.environ.get("HF_ENDPOINT"):
+    endpoints.append(os.environ["HF_ENDPOINT"])
+endpoints += ["https://hf-mirror.com", "https://huggingface.co"]
+
+# 关键：下载成 HF 的【缓存结构】(target/hub/models--hexgrad--Kokoro-82M/...)，
+# 而不是 local_dir 的扁平目录。运行时只需把 HF_HOME 指向 target，
+# 模型与音色(voices/*.pt)就全部离线可用 —— 扁平目录只能解决模型、
+# 音色仍会联网下载。
+os.environ["HF_HOME"] = target
+last = None
+for ep in endpoints:
+    os.environ["HF_ENDPOINT"] = ep
+    try:
+        print(f"  尝试端点 {ep} ...")
+        # 必须在设好环境变量【之后】再导入，否则端点被固定成旧值
+        for _m in [m for m in list(sys.modules) if m.startswith("huggingface_hub")]:
+            del sys.modules[_m]
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id="hexgrad/Kokoro-82M")
+        print("  ✓ Kokoro 模型已就绪(HF 缓存结构):", target)
+        sys.exit(0)
+    except Exception as e:
+        last = e
+        print(f"    失败: {str(e)[:120]}")
+print("  Kokoro 预下载异常:", last)
+sys.exit(1)
 PYEOF
+then
+    record_problem \
+        "Kokoro 离线朗读模型未能下载" \
+        "产物内不含模型，用户首次朗读必须联网；无网环境下离线朗读完全不可用" \
+        "确认网络后重试；大陆可先设 export HF_ENDPOINT=https://hf-mirror.com；或手动下载 hexgrad/Kokoro-82M 到 ~/EnglishCoach Models/Kokoro/ 再编译"
+fi
 
 echo "==> [5/8] 准备 Argos 中英离线模型（打包进产物）"
 # 此前 Linux 脚本漏了这一步：后面的 MODEL_ARG 会引用 argos_models 目录，
@@ -390,15 +525,19 @@ fetch_model "zh_en.argosmodel" "$ZH_EN_URL"
 _argos_ok=1
 for f in argos_models/en_zh.argosmodel argos_models/zh_en.argosmodel; do
     if ! is_complete "$f"; then
-        echo "  [警告] $f 不完整或缺失，离线翻译将不可用。"
+        echo "  [缺失] $f 不完整或缺失"
         _argos_ok=0
     fi
 done
 if [ "$_argos_ok" = "0" ]; then
-    echo "         可手动下载后放到 ~/EnglishCoach Models/Argos/ 再重新编译："
-    echo "           $EN_ZH_URL"
-    echo "           $ZH_EN_URL"
+    record_problem \
+        "Argos 中英离线翻译模型缺失或不完整" \
+        "产物内不含离线翻译模型，Argos 引擎在用户端完全不可用" \
+        "确认网络后重试，或手动下载到 ~/EnglishCoach Models/Argos/ ：$EN_ZH_URL 与 $ZH_EN_URL"
 fi
+
+# 编译前结算：功能性缺失在此拦截，不浪费后续十几分钟的打包时间
+gate_check
 
 echo "==> [6/8] 校验离线翻译依赖"
 if ! "$PY" -c "import ctranslate2, sentencepiece" 2>/dev/null; then
@@ -427,6 +566,29 @@ fi
 # 不直接与 X 服务器做协议交互，打包进来很安全。
 # 注意：libxcb.so.1 / libX11 / libc 绝【不能】打包 —— 它们必须与用户的
 # X 服务器和显卡驱动版本匹配，捆绑反而会引发难查的崩溃。
+# —— conda 环境专用：捆绑 conda 自己的 C 库 ——
+# conda 里的 Python C 扩展(pyexpat / _ssl / _lzma 等)链接的是 conda 目录下的
+# 库，而不是系统库。PyInstaller 不一定会把它们收全，产物在别的机器上运行时
+# 就会回退去找系统库，若系统版本较旧便报：
+#     ImportError: pyexpat...so: undefined symbol: XML_SetAllocTrackerActivationThreshold
+# (该符号是较新 expat 才有的)。这里显式把这些库打进产物。
+CONDA_LIB_ARGS=""
+if [ "$USE_CONDA" = "1" ]; then
+    _cp="$("$PY" -c 'import sys,os; print(os.path.dirname(os.path.dirname(sys.executable)))' 2>/dev/null)"
+    if [ -d "${_cp}/lib" ]; then
+        _n=0
+        for _lib in libexpat.so.1 libffi.so libffi.so.8 liblzma.so.5 \
+                    libbz2.so.1.0 libsqlite3.so.0 libz.so.1 libuuid.so.1 \
+                    libcrypto.so.3 libssl.so.3 libreadline.so libtinfo.so.6; do
+            if [ -e "${_cp}/lib/${_lib}" ]; then
+                CONDA_LIB_ARGS="${CONDA_LIB_ARGS} --add-binary ${_cp}/lib/${_lib}:."
+                _n=$((_n+1))
+            fi
+        done
+        [ "$_n" -gt 0 ] && echo "    将捆绑 ${_n} 个 conda 运行库（避免产物在其它机器上找不到符号）"
+    fi
+fi
+
 XCB_ARGS=""
 XCB_FOUND=0
 XCB_MISS=""
@@ -485,7 +647,7 @@ mkdir -p "$DESTDIR"
 
 "$PY" -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CUDA_EXCLUDE \
+    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CONDA_LIB_ARGS $CUDA_EXCLUDE \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \
@@ -542,6 +704,13 @@ if ! ldconfig -p 2>/dev/null | grep -q 'libGL\.so'; then
     missing="${missing} libgl1"
 fi
 
+# Wayland 下 Qt 的工具提示若未设置 transientParent，会触发协议错误直接断开
+# 连接("The Wayland connection experienced a fatal error")。走 XWayland(xcb)
+# 可完全避开，且产物已捆绑 xcb 支持库。用户可用 QT_QPA_PLATFORM 覆盖。
+if [ -z "${QT_QPA_PLATFORM:-}" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    export QT_QPA_PLATFORM=xcb
+fi
+
 if [ -n "$missing" ]; then
     echo "=============================================================="
     echo " 缺少运行所需的系统库 / Missing required system libraries:"
@@ -568,26 +737,58 @@ fi
 exec "./English Coach"
 LAUNCHEOF
 chmod +x "$LAUNCH" "${DESTDIR}/${APP_NAME}/English Coach" 2>/dev/null || true
-# CPU 变体：清理 PyInstaller 仍复制进来的 CUDA 动态库。
-# --exclude-module 只能拦 Python 模块，管不到 ctranslate2.libs/ 里的 .so 文件，
-# 必须在这里按文件名删掉。删除后 Argos 走 CPU 推理，功能不受影响。
+# CPU 变体：清理 torch 带来的 CUDA 运行时。
+#
+# 【重要教训】不能按文件名全目录搜删 libcudnn* 之类：ctranslate2 的 Linux 轮子
+# 在编译时就把自带的那份 cuDNN 写进了 ELF 的 DT_NEEDED，属于硬依赖 ——
+# 即便只做 CPU 推理，该文件缺失也会让整个 ctranslate2 加载失败，报
+#   "libcudnn-<hash>.so.8.9.7: 无法打开共享目标文件"
+# 导致 Argos 离线翻译彻底不可用。
+#
+# 因此这里【只】删除 torch 的 CUDA 运行时(_internal/nvidia 与 torch/lib 下的
+# CUDA 库) —— 那些是 torch 按需动态加载的，CPU 版用不到、删了也不影响启动；
+# 而 ctranslate2.libs/ 下的任何文件一律保留。
 if [ "$BUILD_VARIANT" = "CPU" ]; then
     _appdir="${DESTDIR}/${APP_NAME}"
     _freed=0
-    for _pat in 'libcudnn*' 'libcublas*' 'libcudart*' 'libcufft*' 'libcurand*' \
-                'libcusolver*' 'libcusparse*' 'libnccl*' 'libnvrtc*' 'libcupti*' \
-                'libnvToolsExt*' 'libnvJitLink*'; do
-        while IFS= read -r -d '' _f; do
-            _sz=$(stat -c%s "$_f" 2>/dev/null || echo 0)
-            _freed=$((_freed + _sz))
-            rm -f "$_f"
-        done < <(find "$_appdir" -name "$_pat" -type f -print0 2>/dev/null)
+    # 仅在 torch/lib 目录内按名字删（不波及 ctranslate2.libs 等其它目录）
+    for _torchlib in "${_appdir}/_internal/torch/lib" "${_appdir}/torch/lib"; do
+        [ -d "$_torchlib" ] || continue
+        for _pat in 'libcudnn*' 'libcublas*' 'libcudart*' 'libcufft*' \
+                    'libcurand*' 'libcusolver*' 'libcusparse*' 'libnccl*' \
+                    'libnvrtc*' 'libcupti*' 'libnvToolsExt*' 'libnvJitLink*'; do
+            while IFS= read -r -d '' _f; do
+                _sz=$(stat -c%s "$_f" 2>/dev/null || echo 0)
+                _freed=$((_freed + _sz))
+                rm -f "$_f"
+            done < <(find "$_torchlib" -maxdepth 1 -name "$_pat" -type f -print0 2>/dev/null)
+        done
     done
-    # nvidia 包目录整体移除
+    # nvidia 包目录整体移除（这是 CUDA 版 torch 的依赖包，CPU 版不需要）
     if [ -d "${_appdir}/_internal/nvidia" ]; then
         _sz=$(du -sb "${_appdir}/_internal/nvidia" 2>/dev/null | cut -f1)
         _freed=$((_freed + ${_sz:-0}))
         rm -rf "${_appdir}/_internal/nvidia"
+    fi
+    # 清理后校验：确认没有 .so 因删库而出现未满足的依赖。
+    # 这是上一次事故的直接教训 —— 当时删掉了 ctranslate2 硬依赖的 cuDNN，
+    # 编译过程毫无报错，直到用户点开 Argos 才发现整个库加载不了。
+    if command -v ldd >/dev/null 2>&1; then
+        _broken=""
+        for _so in $(find "${_appdir}" -name "libctranslate2*.so*" \
+                          -o -name "_ctranslate2*.so" 2>/dev/null | head -5); do
+            if ldd "$_so" 2>/dev/null | grep -q "not found"; then
+                _broken="${_broken} $(basename "$_so")"
+            fi
+        done
+        if [ -n "$_broken" ]; then
+            record_problem \
+                "CUDA 清理后 ctranslate2 出现缺失依赖：${_broken}" \
+                "Argos 离线翻译将完全无法加载" \
+                "说明清理规则误删了硬依赖库，请检查 Build Linux.sh 的清理范围"
+        else
+            echo "      ✓ ctranslate2 依赖完整"
+        fi
     fi
     if [ "$_freed" -gt 0 ]; then
         echo "    已清除 CUDA 库，节省 $((_freed / 1024 / 1024)) MB"
@@ -606,6 +807,92 @@ elif [ -f icon_1024.png ]; then
         echo "    已附带 icon_1024.png（菜单图标）"
 fi
 
+# ---- 产物实物校验 ----
+# 前面的检查看的是"编译过程有没有报错"，这里看的是"产物里到底有没有东西"。
+# 两者缺一不可：曾出现过过程无报错、产物却缺模型的情况。
+_appdir="${DESTDIR}/${APP_NAME}"
+echo "    校验产物完整性..."
+
+# 可执行文件
+[ -x "${_appdir}/${APP_NAME}" ] || record_problem \
+    "产物中缺少可执行文件 ${APP_NAME}" \
+    "程序根本无法启动" \
+    "检查上方 PyInstaller 输出是否有错误"
+
+# 依赖目录
+[ -d "${_appdir}/_internal" ] || record_problem \
+    "产物中缺少 _internal 目录" \
+    "所有依赖库缺失，程序无法启动" \
+    "检查 PyInstaller 是否正常完成"
+
+# Argos 离线翻译模型
+_n_argos=$(find "${_appdir}" -name "*.argosmodel" -size +30M 2>/dev/null | wc -l)
+if [ "${_n_argos}" -lt 2 ]; then
+    record_problem \
+        "产物内的 Argos 模型不足（找到 ${_n_argos} 个，应为 2 个）" \
+        "离线翻译在用户端不可用" \
+        "确认 argos_models/ 下两个 .argosmodel 均完整后重新编译"
+else
+    echo "      ✓ Argos 离线翻译模型 ${_n_argos} 个"
+fi
+
+# GPU 变体：反过来必须【确认 CUDA 组件在位】。
+# GPU 版若体积与 CPU 版相当，基本就是 CUDA 没进去 —— 那样它名为 GPU 版
+# 却完全无法加速，用户下载数 GB 后才发现，必须在此拦截。
+if [ "$BUILD_VARIANT" = "GPU" ]; then
+    _cuda_n=$(find "${_appdir}" \( -name "libcudnn*" -o -name "libcublas*" \
+                  -o -name "libcudart*" \) -size +10M 2>/dev/null | wc -l)
+    _torch_sz=$(du -sm "${_appdir}/_internal/torch" 2>/dev/null | cut -f1)
+    _torch_sz="${_torch_sz:-0}"
+    if [ "$_cuda_n" -lt 1 ] || [ "$_torch_sz" -lt 1200 ]; then
+        record_problem \
+            "GPU 产物内缺少 CUDA 组件（CUDA 库 ${_cuda_n} 个，torch 目录 ${_torch_sz} MB）" \
+            "该产物无法使用显卡加速，与 CPU 版无异 —— 不应作为 GPU 版发布" \
+            "确认已安装 CUDA 版 torch(版本号应含 +cu)；如复用了旧环境，删除 ${VENV_DIR} 后重编"
+    else
+        echo "      ✓ CUDA 组件 ${_cuda_n} 个，torch 目录 ${_torch_sz} MB"
+    fi
+fi
+
+# Kokoro 朗读模型权重。
+# 只数文件个数不够 —— 别的库里也可能有同后缀的文件混进来，导致明明模型
+# 没下载成功却报"✓ 1 个"。这里要求：权重文件必须大于 80MB（Kokoro-82M 的
+# 真实体积约 330MB，其它库的同后缀文件远小于此），且必须位于打包进来的
+# kokoro_model 目录内。
+_kok_real=$(find "${_appdir}" -path "*kokoro_model*" \
+            \( -name "*.pth" -o -name "*.safetensors" -o -name "*.onnx" \) \
+            -size +80M 2>/dev/null | wc -l)
+if [ "${_kok_real}" -lt 1 ]; then
+    # 放宽一次：不限目录，但仍要求 >80MB，兼容目录结构变化
+    _kok_real=$(find "${_appdir}" \
+                \( -name "kokoro*.pth" -o -name "kokoro*.safetensors" \) \
+                -size +80M 2>/dev/null | wc -l)
+fi
+if [ "${_kok_real}" -lt 1 ]; then
+    _kok_any=$(find "${_appdir}" \( -name "*.pth" -o -name "*.safetensors" \) \
+               -size +10M 2>/dev/null | wc -l)
+    record_problem \
+        "产物内没有 Kokoro 模型权重（找到 ${_kok_any} 个疑似文件，但均不足 80MB）" \
+        "离线朗读在用户端必须联网首次下载；无网环境完全不可用" \
+        "先确保模型下到 ~/EnglishCoach Models/Kokoro/（应含 kokoro-v1_0.pth，约 330MB）再重新编译"
+else
+    echo "      ✓ Kokoro 模型权重 ${_kok_real} 个（>80MB）"
+fi
+
+# 音色文件：中文/英文嗓音各需对应的 voices/*.pt，缺了照样要联网
+_voice_n=$(find "${_appdir}" -path "*voices*" -name "*.pt" 2>/dev/null | wc -l)
+if [ "${_voice_n}" -lt 1 ]; then
+    record_problem \
+        "产物内没有 Kokoro 音色文件（voices/*.pt）" \
+        "即便模型在位，切换嗓音时仍会联网下载音色，离线不可用" \
+        "预下载须使用 HF 缓存结构（本脚本已改为此方式），请重新执行预下载步骤"
+else
+    echo "      ✓ Kokoro 音色文件 ${_voice_n} 个"
+fi
+
+# 打包后结算：产物已生成但内容不合格，同样阻断，避免误当成品发布
+gate_check
+
 # 随产物附带安装/卸载脚本，让用户能像正常程序那样装进应用菜单
 for _s in Install.sh Uninstall.sh; do
     if [ -f "$_s" ]; then
@@ -616,6 +903,29 @@ for _s in Install.sh Uninstall.sh; do
         echo "    ! 未找到 $_s，产物中将没有安装脚本"
     fi
 done
+# ---- 最终守卫：总体积合理性 ----
+# 体积是最直观的完整性信号。CPU 版低于 1.2GB 基本意味着模型或依赖没进去；
+# GPU 版低于 3GB 说明 CUDA 没打进来（这正是"GPU 版只有 1.1GB"的情形）。
+_total_mb=$(du -sm "${DESTDIR}/${APP_NAME}" 2>/dev/null | cut -f1)
+_total_mb="${_total_mb:-0}"
+echo "    产物总体积: ${_total_mb} MB"
+if [ "$BUILD_VARIANT" = "GPU" ]; then
+    _min_mb=3000
+    _hint="GPU 版应含 CUDA 组件（通常 6-10GB）。体积接近 CPU 版即说明装成了 CPU 版 torch"
+else
+    _min_mb=1200
+    _hint="CPU 版通常 1.5-2.5GB。明显偏小说明模型或依赖未打包进来"
+fi
+if [ "${_total_mb}" -lt "${_min_mb}" ]; then
+    record_problem \
+        "产物总体积仅 ${_total_mb} MB，低于 ${BUILD_VARIANT} 版的合理下限 ${_min_mb} MB" \
+        "几乎可以肯定有组件未打包进去，该产物不应发布" \
+        "${_hint}；请检查上方各步骤输出"
+fi
+
+# 打包前最后结算
+gate_check
+
 # 从 DESTDIR 内打包，让 tar 里是 "English Coach/..." 结构
 ( cd "$DESTDIR" && tar -czf "$TARBALL" "$APP_NAME" )
 echo ""
