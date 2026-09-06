@@ -2852,6 +2852,110 @@ _LANG_DEEPL = {"中文": "ZH", "English": "EN", "自动检测": None}
 _LANG_ARGOS = {"中文": "zh", "English": "en"}   # Argos 用 ISO 639-1
 
 
+# =============================================================================
+#  注音：给译文标音标 / 拼音
+#
+#  注的是【译文】而不是原文——用户想知道的是译出来的词怎么念。符号和数字不必
+#  特殊照顾：翻译那一层已经把它们变成了词（"." -> dot、"3" -> Three / 三），
+#  到这里拿到的就是可直接注音的文本。
+# =============================================================================
+
+_SEP_RE = re.compile(r"[\s，。！？、；：,.!?;:\n]")
+
+
+def _resolve_target_lang(tgt, text):
+    """目标语言，与翻译侧的判断保持一致。
+
+    显式设置优先；「自动检测」时含中文字符译为英文，纯符号或数字译为英文
+    （判不出源语言，符号翻译路径也是这么定的），其余译为中文。两边不一致会
+    让注音选错语言——"." 译成 period 却去查拼音，结果什么都标不出来。
+    """
+    if tgt != "自动检测":
+        return tgt
+    has_cjk = has_alpha = False
+    for ch in text:
+        if "\u4e00" <= ch <= "\u9fff":
+            has_cjk = True
+        elif ch.isalpha():
+            has_alpha = True
+    return "English" if (has_cjk or not has_alpha) else "中文"
+
+
+def _is_word_input(text):
+    """输入是否为「单字/单词」。多风格翻译的单词模式与译文注音共用这条判定。"""
+    t = (text or "").strip()
+    if not t or _SEP_RE.search(t):
+        return False
+    has_cjk = any("\u4e00" <= c <= "\u9fff" for c in t)
+    return len(t) <= 4 if has_cjk else len(t) <= 24
+
+
+def _should_annotate(text):
+    """要不要给译文注音。
+
+    在单词模式之外额外收下单个字符和纯数字/符号串：它们含 "." 之类的字符会被
+    分隔符规则挡掉，可偏偏正是该注音的输入（"3.14" -> sān diǎn yī sì）。
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 24:
+        return False
+    if _is_word_input(t) or len(t) == 1:
+        return True
+    return not any(c.isalpha() or "\u4e00" <= c <= "\u9fff" for c in t)
+
+
+_EN_G2P = None      # misaki 英文 G2P，懒加载；False 表示不可用
+
+
+def _phonetic_en(text):
+    """美式 IPA 音标。
+
+    用的是 Kokoro 朗读的同一套 G2P（misaki），所以标出来的音标与读出来的声音
+    一致；词典里查不到的名字（比如 Strilen）也能按规则推断出读法。misaki 装不
+    上时返回空串，界面上就不显示这一行。
+    """
+    global _EN_G2P
+    if _EN_G2P is None:
+        try:
+            from misaki import en as _misaki_en
+            _EN_G2P = _misaki_en.G2P(trf=False, british=False, fallback=None)
+        except Exception:
+            _EN_G2P = False
+    if not _EN_G2P:
+        return ""
+    try:
+        ps, _ = _EN_G2P(text)
+    except Exception:
+        return ""
+    ps = (ps or "").strip()
+    return f"/{ps}/" if ps else ""
+
+
+def _phonetic_zh(text):
+    """汉语拼音（带声调）。单字是多音字时，最常用的排在最前，其余括号里列出。"""
+    try:
+        from pypinyin import pinyin, Style
+    except Exception:
+        return ""
+    hans = [c for c in text if "\u4e00" <= c <= "\u9fff"]
+    if not hans:
+        return ""
+    if len(hans) == 1:
+        alts = pinyin(hans[0], style=Style.TONE, heteronym=True)[0]
+        if len(alts) == 1:
+            return alts[0]
+        return f"{alts[0]}（{' / '.join(alts[1:])}）"
+    return " ".join(x[0] for x in pinyin(text, style=Style.TONE))
+
+
+def _annotate(text, target_lang):
+    """按目标语言给译文注音；注不出来就返回空串，界面上不显示这一行。"""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    return _phonetic_zh(t) if target_lang == "中文" else _phonetic_en(t)
+
+
 class TranslateWorker(QThread):
     """多引擎翻译。默认 Google（免费、无需 Key）；DeepL / DeepSeek 需 Key。"""
     finished_ok = pyqtSignal(str)
@@ -3041,12 +3145,9 @@ class TranslateWorker(QThread):
 
         if self.multi_style:
             _t = self.text.strip()
-            _no_sep = not re.search(r"[\s，。！？、；：,.!?;:\n]", _t)
-            _has_cjk = any("\u4e00" <= c <= "\u9fff" for c in _t)
-            # 中文词≤4字，纯英文单词≤24字母（如 screenshot）
-            _is_word = _no_sep and ((_has_cjk and len(_t) <= 4)
-                                    or (not _has_cjk and len(_t) <= 24))
-            if _is_word:
+            # 判定与译文注音共用 _is_word_input（中文词≤4字，英文单词≤24字母，
+            # 且不含分隔符），两处必须同步，否则会出现"按单词翻译却不注音"。
+            if _is_word_input(_t):
                 # 单字/单词：第一部分只给唯一最优译法，其余备选放到多风格区
                 system = (
                     "你是一名精通中英互译的词典专家。用户给出一个字或词，"
@@ -7153,9 +7254,29 @@ class MainWindow(QMainWindow):
             self._lit_end = _m.start() if _m else None
         else:
             self._lit_end = None
+        # 单字/单词的译文补一行注音（英文音标或中文拼音）。它排在直译区之后，
+        # 于是自动继承灰字区的全部待遇：不朗读、不参与选区联动、交换左右时不
+        # 带过去。out 本身保持不含注音，翻译历史里存的才是干净的译文。
+        _shown = out
+        _src_raw = self.input_edit.toPlainText()
+        if _should_annotate(_src_raw):
+            _lit = out if self._lit_end is None else out[:self._lit_end]
+            _phon = _annotate(
+                _lit.strip(),
+                _resolve_target_lang(self.tgt_combo.currentData(), _src_raw))
+            if _phon:
+                if self._lit_end is None:
+                    # 普通模式此前没有分界。这里的边界不是"猜"出来的——直译区
+                    # 就是整段译文，所以不会踩到"原文含空行被误判"那个坑。
+                    _lit = out.rstrip()
+                    self._lit_end = len(_lit)
+                    _shown = _lit + "\n\n" + _phon
+                else:
+                    _shown = (out[:self._lit_end] + "\n\n" + _phon
+                              + out[self._lit_end:])
         self._filling_output = True
         try:
-            self.output_edit.setPlainText(out)
+            self.output_edit.setPlainText(_shown)
         finally:
             self._filling_output = False
         self._reset_translate_btn()
