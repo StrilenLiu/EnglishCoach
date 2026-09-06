@@ -550,10 +550,10 @@ echo "    离线翻译依赖 OK"
 echo "==> [7/8] PyInstaller 编译"
 # 图标：Linux 窗口图标由程序内部 SVG 设置，PyInstaller 不强制需要 .ico/.icns
 ICON_ARG=""
-if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_1024.png ]; then
-    ICON_ARG="--icon icon_gpu_1024.png"
-elif [ -f icon_1024.png ]; then
-    ICON_ARG="--icon icon_1024.png"
+if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_win_linux_1024.png ]; then
+    ICON_ARG="--icon icon_gpu_win_linux_1024.png"
+elif [ -f icon_win_linux_1024.png ]; then
+    ICON_ARG="--icon icon_win_linux_1024.png"
 fi
 # 内置 Argos 模型目录一并打包
 MODEL_ARG=""
@@ -799,12 +799,12 @@ fi
 
 # 图标 png 复制到产物根目录：Install.sh 要用它注册应用菜单图标，
 # PyInstaller 的 --icon 只影响可执行文件自身，不会把源图放进产物。
-if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_1024.png ]; then
-    cp icon_gpu_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
-        echo "    已附带 icon_gpu_1024.png（菜单图标）"
-elif [ -f icon_1024.png ]; then
-    cp icon_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
-        echo "    已附带 icon_1024.png（菜单图标）"
+if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_win_linux_1024.png ]; then
+    cp icon_gpu_win_linux_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
+        echo "    已附带 icon_gpu_win_linux_1024.png（菜单图标）"
+elif [ -f icon_win_linux_1024.png ]; then
+    cp icon_win_linux_1024.png "${DESTDIR}/${APP_NAME}/" 2>/dev/null && \
+        echo "    已附带 icon_win_linux_1024.png（菜单图标）"
 fi
 
 # ---- 产物实物校验 ----

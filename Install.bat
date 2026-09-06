@@ -85,7 +85,8 @@ echo ==^> [3/3] 创建快捷方式
 
 REM 图标：优先用目录内的 .ico，没有则用 exe 自带图标
 set "ICON=%TARGET%\%APP_NAME%.exe,0"
-if exist "%TARGET%\icon_win_1024.ico" set "ICON=%TARGET%\icon_win_1024.ico"
+if exist "%TARGET%\AppIcon.ico" set "ICON=%TARGET%\AppIcon.ico"
+if exist "%TARGET%\AppIcon-GPU.ico" set "ICON=%TARGET%\AppIcon-GPU.ico"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$W = New-Object -ComObject WScript.Shell;" ^

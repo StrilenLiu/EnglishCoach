@@ -122,7 +122,9 @@ find "${TARGET_DIR}" -maxdepth 1 -name '*.sh' -exec chmod +x {} \; 2>/dev/null |
 echo "==> [2/4] 安装图标"
 mkdir -p "${ICON_DIR}"
 ICON_SRC=""
-for cand in "${TARGET_DIR}/icon_gpu_1024.png" "${TARGET_DIR}/icon_1024.png" \
+for cand in "${TARGET_DIR}/icon_gpu_win_linux_1024.png" "${TARGET_DIR}/icon_win_linux_1024.png" \
+            "${TARGET_DIR}/icon_gpu_1024.png" "${TARGET_DIR}/icon_1024.png" \
+            "${TARGET_DIR}/_internal/icon_win_linux_1024.png" \
             "${TARGET_DIR}/_internal/icon_1024.png"; do
     [ "$SLUG" = "englishcoach" ] && case "$cand" in *icon_gpu*) continue;; esac
     [ -f "$cand" ] && ICON_SRC="$cand" && break
@@ -131,7 +133,7 @@ if [ -n "${ICON_SRC}" ]; then
     cp "${ICON_SRC}" "${ICON_DIR}/${SLUG}.png"
     echo "    已安装图标"
 else
-    echo "    ! 未找到 icon_1024.png，菜单项将使用默认图标"
+    echo "    ! 未找到应用图标 PNG，菜单项将使用默认图标"
 fi
 
 # ---- 桌面项 ----

@@ -102,14 +102,14 @@ if not exist argos_models mkdir argos_models
 call :getmodel en_zh.argosmodel "https://argos-net.com/v1/translate-en_zh-1_9.argosmodel"
 call :getmodel zh_en.argosmodel "https://argos-net.com/v1/translate-zh_en-1_9.argosmodel"
 
-echo ==^> [4/7] Generate icon
-if exist make_icon.py python make_icon.py
+echo ==^> [4/7] Prepare icon
+REM AppIcon.ico ships with the repository; regenerate it only if it is missing.
 set ICON_ARG=
-set DATA_ARG=--add-data icon_1024.png;.
-if exist icon_1024.png (
-    python -c "from PIL import Image; src='icon_win_1024.png' if __import__('os').path.exists('icon_win_1024.png') else 'icon_1024.png'; Image.open(src).save('AppIcon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
-    if exist AppIcon.ico set ICON_ARG=--icon AppIcon.ico
+set DATA_ARG=--add-data icon_win_linux_1024.png;.
+if not exist AppIcon.ico (
+    if exist icon_win_linux_1024.png python -c "from PIL import Image; Image.open('icon_win_linux_1024.png').save('AppIcon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
 )
+if exist AppIcon.ico set ICON_ARG=--icon AppIcon.ico
 set MODEL_ARG=
 if exist argos_models set MODEL_ARG=--add-data argos_models;argos_models
 set KOKORO_DATA=

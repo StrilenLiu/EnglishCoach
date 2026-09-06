@@ -147,7 +147,7 @@ cat > ~/.local/share/applications/englishcoach.desktop << EOF
 Type=Application
 Name=English Coach
 Exec=/绝对路径/EnglishCoach
-Icon=/绝对路径/icon_1024.png
+Icon=/绝对路径/icon_win_linux_1024.png
 Categories=Education;Utility;
 EOF
 ```

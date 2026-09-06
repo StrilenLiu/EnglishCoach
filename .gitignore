@@ -31,9 +31,23 @@ ENV/
 .build-venv-gpu/
 
 # ---- 打包中间物 / Packaging intermediates ----
-*.icns
-*.ico
+# AppIcon.icns / AppIcon.ico / AppIcon-GPU.ico 现在随仓库分发，编译时直接取用，
+# 所以不再整体忽略 .icns / .ico；只忽略 macOS 构建过程中的临时 iconset 目录。
+# AppIcon.icns / AppIcon.ico / AppIcon-GPU.ico now ship with the repository and
+# are consumed directly by the build scripts, so .icns / .ico are no longer
+# ignored wholesale — only the temporary iconset macOS builds create.
+AppIcon.iconset/
 _switch_preview.qml
+
+# ---- 图标设计过程稿 / Icon design sources ----
+# 设计稿与中间版本留在本地，仓库只放最终图标资产。
+# Design sources and work-in-progress exports stay local; the repository
+# carries only the final icon assets.
+EnglishCoach*.png
+EnglishCoach_PNG_*.zip
+*.psd
+*.afdesign
+*.sketch
 
 # ---- 运行期生成 / Generated at runtime ----
 # 翻译历史、运行日志、下载的模型缓存

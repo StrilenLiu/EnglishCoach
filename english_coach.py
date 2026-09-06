@@ -5725,10 +5725,12 @@ class MainWindow(QMainWindow):
         self._install_bundled_argos_models()
 
     def _load_app_icon(self):
-        """优先加载随包的 icon_1024.png；找不到则回退内置 SVG 图标。"""
-        # PyInstaller 打包后资源在 sys._MEIPASS；开发时在脚本目录
+        """优先加载随包的应用图标 PNG；找不到则回退内置 SVG 图标。"""
+        # PyInstaller 打包后资源在 sys._MEIPASS；开发时在脚本目录。
+        # 各平台打进包里的文件名不同，末两个是旧版产物的名字，保留以兼容。
         base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-        for name in ("icon_1024.png", "icon.png"):
+        for name in ("icon_mac_1024.png", "icon_win_linux_1024.png",
+                     "icon_gpu_win_linux_1024.png", "icon_1024.png", "icon.png"):
             p = os.path.join(base, name)
             if os.path.exists(p):
                 ic = QIcon(p)

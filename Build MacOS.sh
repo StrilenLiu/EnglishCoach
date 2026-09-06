@@ -243,18 +243,23 @@ fi
 # 编译前结算：功能性缺失在此拦截，不浪费后续打包时间
 gate_check
 
-echo "==> [4/8] 生成图标"
-[ -f make_icon.py ] && python make_icon.py
-ICNS="AppIcon.icns"; ICON_ARG=""; DATA_ARG="--add-data icon_1024.png:."
-if [ -f icon_1024.png ]; then
+echo "==> [4/8] 准备图标"
+# AppIcon.icns 随仓库分发，直接取用。只有它缺失时才用 sips/iconutil 现场生成，
+# 这样没装 Xcode 命令行工具的机器也能编译。
+ICNS="AppIcon.icns"; ICON_ARG=""; DATA_ARG="--add-data icon_mac_1024.png:."
+if [ -f "$ICNS" ]; then
+    ICON_ARG="--icon $ICNS"
+    echo "    使用仓库自带的 $ICNS"
+elif [ -f icon_mac_1024.png ]; then
     ISET="AppIcon.iconset"; rm -rf "$ISET"; mkdir "$ISET"
     for s in 16 32 64 128 256 512; do
-        sips -z $s $s icon_1024.png --out "$ISET/icon_${s}x${s}.png" >/dev/null
-        d=$((s*2)); sips -z $d $d icon_1024.png --out "$ISET/icon_${s}x${s}@2x.png" >/dev/null
+        sips -z $s $s icon_mac_1024.png --out "$ISET/icon_${s}x${s}.png" >/dev/null
+        d=$((s*2)); sips -z $d $d icon_mac_1024.png --out "$ISET/icon_${s}x${s}@2x.png" >/dev/null
     done
-    sips -z 1024 1024 icon_1024.png --out "$ISET/icon_512x512@2x.png" >/dev/null
+    sips -z 1024 1024 icon_mac_1024.png --out "$ISET/icon_512x512@2x.png" >/dev/null
     iconutil -c icns "$ISET" -o "$ICNS"; rm -rf "$ISET"
     ICON_ARG="--icon $ICNS"
+    echo "    由 icon_mac_1024.png 现场生成 $ICNS"
 fi
 # 内置模型目录一并打包
 MODEL_ARG=""
