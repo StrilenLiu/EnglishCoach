@@ -216,7 +216,7 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.15.12"
+APP_VERSION = "2.16.0"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -408,6 +408,34 @@ def _add_history(src_text, tgt_text, engine):
 
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
+    {
+        "version": "2.16.0",
+        "date": "2026-09-06",
+        "title": "译文标注音标/拼音 · 自定义 API 引擎 · 关闭可最小化到托盘 · 标题区分 CPU/GPU 版",
+        "notes": [
+            "单字、单词、数字与符号的译文下方多一行注音：译成英文标国际音标，译成中文标带声调的拼音。注的是译文而不是原文——想知道怎么念的正是译出来的那个词。符号和数字不必特殊照顾，翻译那层早已把『.』变成 dot、『3』变成 Three／三，注音直接落在这些词上",
+            "英文音标取自 misaki，也就是 Kokoro 朗读所用的同一套字素转音素引擎，因此标出来的音标与读出来的声音一致；词典里查不到的名字（比如 Strilen）照样能按规则推断出读法。中文用 pypinyin，单字若是多音字，最常用的读法排在最前、其余括号列出。两个库本来就在产物里，注不出来时这一行直接不显示",
+            "注音行排在直译区之后，于是自动继承灰字区的全部待遇：灰色显示、不被朗读、不参与选区联动、左右交换时不带过去；翻译历史里存的仍是干净的译文。所有 14 个引擎都有注音，包括 Google、DeepL 与离线的 Argos——它与用哪个引擎翻译无关",
+            "新增三组自定义 API 引擎：在设置里填好名称、接口地址与模型名，该引擎就出现在引擎列表里。十四个内置引擎中有十三个走的就是 OpenAI 兼容的 chat/completions，自定义引擎走同一条路，因此多风格翻译与单词模式对它们一样有效",
+            "自定义引擎用普通输入框而非可编辑下拉：可编辑下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套样式规则，2.15.12 修好的深色边框问题正是这么来的。设置里注明了 Key 会原样发往所填地址，请只填信得过的服务",
+            "关闭窗口可改为最小化到托盘（默认关闭，不改变原有行为）。macOS 依系统惯例：窗口收起、Dock 图标保留运行小圆点、菜单栏图标右键可退出，点 Dock 图标窗口回来；Windows 收进右下角任务栏。没有托盘的桌面（GNOME 默认不带）根本不显示这个设置项——一个会让窗口消失又叫不回来的开关，比没有更糟",
+            "线程清理从 closeEvent 挪进独立方法，退出程序时一并调用：托盘的『退出』与 macOS 的 Cmd+Q 不经过 closeEvent，朗读线程若还在跑会让进程在收尾时崩掉",
+            "窗口标题区分 CPU 版与 GPU 版（如 English Coach GPU v2.16.0）。变体由构建脚本写进产物，而不是运行时探测显卡——GPU 版装在没有独显的机器上仍该说自己是 GPU 版，那恰恰是最需要如实告知的场景。macOS 只有一种构建，不加后缀",
+            "应用图标换成手工设计的新版，退休了用代码作画的 make_icon.py；AppIcon.icns / AppIcon.ico 随仓库分发，自行编译无需 Pillow、sips 或 iconutil",
+        ],
+        "title_en": "Phonetics under translations, custom API engines, close-to-tray, and CPU/GPU in the title",
+        "notes_en": [
+            "Translations of single characters, words, digits and symbols now carry a line of phonetics underneath: IPA when translating into English, toned pinyin when translating into Chinese. It annotates the translation rather than the input, because the translation is the word you want to pronounce. Symbols and digits need no special handling — the translation layer already turns \".\" into dot and \"3\" into Three, and those are what get annotated",
+            "English phonetics come from misaki, the same grapheme-to-phoneme engine Kokoro speaks with, so the transcription matches what you hear, and coined names outside any dictionary (Strilen, say) still get a pronunciation. Chinese uses pypinyin, listing a lone heteronym's alternate readings after the common one. Both libraries already ship in the bundle; when neither can produce anything the line is simply omitted",
+            "The phonetics line sits after the literal translation and so inherits everything the dimmed block already does: greyed out, never spoken, outside selection linking, and left behind when the panes are swapped. History still stores the clean translation. All fourteen engines get phonetics, Google, DeepL and offline Argos included — it does not depend on which engine translated the text",
+            "Three custom API engine slots: fill in a name, an endpoint and a model in Settings and the engine joins the list. Thirteen of the fourteen built-in engines already speak OpenAI's chat/completions, and custom engines take that same path, so multi-style translation and word mode work with them unchanged",
+            "Custom engines use plain text fields rather than editable combo boxes: an editable combo nests a line edit matching both the QComboBox and QLineEdit rules, which is exactly what produced the dark-theme border faults fixed in 2.15.12. The panel states plainly that your key is sent to whatever address you enter, so only use services you trust",
+            "Closing the window can now hide it to the tray instead of quitting (off by default, so nothing changes until you ask for it). macOS follows its own convention: the window goes away, the Dock icon keeps its running dot, the menu bar item offers Quit, and clicking the Dock icon brings the window back. Windows minimises to the notification area. Desktops without a tray — GNOME ships without one — do not show the setting at all, since a switch that makes the window vanish with no way back is worse than no switch",
+            "Thread shutdown moved out of closeEvent into its own method that quitting also calls: neither the tray's Quit nor Cmd+Q passes through closeEvent, and playback threads left running abort the process on teardown",
+            "The title bar names the edition (English Coach GPU v2.16.0). The build scripts bake it into the bundle rather than probing for a graphics card at runtime — the GPU build on a machine without one should still say GPU, which is precisely when saying so matters. macOS ships a single edition and carries no suffix",
+            "New hand-designed application icon, retiring the make_icon.py generator; AppIcon.icns and AppIcon.ico now ship with the repository so building needs neither Pillow, sips nor iconutil",
+        ],
+    },
     {
         "version": "2.15.12",
         "date": "2026-07-28",
