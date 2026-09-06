@@ -2847,6 +2847,46 @@ LLM_ENGINE_SET = {
     ENGINE_HUNYUAN,
 }
 
+# ---- 用户自定义 API 引擎（三组，一律按 OpenAI 兼容的 chat 接口调用）----
+CUSTOM_ENGINE_SLOTS = (1, 2, 3)
+CUSTOM_ENGINE_SUFFIX = " -自定义API"
+
+
+def _custom_engine_configs(settings):
+    """读出用户填写的自定义引擎，返回 {引擎名: 配置}，格式与 LLM_ENGINES 相同。
+
+    名称、接口地址、模型名三样齐全才算数——缺一样就发不出请求，与其让它出现
+    在下拉里等着报错，不如根本不列出来。重名的后一组自动带上槽位序号区分。
+    """
+    out = {}
+    for i in CUSTOM_ENGINE_SLOTS:
+        name = (settings.value(f"custom{i}_name", "") or "").strip()
+        url = (settings.value(f"custom{i}_endpoint", "") or "").strip()
+        model = (settings.value(f"custom{i}_model", "") or "").strip()
+        if not (name and url and model):
+            continue
+        eid = name + CUSTOM_ENGINE_SUFFIX
+        if eid in out:
+            eid = f"{name} {i}{CUSTOM_ENGINE_SUFFIX}"
+        out[eid] = {
+            "endpoint": url, "model": model,
+            "key_name": f"custom{i}", "auth": "bearer",
+            "label": name,
+        }
+    return out
+
+
+def _engine_choices(settings):
+    """引擎下拉的内容：内置引擎在前，用户自定义的排在后面。"""
+    return ALL_ENGINES + list(_custom_engine_configs(settings).keys())
+
+
+def _custom_engine_keys(settings):
+    """自定义引擎的 Key，并进 TranslateWorker 的 keys 字典。"""
+    return {f"custom{i}": settings.value(f"custom{i}_key", "")
+            for i in CUSTOM_ENGINE_SLOTS}
+
+
 # 语言名 -> 各引擎语言代码
 _LANG_GOOGLE = {"中文": "zh-CN", "English": "en", "自动检测": "auto"}
 _LANG_DEEPL = {"中文": "ZH", "English": "EN", "自动检测": None}
@@ -2989,12 +3029,17 @@ class TranslateWorker(QThread):
         "、": ("Chinese enumeration comma", "顿号"),
     }
 
-    def __init__(self, text, src, tgt, engine, keys: dict, multi_style=False, parent=None):
+    def __init__(self, text, src, tgt, engine, keys: dict, multi_style=False,
+                 custom_engines=None, parent=None):
         super().__init__(parent)
         self.text, self.src, self.tgt = text, src, tgt
         self.engine = engine
         self.keys = keys  # {"deepl": "...", "deepseek": "...", ...}
         self.multi_style = multi_style   # LLM 引擎下是否输出多风格翻译
+        # 内置 LLM 引擎表，叠上本次用户自定义的那几组。自定义引擎走同一条
+        # OpenAI 兼容路径，所以多风格翻译、单词模式对它们一样有效。
+        self.llm_engines = dict(LLM_ENGINES)
+        self.llm_engines.update(custom_engines or {})
         self._cancelled = False
 
     # ---- 目标语言解析：「自动检测」目标 = 中→英 / 其它→中 ----
@@ -3062,9 +3107,9 @@ class TranslateWorker(QThread):
                 out = self._run_deepl()
             elif self.engine == ENGINE_ARGOS:
                 out = self._run_argos()
-            elif self.engine in LLM_ENGINES:
+            elif self.engine in self.llm_engines:
                 # 所有 LLM 引擎走统一 OpenAI 兼容处理（含多风格翻译）
-                out = self._run_llm(LLM_ENGINES[self.engine])
+                out = self._run_llm(self.llm_engines[self.engine])
             else:
                 self.failed.emit(f"未知翻译引擎: {self.engine}")
                 return
@@ -4031,7 +4076,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(eng_label)
 
         self.engine_combo = QComboBox()
-        _combo_fill(self.engine_combo, ALL_ENGINES)
+        _combo_fill(self.engine_combo, _engine_choices(settings))
         _combo_select_data(self.engine_combo, 
             settings.value("engine", ENGINE_GOOGLE))
         self.engine_combo.setFixedHeight(36)   # 与主界面下拉等高
@@ -4097,6 +4142,46 @@ class SettingsDialog(QDialog):
         self.show_keys_btn.setFixedWidth(BTN_W)
         self.show_keys_btn.toggled.connect(self._on_show_keys)
         form.addRow("", self.show_keys_btn)
+
+        # —— 自定义 API 引擎 ——
+        # 三组自选服务，一律按 OpenAI 兼容的 chat/completions 调用，因此多风格
+        # 翻译与单词模式对它们和对内置引擎一样有效。这里刻意用普通输入框而不是
+        # 可编辑下拉：下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套
+        # 样式规则，深色主题下曾因此出过边框错乱。
+        _cust_gap = QWidget(); _cust_gap.setFixedHeight(10)
+        form.addRow("", _cust_gap)
+        _cust_title = QLabel(L("自定义 API 引擎（可选，最多三组）"))
+        _cust_title.setStyleSheet("font-weight:bold; color:#7bbcff;")
+        form.addRow("", _cust_title)
+        _cust_tip = QLabel(L(
+            "名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
+            "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
+            "的地址，请只填信得过的服务。"))
+        _cust_tip.setWordWrap(True)
+        _cust_tip.setStyleSheet("color:#8a8a8a; font-size:11px;")
+        form.addRow("", _cust_tip)
+
+        self._custom_edits = {}
+        for _i in CUSTOM_ENGINE_SLOTS:
+            _n = QLineEdit(settings.value(f"custom{_i}_name", ""))
+            _n.setPlaceholderText(L("显示名称，如 MyGPT"))
+            _u = QLineEdit(settings.value(f"custom{_i}_endpoint", ""))
+            _u.setPlaceholderText("https://api.example.com/v1/chat/completions")
+            _m = QLineEdit(settings.value(f"custom{_i}_model", ""))
+            _m.setPlaceholderText(L("模型名，如 gpt-4o-mini"))
+            _k = QLineEdit(settings.value(f"custom{_i}_key", ""))
+            _k.setEchoMode(QLineEdit.EchoMode.Password)
+            _k.setPlaceholderText("sk-...")
+            for _e in (_n, _u, _m, _k):
+                _e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
+                _e.setMinimumWidth(220)
+            form.addRow(f"{L('引擎')} {_i} · {L('名称')}:", _n)
+            form.addRow(L("接口地址") + ":", _u)
+            form.addRow(L("模型名") + ":", _m)
+            form.addRow(f"{L('引擎')} {_i} · Key:", _k)
+            self._custom_edits[_i] = (_n, _u, _m)
+            # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
+            self._key_edits[f"custom{_i}"] = _k
 
         # 界面语言 / 样式风格（重启后生效）
         self.lang_combo = QComboBox()
@@ -4393,8 +4478,25 @@ class SettingsDialog(QDialog):
             _base_css += "\n" + _rounded_scrollbar_qss()
         self.setStyleSheet(_base_css)
 
+    def _persist_custom_engines(self):
+        """保存三组自定义引擎的名称 / 地址 / 模型名，并让主窗重建引擎下拉。
+
+        Key 不在这里——它挂在 _key_edits 上，跟内置引擎的 Key 一起存。
+        """
+        try:
+            for i, (n, u, m) in getattr(self, "_custom_edits", {}).items():
+                self.settings.setValue(f"custom{i}_name", n.text().strip())
+                self.settings.setValue(f"custom{i}_endpoint", u.text().strip())
+                self.settings.setValue(f"custom{i}_model", m.text().strip())
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "refresh_engine_choices"):
+                _p.refresh_engine_choices()
+        except Exception:
+            _log_exc("persist_custom_engines")
+
     def _persist_keys(self):
         """保存所有 API Key 与多风格开关(关闭设置窗时调用)。"""
+        self._persist_custom_engines()
         try:
             self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
             self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
@@ -4406,6 +4508,7 @@ class SettingsDialog(QDialog):
             pass
 
     def save(self):
+        self._persist_custom_engines()
         self.settings.setValue("engine", self.engine_combo.currentData())
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
@@ -4807,6 +4910,20 @@ _EN["Google 云翻译 Key"] = "Google Cloud Key"
 _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
+_EN["自定义 API 引擎（可选，最多三组）"] = "Custom API Engines (optional, up to three)"
+_EN["名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
+    "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
+    "的地址，请只填信得过的服务。"] = (
+    "An engine appears in the list once its name, endpoint and model are all "
+    "filled in. The endpoint must accept OpenAI's chat/completions format. "
+    "Your key is sent as-is to whatever address you enter, so only use "
+    "services you trust.")
+_EN["显示名称，如 MyGPT"] = "Display name, e.g. MyGPT"
+_EN["模型名，如 gpt-4o-mini"] = "Model name, e.g. gpt-4o-mini"
+_EN["接口地址"] = "Endpoint"
+_EN["模型名"] = "Model"
+_EN["引擎"] = "Engine"
+_EN["名称"] = "Name"
 _EN["关闭时最小化到托盘，不退出程序"] = "Close to tray instead of quitting"
 _EN["显示主窗口"] = "Show Main Window"
 _EN["退出"] = "Quit"
@@ -5964,7 +6081,7 @@ class MainWindow(QMainWindow):
         self.tgt_combo.setToolTip(L("译文语言"))
 
         self.engine_combo = QComboBox()
-        _combo_fill(self.engine_combo, ALL_ENGINES)
+        _combo_fill(self.engine_combo, _engine_choices(self.settings))
         fit_combo_width(self.engine_combo, extra=20, popup_extra=15)   # 闭合框+20(再+5)，弹出列表再+15
         _combo_select_data(self.engine_combo, 
             self.settings.value("engine", ENGINE_GOOGLE))
@@ -7179,10 +7296,13 @@ class MainWindow(QMainWindow):
             "qwen": self.settings.value("qwen_key", ""),
             "kimi": self.settings.value("kimi_key", ""),
         }
+        # 用户自定义引擎与它们的 Key 一并带上
+        _custom_cfgs = _custom_engine_configs(self.settings)
+        keys.update(_custom_engine_keys(self.settings))
         # LLM 引擎且开启了多风格开关时，输出多种译法；
         # 仅在"有效的文件导入模式"(原文与导入内容一致)下才禁用多风格——
         # 之前只看 _imported_path 是否为 None，导入过一次后残留路径会永久禁掉多风格(bug)。
-        multi = (engine in LLM_ENGINE_SET and
+        multi = ((engine in LLM_ENGINE_SET or engine in _custom_cfgs) and
                  self.settings.value("multi_style", "true") == "true" and
                  not self._in_file_mode())
         self._multi_active = multi   # 记录本次是否真的多风格，供 on_translate_ok 判分区
@@ -7193,7 +7313,7 @@ class MainWindow(QMainWindow):
 
         self.translate_worker = TranslateWorker(
             text, self.src_combo.currentData(), self.tgt_combo.currentData(),
-            engine, keys, multi_style=multi)
+            engine, keys, multi_style=multi, custom_engines=_custom_cfgs)
         self.translate_worker.finished_ok.connect(self.on_translate_ok)
         self.translate_worker.failed.connect(self.on_translate_fail)
         self.translate_worker.start()
@@ -8800,6 +8920,20 @@ class MainWindow(QMainWindow):
             obtn.setToolTip(f"朗读{oname}")
         if not clear_only:
             self.status.showMessage(L("已停止"), 2000)
+
+    def refresh_engine_choices(self):
+        """自定义引擎改动后重建引擎下拉，尽量保住当前选中的引擎。"""
+        try:
+            cur = self.engine_combo.currentData()
+            self.engine_combo.blockSignals(True)
+            try:
+                self.engine_combo.clear()
+                _combo_fill(self.engine_combo, _engine_choices(self.settings))
+                _combo_select_data(self.engine_combo, cur)
+            finally:
+                self.engine_combo.blockSignals(False)
+        except Exception:
+            _log_exc("refresh_engine_choices")
 
     # ====================================================================
     #  系统托盘与关闭行为
