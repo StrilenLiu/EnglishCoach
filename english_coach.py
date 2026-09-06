@@ -198,7 +198,8 @@ import requests
 import edge_tts
 
 from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QSize, QUrl, QSettings,
-                          QTimer, QBuffer, QByteArray, QIODevice, QElapsedTimer)
+                          QTimer, QBuffer, QByteArray, QIODevice, QElapsedTimer,
+                          QObject, QEvent)
 from PyQt6.QtGui import (QIcon, QPixmap, QFont, QAction,
                          QSyntaxHighlighter, QTextCharFormat, QColor)
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -207,7 +208,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QPushButton, QComboBox, QLabel, QSlider, QToolBar,
     QStatusBar, QDialog, QDialogButtonBox, QLineEdit, QFormLayout,
     QTextBrowser, QMessageBox, QSplitter, QFrame, QSizePolicy,
-    QCheckBox, QScrollArea
+    QCheckBox, QScrollArea, QSystemTrayIcon, QMenu
 )
 
 # =============================================================================
@@ -4169,6 +4170,26 @@ class SettingsDialog(QDialog):
                 _log_exc("on_top_live")
         self.on_top_chk.toggled.connect(_on_top_live)
         form.addRow("", self.on_top_chk)
+        # 关闭行为。托盘不可用的桌面（GNOME 默认就没有）根本不显示这一行——
+        # 给出一个点了会让程序消失且找不回来的选项，比没有这个功能更糟。
+        _p0 = self.parent()
+        if _p0 is not None and getattr(_p0, "_tray", None) is not None:
+            self.tray_chk = QCheckBox(L("关闭时最小化到托盘，不退出程序"))
+            self.tray_chk.setChecked(
+                settings.value("close_to_tray", "false") == "true")
+
+            def _tray_live(v):
+                # 槽里未捕获的异常会让 PyQt6 直接 abort，必须自己兜住。
+                try:
+                    self.settings.setValue(
+                        "close_to_tray", "true" if v else "false")
+                    _p = self.parent()
+                    if _p is not None and hasattr(_p, "apply_close_to_tray"):
+                        _p.apply_close_to_tray(bool(v))
+                except Exception:
+                    _log_exc("tray_live")
+            self.tray_chk.toggled.connect(_tray_live)
+            form.addRow("", self.tray_chk)
         _gap = QWidget(); _gap.setFixedHeight(10)   # 与日志行隔开一点距离
         form.addRow("", _gap)
 
@@ -4786,6 +4807,9 @@ _EN["Google 云翻译 Key"] = "Google Cloud Key"
 _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
+_EN["关闭时最小化到托盘，不退出程序"] = "Close to tray instead of quitting"
+_EN["显示主窗口"] = "Show Main Window"
+_EN["退出"] = "Quit"
 _EN["导出日志"] = "Export Log"
 _EN["读取日志失败"] = "Failed to read log"
 _EN["日志为空，无内容可导出"] = "Log is empty, nothing to export"
@@ -5803,6 +5827,28 @@ class PillBusyBar(QWidget):
         x = int((w - cw) * self._pos)
         p.setBrush(QColor("#5aa8b0"))               # 青色胶囊滑块
         p.drawRoundedRect(x, 0, cw, h, r, r)
+
+
+class _DockReopenFilter(QObject):
+    """macOS：点 Dock 图标把藏进菜单栏的主窗召回。
+
+    窗口隐藏后 Dock 图标仍在（下方的小圆点表示程序还活着），按 macOS 的惯例
+    点它就该把窗口叫回来。Qt 不会自动处理，这里监听应用被激活的事件补上。
+    """
+
+    def __init__(self, win):
+        super().__init__(win)
+        self._win = win
+
+    def eventFilter(self, obj, ev):
+        try:
+            if (ev.type() == QEvent.Type.ApplicationActivate
+                    and self._win is not None
+                    and not self._win.isVisible()):
+                self._win._restore_from_tray()
+        except Exception:
+            pass
+        return False          # 只旁观，绝不吞掉事件
 
 
 class MainWindow(QMainWindow):
@@ -8755,8 +8801,105 @@ class MainWindow(QMainWindow):
         if not clear_only:
             self.status.showMessage(L("已停止"), 2000)
 
-    def closeEvent(self, event):
-        # 退出前安全结束朗读线程，避免 "QThread destroyed while running" 崩溃
+    # ====================================================================
+    #  系统托盘与关闭行为
+    # ====================================================================
+
+    def _tray_available(self):
+        """本机能否显示托盘图标。
+
+        GNOME 默认不带托盘（要另装 AppIndicator 扩展），Qt 在那里返回 False。
+        真把窗口藏进一个不存在的托盘，用户就再也叫不回程序了——所以这个功能
+        连同它的设置项，只在托盘可用时才出现。
+        """
+        try:
+            return QSystemTrayIcon.isSystemTrayAvailable()
+        except Exception:
+            return False
+
+    def _setup_tray(self):
+        """建立托盘图标。托盘不可用时什么都不做，_tray 保持 None。"""
+        self._tray = None
+        self._tray_menu = None
+        self._force_quit = False
+        if not self._tray_available():
+            return
+        try:
+            tray = QSystemTrayIcon(self._load_app_icon(), self)
+            menu = QMenu()
+            menu.addAction(L("显示主窗口")).triggered.connect(
+                self._restore_from_tray)
+            menu.addSeparator()
+            menu.addAction(L("退出")).triggered.connect(self._quit_from_tray)
+            tray.setContextMenu(menu)
+            tray.setToolTip(APP_TITLE)
+            tray.activated.connect(self._on_tray_activated)
+            tray.show()
+            self._tray = tray
+            # 菜单必须留一个引用：只挂在局部变量上会被回收，右键就没反应了。
+            self._tray_menu = menu
+        except Exception:
+            _log_exc("setup_tray")
+            self._tray = None
+            return
+        if sys.platform == "darwin":
+            # macOS 惯例：窗口藏起来后 Dock 图标还在（下面一个小圆点表示仍在
+            # 运行），点它应当把窗口召回。Qt 不会自己做，装个过滤器补上。
+            try:
+                self._dock_filter = _DockReopenFilter(self)
+                QApplication.instance().installEventFilter(self._dock_filter)
+            except Exception:
+                _log_exc("install_dock_filter")
+
+    def _on_tray_activated(self, reason):
+        try:
+            if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                          QSystemTrayIcon.ActivationReason.DoubleClick):
+                self._restore_from_tray()
+        except Exception:
+            _log_exc("tray_activated")
+
+    def _restore_from_tray(self):
+        """把藏起来的主窗叫回前台。"""
+        try:
+            self.show()
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowState.WindowMinimized)
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            _log_exc("restore_from_tray")
+
+    def _quit_from_tray(self):
+        """托盘菜单的「退出」——这才是真正关掉程序。"""
+        self._force_quit = True
+        try:
+            QApplication.instance().quit()
+        except Exception:
+            _log_exc("quit_from_tray")
+
+    def apply_close_to_tray(self, on: bool):
+        """启用后关闭主窗只是藏起来，于是不能再让 Qt 因为「最后一个窗口关了」
+        而退出程序——否则关掉设置窗会把整个程序一起带走。"""
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.setQuitOnLastWindowClosed(not bool(on))
+        except Exception:
+            _log_exc("apply_close_to_tray")
+
+    def _close_goes_to_tray(self):
+        return (not getattr(self, "_force_quit", False)
+                and getattr(self, "_tray", None) is not None
+                and self.settings.value("close_to_tray", "false") == "true")
+
+    def _shutdown_workers(self):
+        """安全结束朗读线程，避免 "QThread destroyed while running" 崩溃。
+
+        closeEvent 与 aboutToQuit 都走这里：托盘的「退出」和 macOS 的 Cmd+Q
+        直接结束事件循环、不经过 closeEvent，清理只写在那儿就会漏掉。
+        重复调用是安全的（线程已停时 isRunning() 为假）。
+        """
         try:
             if self.player is not None:
                 self.player.stop()
@@ -8772,6 +8915,13 @@ class MainWindow(QMainWindow):
                     rw.wait(1000)
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        if self._close_goes_to_tray():
+            event.ignore()
+            self.hide()
+            return
+        self._shutdown_workers()
         super().closeEvent(event)
 
 
@@ -8861,6 +9011,16 @@ def main():
         pass
     try:
         win._sync_export_text_buttons()   # 启动时空文本 -> 导出文字钮初始为灰
+    except Exception:
+        pass
+    try:
+        win._setup_tray()
+        # 托盘的「退出」和 macOS 的 Cmd+Q 直接结束事件循环、不经过 closeEvent，
+        # 所以线程清理挂在 aboutToQuit 上，两条退出路径都能走到。
+        app.aboutToQuit.connect(win._shutdown_workers)
+        if win._tray is not None:
+            win.apply_close_to_tray(
+                win.settings.value("close_to_tray", "false") == "true")
     except Exception:
         pass
     win.show()
