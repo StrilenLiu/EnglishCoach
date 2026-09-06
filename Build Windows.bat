@@ -106,6 +106,11 @@ echo ==^> [4/7] Prepare icon
 REM AppIcon.ico ships with the repository; regenerate it only if it is missing.
 set ICON_ARG=
 set DATA_ARG=--add-data icon_win_linux_1024.png;.
+REM Variant marker: the app reads this to label the title bar. Baked in at build
+REM time rather than probed at runtime, because the GPU build should still say
+REM GPU on a machine that has no graphics card.
+echo CPU> build_variant.txt
+set DATA_ARG=%DATA_ARG% --add-data build_variant.txt;.
 if not exist AppIcon.ico (
     if exist icon_win_linux_1024.png python -c "from PIL import Image; Image.open('icon_win_linux_1024.png').save('AppIcon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
 )

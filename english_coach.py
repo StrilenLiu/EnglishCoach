@@ -220,6 +220,32 @@ APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
 
+
+def _build_variant():
+    """本产物是 CPU 版还是 GPU 版；开发环境下返回空串。
+
+    变体由构建脚本在打包时写进 build_variant.txt。刻意不用
+    torch.cuda.is_available() 推断——那问的是"这台机器有没有显卡"，
+    GPU 版装在没有显卡的机器上会被判成 CPU 版，而那恰恰是最需要
+    如实告知用户的场景。
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(base, "build_variant.txt"),
+                  encoding="utf-8") as f:
+            v = f.read().strip().upper()
+    except OSError:
+        return ""
+    return v if v in ("CPU", "GPU") else ""
+
+
+APP_VARIANT = _build_variant()
+
+# 窗口标题。macOS 只出一种构建，标 CPU 反而是噪音，所以那里不加后缀。
+APP_TITLE = "English Coach{}  v{}".format(
+    " " + APP_VARIANT if APP_VARIANT and sys.platform != "darwin" else "",
+    APP_VERSION)
+
 # 统一按钮标准宽度（以"显示/隐藏"按钮为准）
 BTN_W = 96
 
@@ -5713,7 +5739,7 @@ class MainWindow(QMainWindow):
         self._karaoke_timer.setInterval(50)
         self._karaoke_timer.timeout.connect(self._karaoke_tick)
 
-        self.setWindowTitle(f"English Coach  v{APP_VERSION}")
+        self.setWindowTitle(APP_TITLE)
         self.setAcceptDrops(True)   # 支持拖拽文件导入
         self.setWindowIcon(self._load_app_icon())
         self.setMinimumSize(880, 480)   # 再-10
