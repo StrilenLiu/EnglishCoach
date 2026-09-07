@@ -4125,19 +4125,8 @@ class SettingsDialog(QDialog):
         scroll.setWidget(content)
         outer.addWidget(scroll, 1)
 
-        # —— 默认翻译引擎 ——
-        eng_label = QLabel(L("默认翻译引擎"))
-        eng_label.setStyleSheet("font-weight:bold; color:#7bbcff; margin-top:4px;")
-        layout.addWidget(eng_label)
-
-        self.engine_combo = QComboBox()
-        _combo_fill(self.engine_combo, _engine_choices(settings))
-        _combo_select_data(self.engine_combo, 
-            settings.value("engine", ENGINE_GOOGLE))
-        self.engine_combo.setFixedHeight(36)   # 与主界面下拉等高
-        _apply_combo_popup_style(self.engine_combo)
-        layout.addWidget(self.engine_combo)
-
+        # 翻译引擎只在主界面那个下拉里选，选完即存（见主窗 engine_combo 的
+        # currentIndexChanged）。设置里再放一份只会和它抢，改了哪边生效说不清。
 
         # —— 备选引擎 Key ——
         key_label = QLabel(L("备选引擎 API Key（可选）"))
@@ -4571,7 +4560,6 @@ class SettingsDialog(QDialog):
 
     def save(self):
         self._persist_custom_engines()
-        self.settings.setValue("engine", self.engine_combo.currentData())
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
         for kn, e in self._key_edits.items():
@@ -5143,6 +5131,15 @@ def _refit_combo_width(combo):
     if combo.width() < need:
         combo.setFixedWidth(need)
     _fit_combo_popup_width(combo)      # 弹出列表同步重算
+
+
+def _first_local_voice(voices):
+    """默认嗓音取本地 Kokoro 的第一个：不联网就能用，首次启动不会卡在网络上。
+    万一没有本地嗓音（理论上不会），退回列表第一个。"""
+    for _name, _spec in voices.items():
+        if _spec.get("engine") == "kokoro":
+            return _name
+    return next(iter(voices))
 
 
 def _combo_fill(combo, items):
@@ -6182,7 +6179,7 @@ class MainWindow(QMainWindow):
         _combo_fill(self.engine_combo, _engine_choices(self.settings))
         fit_combo_width(self.engine_combo, extra=20, popup_extra=15)   # 闭合框+20(再+5)，弹出列表再+15
         _combo_select_data(self.engine_combo, 
-            self.settings.value("engine", ENGINE_GOOGLE))
+            self.settings.value("engine", ENGINE_ARGOS))
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
         self.engine_combo.currentTextChanged.connect(
             lambda _t: self.settings.setValue("engine", self.engine_combo.currentData()))
@@ -6198,7 +6195,9 @@ class MainWindow(QMainWindow):
         swap_btn = QPushButton(Icons.icon("swap"), "")
         swap_btn.setProperty("_icn", "swap")
         swap_btn.setToolTip(L("交换源文译文内容"))
-        swap_btn.setFixedSize(44, 34)
+        # 36x36：与极简钮、文本框下方那排工具钮同尺寸。居中由 top_grid 两侧
+        # 列的 stretch 保证，与按钮本身多大无关，改尺寸不会让它偏。
+        swap_btn.setFixedSize(36, 36)
         swap_btn.clicked.connect(self.swap_sides)
 
         from PyQt6.QtWidgets import QGridLayout, QWidget as _QWt
@@ -6248,7 +6247,8 @@ class MainWindow(QMainWindow):
 
         top_grid = QGridLayout()
         top_grid.setContentsMargins(0, 0, 0, 0)
-        top_grid.setHorizontalSpacing(10)
+        # 6px：与本排 left_w/right_w 内部的间距一致，让两侧语言下拉贴近交换钮。
+        top_grid.setHorizontalSpacing(6)
         top_grid.addWidget(left_w, 0, 0)
         top_grid.addWidget(swap_btn, 0, 1)
         top_grid.addWidget(right_w, 0, 2)
@@ -6433,7 +6433,7 @@ class MainWindow(QMainWindow):
         _combo_fill(self.zh_voice_combo, ZH_VOICES.keys())
         fit_combo_width(self.zh_voice_combo)
         _combo_select_data(self.zh_voice_combo, 
-            self.settings.value("zh_voice", next(iter(ZH_VOICES))))
+            self.settings.value("zh_voice", _first_local_voice(ZH_VOICES)))
         self.zh_voice_combo.currentTextChanged.connect(self._on_zh_voice_changed)
         self.zh_voice_combo.setToolTip(L("中文嗓音"))
         tts_bar.addWidget(self.zh_voice_combo)
@@ -6442,7 +6442,7 @@ class MainWindow(QMainWindow):
         _combo_fill(self.en_voice_combo, EN_VOICES.keys())
         fit_combo_width(self.en_voice_combo)
         _combo_select_data(self.en_voice_combo, 
-            self.settings.value("en_voice", next(iter(EN_VOICES))))
+            self.settings.value("en_voice", _first_local_voice(EN_VOICES)))
         self.en_voice_combo.currentTextChanged.connect(self._on_en_voice_changed)
         self.en_voice_combo.setToolTip(L("英文嗓音"))
         tts_bar.addWidget(self.en_voice_combo)
@@ -7184,7 +7184,7 @@ class MainWindow(QMainWindow):
         self._flush_pending_on_top()   # 应用对话框期间推迟的置顶设置
         # 设置里改了默认引擎，同步到主界面下拉
         _combo_select_data(self.engine_combo, 
-            self.settings.value("engine", ENGINE_GOOGLE))
+            self.settings.value("engine", ENGINE_ARGOS))
 
     def swap_sides(self):
         # 多风格模式下只交换直译区，多风格灰字区不参与
