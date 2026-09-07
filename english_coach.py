@@ -2975,13 +2975,26 @@ def _should_annotate(text):
 
 _EN_G2P = None      # misaki 英文 G2P，懒加载；False 表示不可用
 
+# misaki 用的不是标准 IPA：五个双元音压成单个大写字母，另有两个连体辅音和两个
+# 上标符号。这些写法字典里查不到，多数字体也没有字形（Windows 上直接显示成
+# 方块）。换成通行的 IPA 写法，两个问题一起解决。
+# 对应关系由 misaki 自带词典逐个反查确认：day=dˈA、buy=bˈI、go=ɡˌO、now=nˈW、
+# boy=bˈY、judge=ʤˈʌʤ、church=ʧˈɜɹʧ。
+_MISAKI_TO_IPA = {
+    "A": "eɪ", "I": "aɪ", "O": "oʊ", "W": "aʊ", "Y": "ɔɪ", "Q": "əʊ",
+    "ʤ": "dʒ", "ʧ": "tʃ", "ᵊ": "ə", "ᵻ": "ɪ",
+}
+# misaki 遇到不认识的输入（中文、生僻符号）就吐这个标记，见 misaki/en.py 的
+# G2P(unk='❓')。出现它说明喂进去的东西不对，宁可整行不显示，也别标一串问号。
+_G2P_UNKNOWN = "❓"
+
 
 def _phonetic_en(text):
     """美式 IPA 音标。
 
     用的是 Kokoro 朗读的同一套 G2P（misaki），所以标出来的音标与读出来的声音
     一致；词典里查不到的名字（比如 Strilen）也能按规则推断出读法。misaki 装不
-    上时返回空串，界面上就不显示这一行。
+    上、或它认不出输入时返回空串，界面上就不显示这一行。
     """
     global _EN_G2P
     if _EN_G2P is None:
@@ -2997,7 +3010,10 @@ def _phonetic_en(text):
     except Exception:
         return ""
     ps = (ps or "").strip()
-    return f"/{ps}/" if ps else ""
+    if not ps or _G2P_UNKNOWN in ps:
+        return ""
+    ps = "".join(_MISAKI_TO_IPA.get(c, c) for c in ps)
+    return f"/{ps}/"
 
 
 def _phonetic_zh(text):
@@ -7454,20 +7470,25 @@ class MainWindow(QMainWindow):
         _shown = out
         _src_raw = self.input_edit.toPlainText()
         if _should_annotate(_src_raw):
-            _lit = out if self._lit_end is None else out[:self._lit_end]
+            if self._lit_end is not None:
+                _lit = out[:self._lit_end]
+            elif _multi:
+                # 多风格模式却没找到空行分界：模型这次没照格式回。直译一定在
+                # 第一行，只注它——否则会把"口语：""书面："这些中文标签一起
+                # 喂给 G2P，它认不出来，整行就成了一串问号。
+                _lit = out.split("\n", 1)[0]
+            else:
+                # 普通模式：整段就是直译，边界不是猜的，不会踩到"原文含空行被
+                # 误判成多风格"那个坑。
+                _lit = out
             _phon = _annotate(
                 _lit.strip(),
                 _resolve_target_lang(self.tgt_combo.currentData(), _src_raw))
             if _phon:
-                if self._lit_end is None:
-                    # 普通模式此前没有分界。这里的边界不是"猜"出来的——直译区
-                    # 就是整段译文，所以不会踩到"原文含空行被误判"那个坑。
-                    _lit = out.rstrip()
-                    self._lit_end = len(_lit)
-                    _shown = _lit + "\n\n" + _phon
-                else:
-                    _shown = (out[:self._lit_end] + "\n\n" + _phon
-                              + out[self._lit_end:])
+                _cut = (self._lit_end if self._lit_end is not None
+                        else len(_lit.rstrip()))
+                self._lit_end = _cut
+                _shown = out[:_cut] + "\n\n" + _phon + out[_cut:]
         self._filling_output = True
         try:
             self.output_edit.setPlainText(_shown)

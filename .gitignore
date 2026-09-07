@@ -82,10 +82,3 @@ api_keys.json
 # argos_models: 构建时下载的 Argos 中英离线翻译模型，两个各约 100MB。
 _kokoro_stage/
 argos_models/
-
-# ---- 构建时下载/暂存的模型（编译产物，不入库）----
-# _kokoro_stage: 构建脚本把 Kokoro 模型复制到此无空格路径再打包。它是 Hugging
-# Face 模型仓库的副本，自带 .gitattributes 声明 LFS，git add 会因缺 git-lfs 失败。
-# argos_models: 构建时下载的 Argos 中英离线翻译模型，两个各约 100MB。
-_kokoro_stage/
-argos_models/

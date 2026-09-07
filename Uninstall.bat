@@ -14,6 +14,12 @@ REM   settings and API keys are kept. You will be asked about those separately.
 REM ============================================================================
 
 set "APP_NAME=English Coach"
+REM The GPU build installs into "English Coach GPU"; recognise it from the
+REM executable sitting beside this script, otherwise uninstalling the GPU
+REM edition reports that nothing is installed.
+set "HERE=%~dp0"
+if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+if exist "%HERE%\English Coach GPU.exe" set "APP_NAME=English Coach GPU"
 set "TARGET=%LOCALAPPDATA%\Programs\%APP_NAME%"
 set "STARTMENU=%APPDATA%\Microsoft\Windows\Start Menu\Programs"
 

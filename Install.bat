@@ -22,6 +22,10 @@ REM ============================================================================
 set "APP_NAME=English Coach"
 set "HERE=%~dp0"
 if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+REM The GPU build ships as "English Coach GPU.exe". Pick the name from whatever
+REM is actually here, or unpacking the GPU archive and running this reports a
+REM missing executable that is sitting right next to the script.
+if exist "%HERE%\English Coach GPU.exe" set "APP_NAME=English Coach GPU"
 
 echo ==^> English Coach 安装 / installer
 echo.
