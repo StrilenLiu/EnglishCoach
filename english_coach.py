@@ -3182,8 +3182,16 @@ class TranslateWorker(QThread):
         }
         resp = requests.get(GOOGLE_ENDPOINT, params=params, timeout=30)
         if resp.status_code != 200:
-            raise RuntimeError(f"Google 返回 {resp.status_code}。该免费端点可能不稳定，"
-                               f"可改用设置中的 DeepL / DeepSeek 备选引擎。")
+            if resp.status_code == 429:
+                # 429 是限流，不是故障：过一会儿自己会好。给出无需等待的出路。
+                raise RuntimeError(
+                    "Google 免费接口正在限流，稍等片刻再试即可。\n\n"
+                    "不想等的话，把引擎换成「Argos -离线本地」——它完全在本机"
+                    "运行，不联网、不用 API Key，随时可用。")
+            raise RuntimeError(
+                f"Google 免费接口返回 {resp.status_code}，这个端点本就不太稳定。\n\n"
+                f"可以换成「Argos -离线本地」（本机运行，不联网），"
+                f"或在设置里配好 DeepL / DeepSeek 的 Key 再用它们。")
         data = resp.json()
         # 结构: [[["译文","原文",...], ...], ...]
         return "".join(seg[0] for seg in data[0] if seg[0])
@@ -4303,9 +4311,9 @@ class SettingsDialog(QDialog):
         # 给出一个点了会让程序消失且找不回来的选项，比没有这个功能更糟。
         _p0 = self.parent()
         if _p0 is not None and getattr(_p0, "_tray", None) is not None:
-            self.tray_chk = QCheckBox(L("关闭时最小化到托盘，不退出程序"))
+            self.tray_chk = QCheckBox(L("关闭时最小化到托盘不退出程序"))
             self.tray_chk.setChecked(
-                settings.value("close_to_tray", "false") == "true")
+                settings.value("close_to_tray", "true") == "true")
 
             def _tray_live(v):
                 # 槽里未捕获的异常会让 PyQt6 直接 abort，必须自己兜住。
@@ -4968,7 +4976,7 @@ _EN["接口地址"] = "Endpoint"
 _EN["模型名"] = "Model"
 _EN["引擎"] = "Engine"
 _EN["名称"] = "Name"
-_EN["关闭时最小化到托盘，不退出程序"] = "Close to tray instead of quitting"
+_EN["关闭时最小化到托盘不退出程序"] = "Close to tray instead of quitting"
 _EN["显示主窗口"] = "Show Main Window"
 _EN["退出"] = "Quit"
 _EN["导出日志"] = "Export Log"
@@ -5448,6 +5456,13 @@ def _apply_win_palette(app):
     if hasattr(QPalette.ColorRole, "Accent"):        # Qt 6.6+ 才有
         pal.setColor(QPalette.ColorRole.Accent, QColor("#1e88e5"))
     app.setPalette(pal)
+    # 气球提示不吃 app 调色板：windows11 样式引擎自绘气球，颜色取自 QToolTip
+    # 自己那份。不单独喂给它，深色主题下气球仍是系统的浅色。
+    try:
+        from PyQt6.QtWidgets import QToolTip as _QTT
+        _QTT.setPalette(pal)
+    except Exception:
+        pass
 
 
 def _apply_color_scheme(app):
@@ -5485,10 +5500,19 @@ def _combo_popup_css():
 
 
 def _tooltip_css():
-    """mac 走系统原生气球(尖角、深浅自适应)，其它平台自定义。"""
+    """mac 走系统原生气球(尖角、深浅自适应)，其它平台自定义。
+
+    这里必须自己判断深浅：这段 CSS 是在 _themed() 换色【之后】才注入占位符的，
+    整表换色轮不到它，写死一套颜色就会在另一套主题下发白/发黑。
+    """
     import sys
     if sys.platform == "darwin":
         return ""
+    if _theme_is_light():
+        return ("""
+            QToolTip { background:#f7f7f7; color:#1f1f22; border:1px solid #c8c8c8;
+                padding:2px 5px; font-size:11px; border-radius:6px; }
+""")
     return ("""
             QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
                 padding:2px 5px; font-size:11px; border-radius:6px; }
@@ -6207,9 +6231,14 @@ class MainWindow(QMainWindow):
         splitter.setHandleWidth(10)
 
         self.input_edit = QTextEdit()
+        # 强制纯文本：粘贴和拖入的富文本一律剥成文字，也挡掉 Ctrl+B 之类的
+        # 就地改格式。只约束用户输入，程序自己用 QTextCharFormat 画的卡拉OK
+        # 高亮、选区底色、灰字区都不受影响。
+        self.input_edit.setAcceptRichText(False)
         self.input_edit.setPlaceholderText(L("在此输入或粘贴文本…"))
         self.input_edit.setToolTip(L("原文文字"))
         self.output_edit = QTextEdit()
+        self.output_edit.setAcceptRichText(False)
         self.output_edit.setPlaceholderText(L("译文显示在这里…"))
         self.output_edit.setToolTip(L("译文文字"))
         # 原文/译文区字号放大，更醒目
@@ -7528,13 +7557,25 @@ class MainWindow(QMainWindow):
             ta, tb = tgt_segs[min(j, m - 1)]
             self._align.append((sa, sb, ta, tb))
 
+    def _themed_msgbox(self, icon, title, text):
+        """弹窗跟随主题。QMessageBox 是独立的顶层窗口，不继承主窗样式表，
+        非 mac 平台不显式喂给它，深色主题下就会弹出一片白。
+        mac 不设：那边深浅由 AppKit 原生外观驱动，自涂颜色反而打架。"""
+        box = QMessageBox(self)
+        box.setIcon(icon)
+        box.setWindowTitle(L(title))
+        box.setText(text)
+        if sys.platform != "darwin":
+            box.setStyleSheet(getattr(self, "_base_ss", "") or self.styleSheet())
+        return box.exec()
+
     def on_translate_fail(self, msg):
         self._reset_translate_btn()
         self.status.showMessage("翻译失败", 3000)
         _log_error(f"翻译失败 [{self.engine_combo.currentData()}]: {msg}")
         # 自动翻译失败不打扰；手动翻译才弹窗
         if not getattr(self, "_current_auto", False):
-            QMessageBox.warning(self, "翻译失败", msg)
+            self._themed_msgbox(QMessageBox.Icon.Warning, "翻译失败", msg)
 
     def _reset_translate_btn(self):
         self.translate_btn.setEnabled(True)
@@ -9074,7 +9115,7 @@ class MainWindow(QMainWindow):
     def _close_goes_to_tray(self):
         return (not getattr(self, "_force_quit", False)
                 and getattr(self, "_tray", None) is not None
-                and self.settings.value("close_to_tray", "false") == "true")
+                and self.settings.value("close_to_tray", "true") == "true")
 
     def _shutdown_workers(self):
         """安全结束朗读线程，避免 "QThread destroyed while running" 崩溃。
@@ -9203,7 +9244,7 @@ def main():
         app.aboutToQuit.connect(win._shutdown_workers)
         if win._tray is not None:
             win.apply_close_to_tray(
-                win.settings.value("close_to_tray", "false") == "true")
+                win.settings.value("close_to_tray", "true") == "true")
     except Exception:
         pass
     win.show()
