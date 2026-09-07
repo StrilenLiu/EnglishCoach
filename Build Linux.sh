@@ -549,6 +549,11 @@ echo "    离线翻译依赖 OK"
 
 echo "==> [7/8] PyInstaller 编译"
 # 图标：Linux 窗口图标由程序内部 SVG 设置，PyInstaller 不强制需要 .ico/.icns
+# 变体标记：程序据此在标题栏区分 CPU / GPU 版。放进包里而不是运行时探测显卡，
+# 因为 GPU 版装在没有显卡的机器上照样该显示 GPU。
+echo "$BUILD_VARIANT" > build_variant.txt
+VARIANT_ARG="--add-data build_variant.txt:."
+
 ICON_ARG=""
 if [ "$BUILD_VARIANT" = "GPU" ] && [ -f icon_gpu_win_linux_1024.png ]; then
     ICON_ARG="--icon icon_gpu_win_linux_1024.png"
@@ -647,7 +652,7 @@ mkdir -p "$DESTDIR"
 
 "$PY" -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CONDA_LIB_ARGS $CUDA_EXCLUDE \
+    $ICON_ARG $VARIANT_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CONDA_LIB_ARGS $CUDA_EXCLUDE \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \

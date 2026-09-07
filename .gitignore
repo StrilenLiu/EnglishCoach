@@ -37,6 +37,7 @@ ENV/
 # are consumed directly by the build scripts, so .icns / .ico are no longer
 # ignored wholesale — only the temporary iconset macOS builds create.
 AppIcon.iconset/
+build_variant.txt
 _switch_preview.qml
 
 # ---- 图标设计过程稿 / Icon design sources ----

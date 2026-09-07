@@ -198,7 +198,8 @@ import requests
 import edge_tts
 
 from PyQt6.QtCore import (Qt, QThread, pyqtSignal, QSize, QUrl, QSettings,
-                          QTimer, QBuffer, QByteArray, QIODevice, QElapsedTimer)
+                          QTimer, QBuffer, QByteArray, QIODevice, QElapsedTimer,
+                          QObject, QEvent)
 from PyQt6.QtGui import (QIcon, QPixmap, QFont, QAction,
                          QSyntaxHighlighter, QTextCharFormat, QColor)
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
@@ -207,7 +208,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QPushButton, QComboBox, QLabel, QSlider, QToolBar,
     QStatusBar, QDialog, QDialogButtonBox, QLineEdit, QFormLayout,
     QTextBrowser, QMessageBox, QSplitter, QFrame, QSizePolicy,
-    QCheckBox, QScrollArea
+    QCheckBox, QScrollArea, QSystemTrayIcon, QMenu
 )
 
 # =============================================================================
@@ -215,10 +216,36 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.15.12"
+APP_VERSION = "2.16.0"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
+
+
+def _build_variant():
+    """本产物是 CPU 版还是 GPU 版；开发环境下返回空串。
+
+    变体由构建脚本在打包时写进 build_variant.txt。刻意不用
+    torch.cuda.is_available() 推断——那问的是"这台机器有没有显卡"，
+    GPU 版装在没有显卡的机器上会被判成 CPU 版，而那恰恰是最需要
+    如实告知用户的场景。
+    """
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(base, "build_variant.txt"),
+                  encoding="utf-8") as f:
+            v = f.read().strip().upper()
+    except OSError:
+        return ""
+    return v if v in ("CPU", "GPU") else ""
+
+
+APP_VARIANT = _build_variant()
+
+# 窗口标题。macOS 只出一种构建，标 CPU 反而是噪音，所以那里不加后缀。
+APP_TITLE = "English Coach{}  v{}".format(
+    " " + APP_VARIANT if APP_VARIANT and sys.platform != "darwin" else "",
+    APP_VERSION)
 
 # 统一按钮标准宽度（以"显示/隐藏"按钮为准）
 BTN_W = 96
@@ -381,6 +408,34 @@ def _add_history(src_text, tgt_text, engine):
 
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
+    {
+        "version": "2.16.0",
+        "date": "2026-09-06",
+        "title": "译文标注音标/拼音 · 自定义 API 引擎 · 关闭可最小化到托盘 · 标题区分 CPU/GPU 版",
+        "notes": [
+            "单字、单词、数字与符号的译文下方多一行注音：译成英文标国际音标，译成中文标带声调的拼音。注的是译文而不是原文——想知道怎么念的正是译出来的那个词。符号和数字不必特殊照顾，翻译那层早已把『.』变成 dot、『3』变成 Three／三，注音直接落在这些词上",
+            "英文音标取自 misaki，也就是 Kokoro 朗读所用的同一套字素转音素引擎，因此标出来的音标与读出来的声音一致；词典里查不到的名字（比如 Strilen）照样能按规则推断出读法。中文用 pypinyin，单字若是多音字，最常用的读法排在最前、其余括号列出。两个库本来就在产物里，注不出来时这一行直接不显示",
+            "注音行排在直译区之后，于是自动继承灰字区的全部待遇：灰色显示、不被朗读、不参与选区联动、左右交换时不带过去；翻译历史里存的仍是干净的译文。所有 14 个引擎都有注音，包括 Google、DeepL 与离线的 Argos——它与用哪个引擎翻译无关",
+            "新增三组自定义 API 引擎：在设置里填好名称、接口地址与模型名，该引擎就出现在引擎列表里。十四个内置引擎中有十三个走的就是 OpenAI 兼容的 chat/completions，自定义引擎走同一条路，因此多风格翻译与单词模式对它们一样有效",
+            "自定义引擎用普通输入框而非可编辑下拉：可编辑下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套样式规则，2.15.12 修好的深色边框问题正是这么来的。设置里注明了 Key 会原样发往所填地址，请只填信得过的服务",
+            "关闭窗口可改为最小化到托盘（默认关闭，不改变原有行为）。macOS 依系统惯例：窗口收起、Dock 图标保留运行小圆点、菜单栏图标右键可退出，点 Dock 图标窗口回来；Windows 收进右下角任务栏。没有托盘的桌面（GNOME 默认不带）根本不显示这个设置项——一个会让窗口消失又叫不回来的开关，比没有更糟",
+            "线程清理从 closeEvent 挪进独立方法，退出程序时一并调用：托盘的『退出』与 macOS 的 Cmd+Q 不经过 closeEvent，朗读线程若还在跑会让进程在收尾时崩掉",
+            "窗口标题区分 CPU 版与 GPU 版（如 English Coach GPU v2.16.0）。变体由构建脚本写进产物，而不是运行时探测显卡——GPU 版装在没有独显的机器上仍该说自己是 GPU 版，那恰恰是最需要如实告知的场景。macOS 只有一种构建，不加后缀",
+            "应用图标换成手工设计的新版，退休了用代码作画的 make_icon.py；AppIcon.icns / AppIcon.ico 随仓库分发，自行编译无需 Pillow、sips 或 iconutil",
+        ],
+        "title_en": "Phonetics under translations, custom API engines, close-to-tray, and CPU/GPU in the title",
+        "notes_en": [
+            "Translations of single characters, words, digits and symbols now carry a line of phonetics underneath: IPA when translating into English, toned pinyin when translating into Chinese. It annotates the translation rather than the input, because the translation is the word you want to pronounce. Symbols and digits need no special handling — the translation layer already turns \".\" into dot and \"3\" into Three, and those are what get annotated",
+            "English phonetics come from misaki, the same grapheme-to-phoneme engine Kokoro speaks with, so the transcription matches what you hear, and coined names outside any dictionary (Strilen, say) still get a pronunciation. Chinese uses pypinyin, listing a lone heteronym's alternate readings after the common one. Both libraries already ship in the bundle; when neither can produce anything the line is simply omitted",
+            "The phonetics line sits after the literal translation and so inherits everything the dimmed block already does: greyed out, never spoken, outside selection linking, and left behind when the panes are swapped. History still stores the clean translation. All fourteen engines get phonetics, Google, DeepL and offline Argos included — it does not depend on which engine translated the text",
+            "Three custom API engine slots: fill in a name, an endpoint and a model in Settings and the engine joins the list. Thirteen of the fourteen built-in engines already speak OpenAI's chat/completions, and custom engines take that same path, so multi-style translation and word mode work with them unchanged",
+            "Custom engines use plain text fields rather than editable combo boxes: an editable combo nests a line edit matching both the QComboBox and QLineEdit rules, which is exactly what produced the dark-theme border faults fixed in 2.15.12. The panel states plainly that your key is sent to whatever address you enter, so only use services you trust",
+            "Closing the window can now hide it to the tray instead of quitting (off by default, so nothing changes until you ask for it). macOS follows its own convention: the window goes away, the Dock icon keeps its running dot, the menu bar item offers Quit, and clicking the Dock icon brings the window back. Windows minimises to the notification area. Desktops without a tray — GNOME ships without one — do not show the setting at all, since a switch that makes the window vanish with no way back is worse than no switch",
+            "Thread shutdown moved out of closeEvent into its own method that quitting also calls: neither the tray's Quit nor Cmd+Q passes through closeEvent, and playback threads left running abort the process on teardown",
+            "The title bar names the edition (English Coach GPU v2.16.0). The build scripts bake it into the bundle rather than probing for a graphics card at runtime — the GPU build on a machine without one should still say GPU, which is precisely when saying so matters. macOS ships a single edition and carries no suffix",
+            "New hand-designed application icon, retiring the make_icon.py generator; AppIcon.icns and AppIcon.ico now ship with the repository so building needs neither Pillow, sips nor iconutil",
+        ],
+    },
     {
         "version": "2.15.12",
         "date": "2026-07-28",
@@ -2820,10 +2875,154 @@ LLM_ENGINE_SET = {
     ENGINE_HUNYUAN,
 }
 
+# ---- 用户自定义 API 引擎（三组，一律按 OpenAI 兼容的 chat 接口调用）----
+CUSTOM_ENGINE_SLOTS = (1, 2, 3)
+CUSTOM_ENGINE_SUFFIX = " -自定义API"
+
+
+def _custom_engine_configs(settings):
+    """读出用户填写的自定义引擎，返回 {引擎名: 配置}，格式与 LLM_ENGINES 相同。
+
+    名称、接口地址、模型名三样齐全才算数——缺一样就发不出请求，与其让它出现
+    在下拉里等着报错，不如根本不列出来。重名的后一组自动带上槽位序号区分。
+    """
+    out = {}
+    for i in CUSTOM_ENGINE_SLOTS:
+        name = (settings.value(f"custom{i}_name", "") or "").strip()
+        url = (settings.value(f"custom{i}_endpoint", "") or "").strip()
+        model = (settings.value(f"custom{i}_model", "") or "").strip()
+        if not (name and url and model):
+            continue
+        eid = name + CUSTOM_ENGINE_SUFFIX
+        if eid in out:
+            eid = f"{name} {i}{CUSTOM_ENGINE_SUFFIX}"
+        out[eid] = {
+            "endpoint": url, "model": model,
+            "key_name": f"custom{i}", "auth": "bearer",
+            "label": name,
+        }
+    return out
+
+
+def _engine_choices(settings):
+    """引擎下拉的内容：内置引擎在前，用户自定义的排在后面。"""
+    return ALL_ENGINES + list(_custom_engine_configs(settings).keys())
+
+
+def _custom_engine_keys(settings):
+    """自定义引擎的 Key，并进 TranslateWorker 的 keys 字典。"""
+    return {f"custom{i}": settings.value(f"custom{i}_key", "")
+            for i in CUSTOM_ENGINE_SLOTS}
+
+
 # 语言名 -> 各引擎语言代码
 _LANG_GOOGLE = {"中文": "zh-CN", "English": "en", "自动检测": "auto"}
 _LANG_DEEPL = {"中文": "ZH", "English": "EN", "自动检测": None}
 _LANG_ARGOS = {"中文": "zh", "English": "en"}   # Argos 用 ISO 639-1
+
+
+# =============================================================================
+#  注音：给译文标音标 / 拼音
+#
+#  注的是【译文】而不是原文——用户想知道的是译出来的词怎么念。符号和数字不必
+#  特殊照顾：翻译那一层已经把它们变成了词（"." -> dot、"3" -> Three / 三），
+#  到这里拿到的就是可直接注音的文本。
+# =============================================================================
+
+_SEP_RE = re.compile(r"[\s，。！？、；：,.!?;:\n]")
+
+
+def _resolve_target_lang(tgt, text):
+    """目标语言，与翻译侧的判断保持一致。
+
+    显式设置优先；「自动检测」时含中文字符译为英文，纯符号或数字译为英文
+    （判不出源语言，符号翻译路径也是这么定的），其余译为中文。两边不一致会
+    让注音选错语言——"." 译成 period 却去查拼音，结果什么都标不出来。
+    """
+    if tgt != "自动检测":
+        return tgt
+    has_cjk = has_alpha = False
+    for ch in text:
+        if "\u4e00" <= ch <= "\u9fff":
+            has_cjk = True
+        elif ch.isalpha():
+            has_alpha = True
+    return "English" if (has_cjk or not has_alpha) else "中文"
+
+
+def _is_word_input(text):
+    """输入是否为「单字/单词」。多风格翻译的单词模式与译文注音共用这条判定。"""
+    t = (text or "").strip()
+    if not t or _SEP_RE.search(t):
+        return False
+    has_cjk = any("\u4e00" <= c <= "\u9fff" for c in t)
+    return len(t) <= 4 if has_cjk else len(t) <= 24
+
+
+def _should_annotate(text):
+    """要不要给译文注音。
+
+    在单词模式之外额外收下单个字符和纯数字/符号串：它们含 "." 之类的字符会被
+    分隔符规则挡掉，可偏偏正是该注音的输入（"3.14" -> sān diǎn yī sì）。
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 24:
+        return False
+    if _is_word_input(t) or len(t) == 1:
+        return True
+    return not any(c.isalpha() or "\u4e00" <= c <= "\u9fff" for c in t)
+
+
+_EN_G2P = None      # misaki 英文 G2P，懒加载；False 表示不可用
+
+
+def _phonetic_en(text):
+    """美式 IPA 音标。
+
+    用的是 Kokoro 朗读的同一套 G2P（misaki），所以标出来的音标与读出来的声音
+    一致；词典里查不到的名字（比如 Strilen）也能按规则推断出读法。misaki 装不
+    上时返回空串，界面上就不显示这一行。
+    """
+    global _EN_G2P
+    if _EN_G2P is None:
+        try:
+            from misaki import en as _misaki_en
+            _EN_G2P = _misaki_en.G2P(trf=False, british=False, fallback=None)
+        except Exception:
+            _EN_G2P = False
+    if not _EN_G2P:
+        return ""
+    try:
+        ps, _ = _EN_G2P(text)
+    except Exception:
+        return ""
+    ps = (ps or "").strip()
+    return f"/{ps}/" if ps else ""
+
+
+def _phonetic_zh(text):
+    """汉语拼音（带声调）。单字是多音字时，最常用的排在最前，其余括号里列出。"""
+    try:
+        from pypinyin import pinyin, Style
+    except Exception:
+        return ""
+    hans = [c for c in text if "\u4e00" <= c <= "\u9fff"]
+    if not hans:
+        return ""
+    if len(hans) == 1:
+        alts = pinyin(hans[0], style=Style.TONE, heteronym=True)[0]
+        if len(alts) == 1:
+            return alts[0]
+        return f"{alts[0]}（{' / '.join(alts[1:])}）"
+    return " ".join(x[0] for x in pinyin(text, style=Style.TONE))
+
+
+def _annotate(text, target_lang):
+    """按目标语言给译文注音；注不出来就返回空串，界面上不显示这一行。"""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    return _phonetic_zh(t) if target_lang == "中文" else _phonetic_en(t)
 
 
 class TranslateWorker(QThread):
@@ -2858,12 +3057,17 @@ class TranslateWorker(QThread):
         "、": ("Chinese enumeration comma", "顿号"),
     }
 
-    def __init__(self, text, src, tgt, engine, keys: dict, multi_style=False, parent=None):
+    def __init__(self, text, src, tgt, engine, keys: dict, multi_style=False,
+                 custom_engines=None, parent=None):
         super().__init__(parent)
         self.text, self.src, self.tgt = text, src, tgt
         self.engine = engine
         self.keys = keys  # {"deepl": "...", "deepseek": "...", ...}
         self.multi_style = multi_style   # LLM 引擎下是否输出多风格翻译
+        # 内置 LLM 引擎表，叠上本次用户自定义的那几组。自定义引擎走同一条
+        # OpenAI 兼容路径，所以多风格翻译、单词模式对它们一样有效。
+        self.llm_engines = dict(LLM_ENGINES)
+        self.llm_engines.update(custom_engines or {})
         self._cancelled = False
 
     # ---- 目标语言解析：「自动检测」目标 = 中→英 / 其它→中 ----
@@ -2931,9 +3135,9 @@ class TranslateWorker(QThread):
                 out = self._run_deepl()
             elif self.engine == ENGINE_ARGOS:
                 out = self._run_argos()
-            elif self.engine in LLM_ENGINES:
+            elif self.engine in self.llm_engines:
                 # 所有 LLM 引擎走统一 OpenAI 兼容处理（含多风格翻译）
-                out = self._run_llm(LLM_ENGINES[self.engine])
+                out = self._run_llm(self.llm_engines[self.engine])
             else:
                 self.failed.emit(f"未知翻译引擎: {self.engine}")
                 return
@@ -3015,12 +3219,9 @@ class TranslateWorker(QThread):
 
         if self.multi_style:
             _t = self.text.strip()
-            _no_sep = not re.search(r"[\s，。！？、；：,.!?;:\n]", _t)
-            _has_cjk = any("\u4e00" <= c <= "\u9fff" for c in _t)
-            # 中文词≤4字，纯英文单词≤24字母（如 screenshot）
-            _is_word = _no_sep and ((_has_cjk and len(_t) <= 4)
-                                    or (not _has_cjk and len(_t) <= 24))
-            if _is_word:
+            # 判定与译文注音共用 _is_word_input（中文词≤4字，英文单词≤24字母，
+            # 且不含分隔符），两处必须同步，否则会出现"按单词翻译却不注音"。
+            if _is_word_input(_t):
                 # 单字/单词：第一部分只给唯一最优译法，其余备选放到多风格区
                 system = (
                     "你是一名精通中英互译的词典专家。用户给出一个字或词，"
@@ -3903,7 +4104,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(eng_label)
 
         self.engine_combo = QComboBox()
-        _combo_fill(self.engine_combo, ALL_ENGINES)
+        _combo_fill(self.engine_combo, _engine_choices(settings))
         _combo_select_data(self.engine_combo, 
             settings.value("engine", ENGINE_GOOGLE))
         self.engine_combo.setFixedHeight(36)   # 与主界面下拉等高
@@ -3969,6 +4170,46 @@ class SettingsDialog(QDialog):
         self.show_keys_btn.setFixedWidth(BTN_W)
         self.show_keys_btn.toggled.connect(self._on_show_keys)
         form.addRow("", self.show_keys_btn)
+
+        # —— 自定义 API 引擎 ——
+        # 三组自选服务，一律按 OpenAI 兼容的 chat/completions 调用，因此多风格
+        # 翻译与单词模式对它们和对内置引擎一样有效。这里刻意用普通输入框而不是
+        # 可编辑下拉：下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套
+        # 样式规则，深色主题下曾因此出过边框错乱。
+        _cust_gap = QWidget(); _cust_gap.setFixedHeight(10)
+        form.addRow("", _cust_gap)
+        _cust_title = QLabel(L("自定义 API 引擎（可选，最多三组）"))
+        _cust_title.setStyleSheet("font-weight:bold; color:#7bbcff;")
+        form.addRow("", _cust_title)
+        _cust_tip = QLabel(L(
+            "名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
+            "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
+            "的地址，请只填信得过的服务。"))
+        _cust_tip.setWordWrap(True)
+        _cust_tip.setStyleSheet("color:#8a8a8a; font-size:11px;")
+        form.addRow("", _cust_tip)
+
+        self._custom_edits = {}
+        for _i in CUSTOM_ENGINE_SLOTS:
+            _n = QLineEdit(settings.value(f"custom{_i}_name", ""))
+            _n.setPlaceholderText(L("显示名称，如 MyGPT"))
+            _u = QLineEdit(settings.value(f"custom{_i}_endpoint", ""))
+            _u.setPlaceholderText("https://api.example.com/v1/chat/completions")
+            _m = QLineEdit(settings.value(f"custom{_i}_model", ""))
+            _m.setPlaceholderText(L("模型名，如 gpt-4o-mini"))
+            _k = QLineEdit(settings.value(f"custom{_i}_key", ""))
+            _k.setEchoMode(QLineEdit.EchoMode.Password)
+            _k.setPlaceholderText("sk-...")
+            for _e in (_n, _u, _m, _k):
+                _e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
+                _e.setMinimumWidth(220)
+            form.addRow(f"{L('引擎')} {_i} · {L('名称')}:", _n)
+            form.addRow(L("接口地址") + ":", _u)
+            form.addRow(L("模型名") + ":", _m)
+            form.addRow(f"{L('引擎')} {_i} · Key:", _k)
+            self._custom_edits[_i] = (_n, _u, _m)
+            # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
+            self._key_edits[f"custom{_i}"] = _k
 
         # 界面语言 / 样式风格（重启后生效）
         self.lang_combo = QComboBox()
@@ -4042,6 +4283,26 @@ class SettingsDialog(QDialog):
                 _log_exc("on_top_live")
         self.on_top_chk.toggled.connect(_on_top_live)
         form.addRow("", self.on_top_chk)
+        # 关闭行为。托盘不可用的桌面（GNOME 默认就没有）根本不显示这一行——
+        # 给出一个点了会让程序消失且找不回来的选项，比没有这个功能更糟。
+        _p0 = self.parent()
+        if _p0 is not None and getattr(_p0, "_tray", None) is not None:
+            self.tray_chk = QCheckBox(L("关闭时最小化到托盘，不退出程序"))
+            self.tray_chk.setChecked(
+                settings.value("close_to_tray", "false") == "true")
+
+            def _tray_live(v):
+                # 槽里未捕获的异常会让 PyQt6 直接 abort，必须自己兜住。
+                try:
+                    self.settings.setValue(
+                        "close_to_tray", "true" if v else "false")
+                    _p = self.parent()
+                    if _p is not None and hasattr(_p, "apply_close_to_tray"):
+                        _p.apply_close_to_tray(bool(v))
+                except Exception:
+                    _log_exc("tray_live")
+            self.tray_chk.toggled.connect(_tray_live)
+            form.addRow("", self.tray_chk)
         _gap = QWidget(); _gap.setFixedHeight(10)   # 与日志行隔开一点距离
         form.addRow("", _gap)
 
@@ -4245,8 +4506,25 @@ class SettingsDialog(QDialog):
             _base_css += "\n" + _rounded_scrollbar_qss()
         self.setStyleSheet(_base_css)
 
+    def _persist_custom_engines(self):
+        """保存三组自定义引擎的名称 / 地址 / 模型名，并让主窗重建引擎下拉。
+
+        Key 不在这里——它挂在 _key_edits 上，跟内置引擎的 Key 一起存。
+        """
+        try:
+            for i, (n, u, m) in getattr(self, "_custom_edits", {}).items():
+                self.settings.setValue(f"custom{i}_name", n.text().strip())
+                self.settings.setValue(f"custom{i}_endpoint", u.text().strip())
+                self.settings.setValue(f"custom{i}_model", m.text().strip())
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "refresh_engine_choices"):
+                _p.refresh_engine_choices()
+        except Exception:
+            _log_exc("persist_custom_engines")
+
     def _persist_keys(self):
         """保存所有 API Key 与多风格开关(关闭设置窗时调用)。"""
+        self._persist_custom_engines()
         try:
             self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
             self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
@@ -4258,6 +4536,7 @@ class SettingsDialog(QDialog):
             pass
 
     def save(self):
+        self._persist_custom_engines()
         self.settings.setValue("engine", self.engine_combo.currentData())
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
@@ -4659,6 +4938,23 @@ _EN["Google 云翻译 Key"] = "Google Cloud Key"
 _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
+_EN["自定义 API 引擎（可选，最多三组）"] = "Custom API Engines (optional, up to three)"
+_EN["名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
+    "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
+    "的地址，请只填信得过的服务。"] = (
+    "An engine appears in the list once its name, endpoint and model are all "
+    "filled in. The endpoint must accept OpenAI's chat/completions format. "
+    "Your key is sent as-is to whatever address you enter, so only use "
+    "services you trust.")
+_EN["显示名称，如 MyGPT"] = "Display name, e.g. MyGPT"
+_EN["模型名，如 gpt-4o-mini"] = "Model name, e.g. gpt-4o-mini"
+_EN["接口地址"] = "Endpoint"
+_EN["模型名"] = "Model"
+_EN["引擎"] = "Engine"
+_EN["名称"] = "Name"
+_EN["关闭时最小化到托盘，不退出程序"] = "Close to tray instead of quitting"
+_EN["显示主窗口"] = "Show Main Window"
+_EN["退出"] = "Quit"
 _EN["导出日志"] = "Export Log"
 _EN["读取日志失败"] = "Failed to read log"
 _EN["日志为空，无内容可导出"] = "Log is empty, nothing to export"
@@ -5678,6 +5974,28 @@ class PillBusyBar(QWidget):
         p.drawRoundedRect(x, 0, cw, h, r, r)
 
 
+class _DockReopenFilter(QObject):
+    """macOS：点 Dock 图标把藏进菜单栏的主窗召回。
+
+    窗口隐藏后 Dock 图标仍在（下方的小圆点表示程序还活着），按 macOS 的惯例
+    点它就该把窗口叫回来。Qt 不会自动处理，这里监听应用被激活的事件补上。
+    """
+
+    def __init__(self, win):
+        super().__init__(win)
+        self._win = win
+
+    def eventFilter(self, obj, ev):
+        try:
+            if (ev.type() == QEvent.Type.ApplicationActivate
+                    and self._win is not None
+                    and not self._win.isVisible()):
+                self._win._restore_from_tray()
+        except Exception:
+            pass
+        return False          # 只旁观，绝不吞掉事件
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -5713,7 +6031,7 @@ class MainWindow(QMainWindow):
         self._karaoke_timer.setInterval(50)
         self._karaoke_timer.timeout.connect(self._karaoke_tick)
 
-        self.setWindowTitle(f"English Coach  v{APP_VERSION}")
+        self.setWindowTitle(APP_TITLE)
         self.setAcceptDrops(True)   # 支持拖拽文件导入
         self.setWindowIcon(self._load_app_icon())
         self.setMinimumSize(880, 480)   # 再-10
@@ -5791,7 +6109,7 @@ class MainWindow(QMainWindow):
         self.tgt_combo.setToolTip(L("译文语言"))
 
         self.engine_combo = QComboBox()
-        _combo_fill(self.engine_combo, ALL_ENGINES)
+        _combo_fill(self.engine_combo, _engine_choices(self.settings))
         fit_combo_width(self.engine_combo, extra=20, popup_extra=15)   # 闭合框+20(再+5)，弹出列表再+15
         _combo_select_data(self.engine_combo, 
             self.settings.value("engine", ENGINE_GOOGLE))
@@ -7006,10 +7324,13 @@ class MainWindow(QMainWindow):
             "qwen": self.settings.value("qwen_key", ""),
             "kimi": self.settings.value("kimi_key", ""),
         }
+        # 用户自定义引擎与它们的 Key 一并带上
+        _custom_cfgs = _custom_engine_configs(self.settings)
+        keys.update(_custom_engine_keys(self.settings))
         # LLM 引擎且开启了多风格开关时，输出多种译法；
         # 仅在"有效的文件导入模式"(原文与导入内容一致)下才禁用多风格——
         # 之前只看 _imported_path 是否为 None，导入过一次后残留路径会永久禁掉多风格(bug)。
-        multi = (engine in LLM_ENGINE_SET and
+        multi = ((engine in LLM_ENGINE_SET or engine in _custom_cfgs) and
                  self.settings.value("multi_style", "true") == "true" and
                  not self._in_file_mode())
         self._multi_active = multi   # 记录本次是否真的多风格，供 on_translate_ok 判分区
@@ -7020,7 +7341,7 @@ class MainWindow(QMainWindow):
 
         self.translate_worker = TranslateWorker(
             text, self.src_combo.currentData(), self.tgt_combo.currentData(),
-            engine, keys, multi_style=multi)
+            engine, keys, multi_style=multi, custom_engines=_custom_cfgs)
         self.translate_worker.finished_ok.connect(self.on_translate_ok)
         self.translate_worker.failed.connect(self.on_translate_fail)
         self.translate_worker.start()
@@ -7127,9 +7448,29 @@ class MainWindow(QMainWindow):
             self._lit_end = _m.start() if _m else None
         else:
             self._lit_end = None
+        # 单字/单词的译文补一行注音（英文音标或中文拼音）。它排在直译区之后，
+        # 于是自动继承灰字区的全部待遇：不朗读、不参与选区联动、交换左右时不
+        # 带过去。out 本身保持不含注音，翻译历史里存的才是干净的译文。
+        _shown = out
+        _src_raw = self.input_edit.toPlainText()
+        if _should_annotate(_src_raw):
+            _lit = out if self._lit_end is None else out[:self._lit_end]
+            _phon = _annotate(
+                _lit.strip(),
+                _resolve_target_lang(self.tgt_combo.currentData(), _src_raw))
+            if _phon:
+                if self._lit_end is None:
+                    # 普通模式此前没有分界。这里的边界不是"猜"出来的——直译区
+                    # 就是整段译文，所以不会踩到"原文含空行被误判"那个坑。
+                    _lit = out.rstrip()
+                    self._lit_end = len(_lit)
+                    _shown = _lit + "\n\n" + _phon
+                else:
+                    _shown = (out[:self._lit_end] + "\n\n" + _phon
+                              + out[self._lit_end:])
         self._filling_output = True
         try:
-            self.output_edit.setPlainText(out)
+            self.output_edit.setPlainText(_shown)
         finally:
             self._filling_output = False
         self._reset_translate_btn()
@@ -8608,8 +8949,119 @@ class MainWindow(QMainWindow):
         if not clear_only:
             self.status.showMessage(L("已停止"), 2000)
 
-    def closeEvent(self, event):
-        # 退出前安全结束朗读线程，避免 "QThread destroyed while running" 崩溃
+    def refresh_engine_choices(self):
+        """自定义引擎改动后重建引擎下拉，尽量保住当前选中的引擎。"""
+        try:
+            cur = self.engine_combo.currentData()
+            self.engine_combo.blockSignals(True)
+            try:
+                self.engine_combo.clear()
+                _combo_fill(self.engine_combo, _engine_choices(self.settings))
+                _combo_select_data(self.engine_combo, cur)
+            finally:
+                self.engine_combo.blockSignals(False)
+        except Exception:
+            _log_exc("refresh_engine_choices")
+
+    # ====================================================================
+    #  系统托盘与关闭行为
+    # ====================================================================
+
+    def _tray_available(self):
+        """本机能否显示托盘图标。
+
+        GNOME 默认不带托盘（要另装 AppIndicator 扩展），Qt 在那里返回 False。
+        真把窗口藏进一个不存在的托盘，用户就再也叫不回程序了——所以这个功能
+        连同它的设置项，只在托盘可用时才出现。
+        """
+        try:
+            return QSystemTrayIcon.isSystemTrayAvailable()
+        except Exception:
+            return False
+
+    def _setup_tray(self):
+        """建立托盘图标。托盘不可用时什么都不做，_tray 保持 None。"""
+        self._tray = None
+        self._tray_menu = None
+        self._force_quit = False
+        if not self._tray_available():
+            return
+        try:
+            tray = QSystemTrayIcon(self._load_app_icon(), self)
+            menu = QMenu()
+            menu.addAction(L("显示主窗口")).triggered.connect(
+                self._restore_from_tray)
+            menu.addSeparator()
+            menu.addAction(L("退出")).triggered.connect(self._quit_from_tray)
+            tray.setContextMenu(menu)
+            tray.setToolTip(APP_TITLE)
+            tray.activated.connect(self._on_tray_activated)
+            tray.show()
+            self._tray = tray
+            # 菜单必须留一个引用：只挂在局部变量上会被回收，右键就没反应了。
+            self._tray_menu = menu
+        except Exception:
+            _log_exc("setup_tray")
+            self._tray = None
+            return
+        if sys.platform == "darwin":
+            # macOS 惯例：窗口藏起来后 Dock 图标还在（下面一个小圆点表示仍在
+            # 运行），点它应当把窗口召回。Qt 不会自己做，装个过滤器补上。
+            try:
+                self._dock_filter = _DockReopenFilter(self)
+                QApplication.instance().installEventFilter(self._dock_filter)
+            except Exception:
+                _log_exc("install_dock_filter")
+
+    def _on_tray_activated(self, reason):
+        try:
+            if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                          QSystemTrayIcon.ActivationReason.DoubleClick):
+                self._restore_from_tray()
+        except Exception:
+            _log_exc("tray_activated")
+
+    def _restore_from_tray(self):
+        """把藏起来的主窗叫回前台。"""
+        try:
+            self.show()
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowState.WindowMinimized)
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            _log_exc("restore_from_tray")
+
+    def _quit_from_tray(self):
+        """托盘菜单的「退出」——这才是真正关掉程序。"""
+        self._force_quit = True
+        try:
+            QApplication.instance().quit()
+        except Exception:
+            _log_exc("quit_from_tray")
+
+    def apply_close_to_tray(self, on: bool):
+        """启用后关闭主窗只是藏起来，于是不能再让 Qt 因为「最后一个窗口关了」
+        而退出程序——否则关掉设置窗会把整个程序一起带走。"""
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.setQuitOnLastWindowClosed(not bool(on))
+        except Exception:
+            _log_exc("apply_close_to_tray")
+
+    def _close_goes_to_tray(self):
+        return (not getattr(self, "_force_quit", False)
+                and getattr(self, "_tray", None) is not None
+                and self.settings.value("close_to_tray", "false") == "true")
+
+    def _shutdown_workers(self):
+        """安全结束朗读线程，避免 "QThread destroyed while running" 崩溃。
+
+        closeEvent 与 aboutToQuit 都走这里：托盘的「退出」和 macOS 的 Cmd+Q
+        直接结束事件循环、不经过 closeEvent，清理只写在那儿就会漏掉。
+        重复调用是安全的（线程已停时 isRunning() 为假）。
+        """
         try:
             if self.player is not None:
                 self.player.stop()
@@ -8625,6 +9077,13 @@ class MainWindow(QMainWindow):
                     rw.wait(1000)
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        if self._close_goes_to_tray():
+            event.ignore()
+            self.hide()
+            return
+        self._shutdown_workers()
         super().closeEvent(event)
 
 
@@ -8714,6 +9173,16 @@ def main():
         pass
     try:
         win._sync_export_text_buttons()   # 启动时空文本 -> 导出文字钮初始为灰
+    except Exception:
+        pass
+    try:
+        win._setup_tray()
+        # 托盘的「退出」和 macOS 的 Cmd+Q 直接结束事件循环、不经过 closeEvent，
+        # 所以线程清理挂在 aboutToQuit 上，两条退出路径都能走到。
+        app.aboutToQuit.connect(win._shutdown_workers)
+        if win._tray is not None:
+            win.apply_close_to_tray(
+                win.settings.value("close_to_tray", "false") == "true")
     except Exception:
         pass
     win.show()
