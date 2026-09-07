@@ -216,7 +216,7 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.16.0"
+APP_VERSION = "2.17.0"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -408,6 +408,52 @@ def _add_history(src_text, tgt_text, engine):
 
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
+    {
+        "version": "2.17.0",
+        "date": "2026-09-07",
+        "title": "注音成为第三个核心功能 · 自定义 API 引擎 · 一批界面与主题修正",
+        "notes": [
+            "译文区新增注音钮（图标是 IPA 的 æ 加一条声调线）：没有选区就给整段译文标注音，有选区只标选中的部分，译文为空时按钮置灰。英文标国际音标，中文标带声调的拼音，语言判断沿用引擎的目标语言规则",
+            "注音与翻译、朗读并列为程序的三个核心功能：翻译看懂意思，朗读听清读法，注音知道怎么念。「关于」窗与 README 的介绍都已改写",
+            "单字/单词翻译时的自动注音，与手动点注音钮是同一件事：自动那次等于替你按了一次。反复点不会一行行堆积——每次先撤掉上一次的注音行再重标",
+            "修复多风格翻译下注音标成一串问号：直译区与多风格区的分界靠在模型回复里找空行，而模型并不总留空行。找不到分界时整段（含『口语：』『书面：』这些中文标签）被当成直译喂给了发音引擎，它认不出就吐 unk 标记。现在找不到分界就只注第一行——直译一定在那儿；含 unk 标记的结果一律不显示",
+            "修复音标里混入非标准字符：misaki 把五个双元音压成单个大写字母，另有两个连体辅音与两个上标符号，这些写法字典里查不到、多数字体也没有字形。现已换成通行 IPA 写法，每一条都用 misaki 自带词典逐个反查确认（day=dˈA、buy=bˈI、go=ɡˌO、now=nˈW、boy=bˈY、judge=ʤˈʌʤ、church=ʧˈɜɹʧ），translate 现在正确显示为 /tɹænzlˈeɪt/",
+            "新增三组自定义 API 引擎：填好名称、接口地址与模型名即出现在引擎列表，走 OpenAI 兼容的 chat/completions，多风格翻译与单词模式对它们同样有效。名称过长在下拉里截断，三组之间有分隔线。刻意用普通输入框而非可编辑下拉——后者内嵌的行编辑器会同时命中两套样式规则，2.15.12 修好的深色边框问题正是这么来的",
+            "设置窗去掉「默认翻译引擎」下拉：它和主界面那个下拉写同一个键，改了哪边生效说不清。引擎只在主界面选，选完即存",
+            "首次启动默认用 Argos 离线翻译与 Kokoro 本地嗓音——不联网、不用 Key 就能直接使用；改过之后照旧记住上次的选择",
+            "关闭窗口改为默认最小化到托盘（此前默认关闭）。没有托盘的桌面不显示这个设置项",
+            "修复气球提示不跟随主题：它的样式是在整表换色【之后】才注入的，写死一套颜色就会在另一套主题下发白。现在自己认主题，并把调色板直接交给 QToolTip——windows11 样式引擎自绘气球，读的是它自己那份调色板",
+            "修复弹窗不跟随主题：QMessageBox 是独立顶层窗口，不继承主窗样式表，深色下会弹出一片白。翻译失败提示已改为跟随主题",
+            "托盘右键菜单此前完全没有样式，深色下看不清字。现已跟随主题，且每次弹出前重设，主题热切换后不会停在旧配色",
+            "两个文本框强制纯文本：粘贴和拖入的富文本一律剥成文字。只约束用户输入，卡拉OK高亮、选区底色与灰字区是程序自己绘制的，不受影响",
+            "Google 免费接口返回 429 时改为说明这是限流、稍等即可，并指出可直接换用离线的 Argos；其它错误码也一并给出出路",
+            "修复 Windows GPU 版安装脚本报「找不到 English Coach.exe」：GPU 产物名为 English Coach GPU.exe，安装与卸载脚本此前都写死了 CPU 版的名字",
+            "交换按钮改为 36×36 方形，与其它方钮统一（此前 44×34），顶排间距收窄让两侧语言下拉更贴近；居中由网格两侧列的拉伸保证，与按钮尺寸无关",
+            "译文区复制与粘贴的间距由 3px 改为 4px，与其它按钮组一致",
+            "设置窗新增条目补齐英文，标签去掉圆点分隔符",
+        ],
+        "title_en": "Ruby joins translation and speech as a core feature, custom API engines, and a round of interface fixes",
+        "notes_en": [
+            "A Ruby button in the target pane (its icon the IPA æ under a tone bar): with no selection it annotates the whole translation, with a selection only the selected part, and it greys out when there is nothing to annotate. IPA for English, toned pinyin for Chinese, the language decided the same way the engine decides its target",
+            "Ruby now stands alongside translation and speech as one of the program's three core features: translation for meaning, speech for sound, ruby for how to say it. The About dialog and README have been rewritten around that",
+            "The annotation that appears automatically on single-word translations is the same operation as the button — the automatic one simply presses it for you. Repeated presses do not stack: each one removes the previous annotation before writing a new one",
+            "Fixed annotations coming out as a row of question marks under multi-style results. The boundary between the literal translation and the style variants is found by searching the model's reply for a blank line, and the model does not always leave one. When that search failed, the whole reply — Chinese labels and all — was fed to the grapheme-to-phoneme engine, which answers unknown input with its unknown marker. With no boundary found only the first line is annotated now, since the literal translation is always there, and any transcription containing that marker is dropped",
+            "Fixed non-standard characters in the IPA. misaki compresses five diphthongs into single capital letters and adds two ligature consonants and two superscripts; those spellings appear in no dictionary and most fonts have no glyph for them. They are mapped to the usual notation, each pair confirmed against misaki's own lexicon (day=dˈA, buy=bˈI, go=ɡˌO, now=nˈW, boy=bˈY, judge=ʤˈʌʤ, church=ʧˈɜɹʧ), so translate now reads /tɹænzlˈeɪt/",
+            "Three custom API engine slots: fill in a name, an endpoint and a model and the engine joins the list, speaking OpenAI's chat/completions so multi-style translation and word mode work with it unchanged. Long names are elided in the dropdown and the slots are separated by rules. Plain text fields rather than editable combo boxes on purpose — an editable combo nests a line edit matching two style rules at once, which is what produced the dark-theme border faults fixed in 2.15.12",
+            "The settings dialog loses its engine picker: it wrote the same key as the main window's, leaving it unclear which had the last word. The engine is chosen in the main window and saved on the spot",
+            "First launch now starts on offline Argos translation and local Kokoro voices, usable with no network and no key; once changed, the choice is remembered as before",
+            "Closing the window now minimises to the tray by default. Desktops without a tray do not show the setting at all",
+            "Fixed tooltips ignoring the theme: their CSS is substituted after the stylesheet has been recoloured, so one hardcoded palette survived into both themes. They pick their own colours now, and the palette is handed to QToolTip directly — the windows11 style draws the bubble itself and reads QToolTip's own palette",
+            "Fixed dialogs ignoring the theme: a QMessageBox is its own top-level window and does not inherit the main window's stylesheet, so a warning arrived as a white box in a dark app",
+            "The tray menu had no styling at all and sat unreadable over a dark app. It now follows the theme, restyling before each popup so a theme switch reaches a menu that outlives it",
+            "Both editors are set to plain text, so pasted and dropped rich text arrives as characters. This restricts user input only; the karaoke highlight, selection tint and dimmed block are drawn by the program and are unaffected",
+            "A 429 from the Google free endpoint now says it is throttling that passes on its own and points at offline Argos for anyone unwilling to wait; other status codes offer the same way out",
+            "Fixed the Windows GPU installer reporting a missing English Coach.exe: the GPU build ships as English Coach GPU.exe, and both the installer and uninstaller had the CPU name hard-coded",
+            "The swap button is 36×36 like the other square buttons rather than 44×34, and the top row's spacing is tighter so the language pickers sit closer to it. Centring comes from the grid's stretched outer columns and does not depend on the button's size",
+            "Copy and paste in the target pane now sit 4px apart like every other button group, rather than 3",
+            "The settings dialog's new rows gained their English wording, and the labels dropped the interpunct",
+        ],
+    },
     {
         "version": "2.16.0",
         "date": "2026-09-06",
@@ -2644,6 +2690,12 @@ class Icons:
                   <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                   <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
                   <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>""",
+        # 注音（Ruby）：IPA 的 æ 加一条长音/一声符号——音标与拼音各占一半，
+        # 一个符号同时说得通。字形是从字体里取的轮廓路径，不是文字元素，
+        # 免得哪台机器缺 IPA 字形就渲染成空白。
+        "ruby": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
+                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <g transform="translate(3.37 18.52) scale(0.00808 -0.00808)"><path d="M1679 682Q1679 784 1619.5 846.5Q1560 909 1464 909Q1361 909 1297.0 850.5Q1233 792 1217 682ZM674 504Q562 504 505.5 466.0Q449 428 449 354Q449 286 494.5 247.5Q540 209 621 209Q722 209 791.0 281.5Q860 354 860 463V504ZM186 1090Q305 1118 416.5 1132.5Q528 1147 625 1147Q775 1147 883.5 1108.5Q992 1070 1063 991Q1140 1068 1242.0 1107.5Q1344 1147 1466 1147Q1731 1147 1889.5 988.0Q2048 829 2048 563V461H1210Q1224 335 1301.5 272.0Q1379 209 1520 209Q1633 209 1751.5 242.5Q1870 276 1995 344V68Q1868 20 1740.5 -4.5Q1613 -29 1487 -29Q1308 -29 1175.5 24.5Q1043 78 971 178Q870 71 758.5 21.0Q647 -29 508 -29Q314 -29 201.0 69.5Q88 168 88 336Q88 533 223.5 625.0Q359 717 649 717H860V745Q860 830 793.0 869.5Q726 909 584 909Q469 909 370.0 886.0Q271 863 186 817Z" fill="{c}" stroke="none"/></g><path d="M7 5.2 H17" stroke-width="1.9"/></svg>""",
         "swap": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
                   stroke-linecap="round" stroke-linejoin="round">
                   <path d="m16 3 4 4-4 4"/><path d="M20 7H4"/>
@@ -4637,7 +4689,8 @@ def about_html_en():
     return f"""
     <div class="t1">English Coach</div>
     <br>
-    <p>A concise English assistant integrating <b>Translation</b> and <b>Text-to-Speech</b>.</p>
+    <p>A concise English assistant built around three things: <b>Translation</b>
+       for meaning, <b>Speech</b> for sound, and <b>Ruby</b> for how to say it.</p>
     <p><b>Version:</b> <span class="ver">v{APP_VERSION}</span></p>
     <p><b>Developer:</b> Strilen Liu</p>
     <p><a href="https://www.Strilen.com">www.Strilen.com</a>
@@ -4651,6 +4704,11 @@ def about_html_en():
       <li><b>Text-to-Speech</b> - dual engines edge-tts (online, high quality) and Kokoro
       (offline, no network); multiple Chinese/English voices, adjustable speed, karaoke
       word-by-word highlighting.</li>
+      <li><b>Ruby</b> - pronunciation under the translation: IPA for English, toned pinyin
+      for Chinese. Single words are annotated as they are translated, and the Ruby button
+      annotates a whole passage or just the selection. The transcription comes from the
+      same engine that speaks the text, so what you read matches what you hear, and names
+      no dictionary carries still get a pronunciation.</li>
     </ul>
     <div class="t2">Tech Stack</div>
     <ul>
@@ -4670,7 +4728,8 @@ def about_html_zh():
     return f"""
     <div class="t1">English Coach</div>
     <div class="t1" style="margin-top:0;">英语导师</div><br>
-    <p>一款简洁的英语助手工具，集成<b>翻译</b>与<b>朗读</b>两大核心功能。</p>
+    <p>一款简洁的英语助手工具，三件事做透：<b>翻译</b>让你看懂意思、
+       <b>朗读</b>让你听清读法、<b>注音</b>让你知道怎么念。</p>
     <p><b>当前版本：</b><span class="ver">v{APP_VERSION}</span></p>
     <p><b>开发者：</b>Strilen Liu</p>
     <p><a href="https://www.Strilen.com">www.Strilen.com</a>
@@ -4679,6 +4738,7 @@ def about_html_zh():
     <ul>
       <li><b>翻译</b> — 多引擎：Google（免费）、DeepL、Argos（离线）等传统引擎，外加 DeepSeek / OpenAI GPT / Gemini / Claude / 智谱GLM / 文心一言 / 豆包 / 通义千问 / Kimi / HunYuan 等大模型引擎；大模型引擎可开启多风格翻译（主译文 + 书面/口语/俚语/美英式等辅助译法）。</li>
       <li><b>朗读</b> — edge-tts（线上联网，音质佳）与 Kokoro（本地离线，无需联网）双引擎，多种中英嗓音、语速可调、卡拉OK逐词高亮。</li>
+      <li><b>注音</b> — 给译文标上读音：英文标国际音标，中文标带声调的拼音。单字与单词在翻译时自动标注，也可随时点译文区的注音钮，给整段或选中的部分标注。音标取自朗读所用的同一套发音引擎，看到的与听到的一致；词典里查不到的名字也能推断出读法。</li>
     </ul>
     <div class="t2">技术栈</div>
     <ul>
@@ -4960,6 +5020,9 @@ _EN["Google 云翻译 Key"] = "Google Cloud Key"
 _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
+_EN["注音"] = "Ruby"
+_EN["已注音"] = "Annotated"
+_EN["这段文字标不出注音"] = "No pronunciation available for this text"
 _EN["自定义 API 引擎（可选，最多三组）"] = "Custom API Engines (optional, up to three)"
 _EN["名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
     "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
@@ -6241,6 +6304,7 @@ class MainWindow(QMainWindow):
         self._minimal_ui = False
         self._restore_minimal = (self.settings.value("minimal_ui", "false") == "true")
         self._lit_end = None
+        self._ruby_span = None     # 注音行在译文里的位置，供注音钮撤换
         self._ui_top_left = left_w
         self._ui_swap = swap_btn
         self._ui_top_right = right_w
@@ -6870,6 +6934,15 @@ class MainWindow(QMainWindow):
         box = QHBoxLayout()
         box.setSpacing(4)      # 与导出/导入等其它按钮组的间距保持一致
         box.setContentsMargins(0, 0, 0, 0)
+        if editor is self.output_edit:
+            # 注音只对译文有意义（要知道怎么念的是译出来的词），原文侧不放。
+            self.ruby_btn = QPushButton(Icons.icon("ruby"), "")
+            self.ruby_btn.setProperty("_icn", "ruby")
+            self.ruby_btn.setFixedSize(36, 36)
+            self.ruby_btn.setObjectName("toolbtn")
+            self.ruby_btn.setToolTip(L("注音"))
+            self.ruby_btn.clicked.connect(self._do_ruby)
+            box.addWidget(self.ruby_btn)
         paste_btn = QPushButton(Icons.icon("paste"), "")
         paste_btn.setProperty("_icn", "paste")
         paste_btn.setFixedSize(36, 36)
@@ -6885,6 +6958,57 @@ class MainWindow(QMainWindow):
         box.addWidget(copy_btn)
         box.addWidget(paste_btn)
         return box
+
+    def _do_ruby(self):
+        """给译文标注音标或拼音：有选区只标选区，没有就标整段直译。
+
+        单词翻译时的自动注音跟这里是同一件事——那等于替你按了一次这个钮。
+        所以每次先撤掉上一次留下的注音行再重标，反复点不会越堆越多。
+        """
+        ed = self.output_edit
+        full = ed.toPlainText()
+        if not full.strip():
+            return
+        cur = ed.textCursor()
+        le = getattr(self, "_lit_end", None)
+        span = getattr(self, "_ruby_span", None)
+        if span:
+            _a, _b = span
+            if 0 <= _a < _b <= len(full):
+                full = full[:_a] + full[_b:]
+                if le is not None and le > _a:
+                    le -= (_b - _a)
+        # 注音对象取直译区：灰字区里是上一次的注音和多风格译法，再注一遍没意义
+        body = full if le is None else full[:le]
+        if cur.hasSelection():
+            target = full[cur.selectionStart():cur.selectionEnd()]
+        else:
+            target = body
+        phon = _annotate(
+            target.strip(),
+            _resolve_target_lang(self.tgt_combo.currentData(),
+                                 self.input_edit.toPlainText()))
+        if not phon:
+            self.status.showMessage(L("这段文字标不出注音"), 3000)
+            return
+        cut = le if le is not None else len(body.rstrip())
+        ins = "\n\n" + phon
+        self._lit_end = cut
+        self._ruby_span = (cut, cut + len(ins))
+        self._filling_output = True
+        try:
+            ed.setPlainText(full[:cut] + ins + full[cut:])
+        finally:
+            self._filling_output = False
+        try:
+            self._highlighting = True
+            try:
+                self._hl_output.set_dim(cut)
+            finally:
+                self._highlighting = False
+        except Exception:
+            _log_exc("ruby_dim")
+        self.status.showMessage(L("已注音"), 2000)
 
     def _paste(self, editor):
         text = QApplication.clipboard().text()
@@ -7202,6 +7326,7 @@ class MainWindow(QMainWindow):
         if _le is not None:
             b = b[:_le].rstrip()
         self._lit_end = None
+        self._ruby_span = None
         self.input_edit.setPlainText(b)
         self.output_edit.setPlainText(a)
         s, t = self.src_combo.currentData(), self.tgt_combo.currentData()
@@ -7511,6 +7636,7 @@ class MainWindow(QMainWindow):
         return res
 
     def on_translate_ok(self, out):
+        self._ruby_span = None      # 新译文作废上一次的注音行位置
         _multi = getattr(self, "_multi_active", False)
         if _multi or "\n----" in out:
             out = self._sanitize_literal(out)
@@ -7546,8 +7672,11 @@ class MainWindow(QMainWindow):
             if _phon:
                 _cut = (self._lit_end if self._lit_end is not None
                         else len(_lit.rstrip()))
+                _ins = "\n\n" + _phon
                 self._lit_end = _cut
-                _shown = out[:_cut] + "\n\n" + _phon + out[_cut:]
+                # 记下这一行的位置：注音钮据此撤换，不会重复叠加
+                self._ruby_span = (_cut, _cut + len(_ins))
+                _shown = out[:_cut] + _ins + out[_cut:]
         self._filling_output = True
         try:
             self.output_edit.setPlainText(_shown)
@@ -8867,6 +8996,9 @@ class MainWindow(QMainWindow):
                     bool(self.input_edit.toPlainText().strip()))
             if hasattr(self, "export_tgt_btn"):
                 self.export_tgt_btn.setEnabled(
+                    bool(self.output_edit.toPlainText().strip()))
+            if hasattr(self, "ruby_btn"):
+                self.ruby_btn.setEnabled(
                     bool(self.output_edit.toPlainText().strip()))
         except Exception:
             pass

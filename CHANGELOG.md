@@ -7,9 +7,53 @@
 > edit it by hand. To change a release note, edit the `CHANGELOG` list in
 > `english_coach.py` and re-run the generator.
 
-**当前版本 / Current version: v2.16.0**
+**当前版本 / Current version: v2.17.0**
 
 ---
+
+## v2.17.0 — 2026-09-07
+
+**注音成为第三个核心功能 · 自定义 API 引擎 · 一批界面与主题修正**
+
+*Ruby joins translation and speech as a core feature, custom API engines, and a round of interface fixes*
+
+- 译文区新增注音钮（图标是 IPA 的 æ 加一条声调线）：没有选区就给整段译文标注音，有选区只标选中的部分，译文为空时按钮置灰。英文标国际音标，中文标带声调的拼音，语言判断沿用引擎的目标语言规则
+- 注音与翻译、朗读并列为程序的三个核心功能：翻译看懂意思，朗读听清读法，注音知道怎么念。「关于」窗与 README 的介绍都已改写
+- 单字/单词翻译时的自动注音，与手动点注音钮是同一件事：自动那次等于替你按了一次。反复点不会一行行堆积——每次先撤掉上一次的注音行再重标
+- 修复多风格翻译下注音标成一串问号：直译区与多风格区的分界靠在模型回复里找空行，而模型并不总留空行。找不到分界时整段（含『口语：』『书面：』这些中文标签）被当成直译喂给了发音引擎，它认不出就吐 unk 标记。现在找不到分界就只注第一行——直译一定在那儿；含 unk 标记的结果一律不显示
+- 修复音标里混入非标准字符：misaki 把五个双元音压成单个大写字母，另有两个连体辅音与两个上标符号，这些写法字典里查不到、多数字体也没有字形。现已换成通行 IPA 写法，每一条都用 misaki 自带词典逐个反查确认（day=dˈA、buy=bˈI、go=ɡˌO、now=nˈW、boy=bˈY、judge=ʤˈʌʤ、church=ʧˈɜɹʧ），translate 现在正确显示为 /tɹænzlˈeɪt/
+- 新增三组自定义 API 引擎：填好名称、接口地址与模型名即出现在引擎列表，走 OpenAI 兼容的 chat/completions，多风格翻译与单词模式对它们同样有效。名称过长在下拉里截断，三组之间有分隔线。刻意用普通输入框而非可编辑下拉——后者内嵌的行编辑器会同时命中两套样式规则，2.15.12 修好的深色边框问题正是这么来的
+- 设置窗去掉「默认翻译引擎」下拉：它和主界面那个下拉写同一个键，改了哪边生效说不清。引擎只在主界面选，选完即存
+- 首次启动默认用 Argos 离线翻译与 Kokoro 本地嗓音——不联网、不用 Key 就能直接使用；改过之后照旧记住上次的选择
+- 关闭窗口改为默认最小化到托盘（此前默认关闭）。没有托盘的桌面不显示这个设置项
+- 修复气球提示不跟随主题：它的样式是在整表换色【之后】才注入的，写死一套颜色就会在另一套主题下发白。现在自己认主题，并把调色板直接交给 QToolTip——windows11 样式引擎自绘气球，读的是它自己那份调色板
+- 修复弹窗不跟随主题：QMessageBox 是独立顶层窗口，不继承主窗样式表，深色下会弹出一片白。翻译失败提示已改为跟随主题
+- 托盘右键菜单此前完全没有样式，深色下看不清字。现已跟随主题，且每次弹出前重设，主题热切换后不会停在旧配色
+- 两个文本框强制纯文本：粘贴和拖入的富文本一律剥成文字。只约束用户输入，卡拉OK高亮、选区底色与灰字区是程序自己绘制的，不受影响
+- Google 免费接口返回 429 时改为说明这是限流、稍等即可，并指出可直接换用离线的 Argos；其它错误码也一并给出出路
+- 修复 Windows GPU 版安装脚本报「找不到 English Coach.exe」：GPU 产物名为 English Coach GPU.exe，安装与卸载脚本此前都写死了 CPU 版的名字
+- 交换按钮改为 36×36 方形，与其它方钮统一（此前 44×34），顶排间距收窄让两侧语言下拉更贴近；居中由网格两侧列的拉伸保证，与按钮尺寸无关
+- 译文区复制与粘贴的间距由 3px 改为 4px，与其它按钮组一致
+- 设置窗新增条目补齐英文，标签去掉圆点分隔符
+
+- *A Ruby button in the target pane (its icon the IPA æ under a tone bar): with no selection it annotates the whole translation, with a selection only the selected part, and it greys out when there is nothing to annotate. IPA for English, toned pinyin for Chinese, the language decided the same way the engine decides its target*
+- *Ruby now stands alongside translation and speech as one of the program's three core features: translation for meaning, speech for sound, ruby for how to say it. The About dialog and README have been rewritten around that*
+- *The annotation that appears automatically on single-word translations is the same operation as the button — the automatic one simply presses it for you. Repeated presses do not stack: each one removes the previous annotation before writing a new one*
+- *Fixed annotations coming out as a row of question marks under multi-style results. The boundary between the literal translation and the style variants is found by searching the model's reply for a blank line, and the model does not always leave one. When that search failed, the whole reply — Chinese labels and all — was fed to the grapheme-to-phoneme engine, which answers unknown input with its unknown marker. With no boundary found only the first line is annotated now, since the literal translation is always there, and any transcription containing that marker is dropped*
+- *Fixed non-standard characters in the IPA. misaki compresses five diphthongs into single capital letters and adds two ligature consonants and two superscripts; those spellings appear in no dictionary and most fonts have no glyph for them. They are mapped to the usual notation, each pair confirmed against misaki's own lexicon (day=dˈA, buy=bˈI, go=ɡˌO, now=nˈW, boy=bˈY, judge=ʤˈʌʤ, church=ʧˈɜɹʧ), so translate now reads /tɹænzlˈeɪt/*
+- *Three custom API engine slots: fill in a name, an endpoint and a model and the engine joins the list, speaking OpenAI's chat/completions so multi-style translation and word mode work with it unchanged. Long names are elided in the dropdown and the slots are separated by rules. Plain text fields rather than editable combo boxes on purpose — an editable combo nests a line edit matching two style rules at once, which is what produced the dark-theme border faults fixed in 2.15.12*
+- *The settings dialog loses its engine picker: it wrote the same key as the main window's, leaving it unclear which had the last word. The engine is chosen in the main window and saved on the spot*
+- *First launch now starts on offline Argos translation and local Kokoro voices, usable with no network and no key; once changed, the choice is remembered as before*
+- *Closing the window now minimises to the tray by default. Desktops without a tray do not show the setting at all*
+- *Fixed tooltips ignoring the theme: their CSS is substituted after the stylesheet has been recoloured, so one hardcoded palette survived into both themes. They pick their own colours now, and the palette is handed to QToolTip directly — the windows11 style draws the bubble itself and reads QToolTip's own palette*
+- *Fixed dialogs ignoring the theme: a QMessageBox is its own top-level window and does not inherit the main window's stylesheet, so a warning arrived as a white box in a dark app*
+- *The tray menu had no styling at all and sat unreadable over a dark app. It now follows the theme, restyling before each popup so a theme switch reaches a menu that outlives it*
+- *Both editors are set to plain text, so pasted and dropped rich text arrives as characters. This restricts user input only; the karaoke highlight, selection tint and dimmed block are drawn by the program and are unaffected*
+- *A 429 from the Google free endpoint now says it is throttling that passes on its own and points at offline Argos for anyone unwilling to wait; other status codes offer the same way out*
+- *Fixed the Windows GPU installer reporting a missing English Coach.exe: the GPU build ships as English Coach GPU.exe, and both the installer and uninstaller had the CPU name hard-coded*
+- *The swap button is 36×36 like the other square buttons rather than 44×34, and the top row's spacing is tighter so the language pickers sit closer to it. Centring comes from the grid's stretched outer columns and does not depend on the button's size*
+- *Copy and paste in the target pane now sit 4px apart like every other button group, rather than 3*
+- *The settings dialog's new rows gained their English wording, and the labels dropped the interpunct*
 
 ## v2.16.0 — 2026-09-06
 
