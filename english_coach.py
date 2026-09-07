@@ -2893,6 +2893,9 @@ def _custom_engine_configs(settings):
         model = (settings.value(f"custom{i}_model", "") or "").strip()
         if not (name and url and model):
             continue
+        # 名字太长会把引擎下拉撑开，超过 20 个字符就截断加省略号。
+        if len(name) > 20:
+            name = name[:20] + "…"
         eid = name + CUSTOM_ENGINE_SUFFIX
         if eid in out:
             eid = f"{name} {i}{CUSTOM_ENGINE_SUFFIX}"
@@ -4215,6 +4218,13 @@ class SettingsDialog(QDialog):
 
         self._custom_edits = {}
         for _i in CUSTOM_ENGINE_SLOTS:
+            if _i > 1:                       # 三组之间拉一条横线分隔
+                _sep = QFrame()
+                _sep.setFrameShape(QFrame.Shape.HLine)
+                _sep.setFrameShadow(QFrame.Shadow.Plain)
+                _sep.setFixedHeight(1)
+                _sep.setStyleSheet("background:#4a4a4a; border:none;")
+                form.addRow("", _sep)
             _n = QLineEdit(settings.value(f"custom{_i}_name", ""))
             _n.setPlaceholderText(L("显示名称，如 MyGPT"))
             _u = QLineEdit(settings.value(f"custom{_i}_endpoint", ""))
@@ -4227,10 +4237,10 @@ class SettingsDialog(QDialog):
             for _e in (_n, _u, _m, _k):
                 _e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
                 _e.setMinimumWidth(220)
-            form.addRow(f"{L('引擎')} {_i} · {L('名称')}:", _n)
+            form.addRow(f"{L('引擎')} {_i} {L('名称')}:", _n)
             form.addRow(L("接口地址") + ":", _u)
             form.addRow(L("模型名") + ":", _m)
-            form.addRow(f"{L('引擎')} {_i} · Key:", _k)
+            form.addRow(f"{L('引擎')} {_i} Key:", _k)
             self._custom_edits[_i] = (_n, _u, _m)
             # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
             self._key_edits[f"custom{_i}"] = _k
@@ -5517,6 +5527,26 @@ def _tooltip_css():
             QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
                 padding:2px 5px; font-size:11px; border-radius:6px; }
 """)
+
+
+def _menu_css():
+    """托盘菜单的配色。mac 用系统原生菜单栏菜单，不插手。
+
+    和气球提示同理：这段不经过 _themed() 整表换色，得自己认主题。
+    """
+    import sys
+    if sys.platform == "darwin":
+        return ""
+    if _theme_is_light():
+        _bg, _fg, _bd, _sep = "#ffffff", "#1f1f22", "#c8c8c8", "#dcdcdc"
+    else:
+        _bg, _fg, _bd, _sep = "#2d2d30", "#e0e0e0", "#4a4a4a", "#4a4a4a"
+    return (f"QMenu {{ background:{_bg}; color:{_fg}; border:1px solid {_bd};"
+            f" padding:4px; }}"
+            f"QMenu::item {{ padding:5px 24px 5px 14px; border-radius:4px; }}"
+            f"QMenu::item:selected {{ background:#3a6ea5; color:#ffffff; }}"
+            f"QMenu::separator {{ height:1px; background:{_sep};"
+            f" margin:4px 8px; }}")
 
 
 def _themed(css):
@@ -6838,7 +6868,7 @@ class MainWindow(QMainWindow):
     def _panel_buttons(self, editor):
         """返回某个文本框的 粘贴/复制/删除 按钮横排。"""
         box = QHBoxLayout()
-        box.setSpacing(3)
+        box.setSpacing(4)      # 与导出/导入等其它按钮组的间距保持一致
         box.setContentsMargins(0, 0, 0, 0)
         paste_btn = QPushButton(Icons.icon("paste"), "")
         paste_btn.setProperty("_icn", "paste")
@@ -9055,6 +9085,10 @@ class MainWindow(QMainWindow):
                 self._restore_from_tray)
             menu.addSeparator()
             menu.addAction(L("退出")).triggered.connect(self._quit_from_tray)
+            # 每次弹出前重设样式：菜单长期存在，主题热切换后才不会留在旧配色上。
+            menu.aboutToShow.connect(
+                lambda _m=menu: _m.setStyleSheet(_menu_css()))
+            menu.setStyleSheet(_menu_css())
             tray.setContextMenu(menu)
             tray.setToolTip(APP_TITLE)
             tray.activated.connect(self._on_tray_activated)
