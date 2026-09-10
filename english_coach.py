@@ -2723,7 +2723,7 @@ class Icons:
         # 免得哪台机器缺 IPA 字形就渲染成空白。
         "ruby": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <g transform="translate(-3.58 22.10) scale(0.01459 -0.01216)"><path d="M1679 682Q1679 784 1619.5 846.5Q1560 909 1464 909Q1361 909 1297.0 850.5Q1233 792 1217 682ZM674 504Q562 504 505.5 466.0Q449 428 449 354Q449 286 494.5 247.5Q540 209 621 209Q722 209 791.0 281.5Q860 354 860 463V504ZM186 1090Q305 1118 416.5 1132.5Q528 1147 625 1147Q775 1147 883.5 1108.5Q992 1070 1063 991Q1140 1068 1242.0 1107.5Q1344 1147 1466 1147Q1731 1147 1889.5 988.0Q2048 829 2048 563V461H1210Q1224 335 1301.5 272.0Q1379 209 1520 209Q1633 209 1751.5 242.5Q1870 276 1995 344V68Q1868 20 1740.5 -4.5Q1613 -29 1487 -29Q1308 -29 1175.5 24.5Q1043 78 971 178Q870 71 758.5 21.0Q647 -29 508 -29Q314 -29 201.0 69.5Q88 168 88 336Q88 533 223.5 625.0Q359 717 649 717H860V745Q860 830 793.0 869.5Q726 909 584 909Q469 909 370.0 886.0Q271 863 186 817Z" fill="{c}" stroke="none"/></g><path d="M5.5 4.3 H18.5" stroke-width="2.1"/></svg>""",
+                  <g transform="translate(-1.30 22.10) scale(0.01313 -0.01216)"><path d="M1718 660Q1717 811 1634.5 901.0Q1552 991 1415 991Q1262 991 1169.5 904.0Q1077 817 1063 659ZM995 963Q1069 1053 1175.0 1100.0Q1281 1147 1413 1147Q1639 1147 1771.0 1001.5Q1903 856 1903 606V516H1057Q1069 325 1171.0 225.0Q1273 125 1456 125Q1560 125 1660.0 151.5Q1760 178 1860 231V57Q1760 15 1656.0 -7.0Q1552 -29 1446 -29Q1279 -29 1155.0 31.5Q1031 92 954 211Q881 91 773.0 31.0Q665 -29 522 -29Q333 -29 228.0 64.5Q123 158 123 326Q123 515 249.5 611.0Q376 707 627 707H885V725Q885 852 801.5 921.5Q718 991 567 991Q471 991 380.0 968.0Q289 945 205 899V1069Q306 1108 401.0 1127.5Q496 1147 586 1147Q728 1147 834.5 1099.0Q941 1051 995 963ZM702 563Q479 563 393.0 512.0Q307 461 307 338Q307 240 371.5 182.5Q436 125 547 125Q700 125 792.5 233.5Q885 342 885 522V563Z" fill="{c}" stroke="none"/></g><path d="M6.5 4.5 H17.5" stroke-width="1.8"/></svg>""",
         "mic": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 2.6a2.6 2.6 0 0 0-2.6 2.6v6.3a2.6 2.6 0 0 0 5.2 0V5.2A2.6 2.6 0 0 0 12 2.6z"/>
@@ -2962,7 +2962,7 @@ LLM_ENGINE_SET = {
 
 # ---- 用户自定义 API 引擎（三组，一律按 OpenAI 兼容的 chat 接口调用）----
 CUSTOM_ENGINE_SLOTS = (1, 2, 3)
-CUSTOM_ENGINE_SUFFIX = " -自定义API"
+CUSTOM_ENGINE_SUFFIX = " -API Key"
 
 
 def _custom_engine_configs(settings):
@@ -2978,13 +2978,15 @@ def _custom_engine_configs(settings):
         model = (settings.value(f"custom{i}_model", "") or "").strip()
         if not (name and url and model):
             continue
-        # 下拉宽度是按内置引擎钉死的，名字加上 " -自定义API" 后缀要放得进去，
-        # 所以超过 10 个字符就截断——再长只会被下拉二次省略成一串点。
-        if len(name) > 10:
-            name = name[:10] + "…"
-        eid = name + CUSTOM_ENGINE_SUFFIX
+        # 显示成「引擎名 模型名 -API Key」，与内置引擎的「Google -线上联网」
+        # 同一体例。前半段超过 20 字符就截断——下拉宽度是按内置引擎钉死的，
+        # 再长也只会被二次省略。
+        head = f"{name} {model}"
+        if len(head) > 20:
+            head = head[:20] + "…"
+        eid = head + CUSTOM_ENGINE_SUFFIX
         if eid in out:
-            eid = f"{name} {i}{CUSTOM_ENGINE_SUFFIX}"
+            eid = f"{head} {i}{CUSTOM_ENGINE_SUFFIX}"
         out[eid] = {
             "endpoint": url, "model": model,
             "key_name": f"custom{i}", "auth": "bearer",
@@ -4328,6 +4330,13 @@ class SettingsDialog(QDialog):
             self._custom_edits[_i] = (_n, _u, _m)
             # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
             self._key_edits[f"custom{_i}"] = _k
+        # 与下面的语言/主题设置之间也拉一条线，自定义引擎区就有了完整边界
+        _cust_end = QFrame()
+        _cust_end.setFrameShape(QFrame.Shape.HLine)
+        _cust_end.setFrameShadow(QFrame.Shadow.Plain)
+        _cust_end.setFixedHeight(1)
+        _cust_end.setStyleSheet("background:#4a4a4a; border:none;")
+        form.addRow("", _cust_end)
 
         # 界面语言 / 样式风格（重启后生效）
         self.lang_combo = QComboBox()
@@ -6956,7 +6965,7 @@ class MainWindow(QMainWindow):
             self.min_btn.setToolTip(L("正常界面"))
             self.min_btn.setStyleSheet(
                 "QPushButton{font-size:16px; background:#5aa8b0; color:#0e2024;"
-                " border:1px solid #5aa8b0; border-radius:6px;}")
+                " border:1px solid #5aa8b0; border-radius:8px;}")
             self.setMinimumSize(420, 200)   # 极简模式最小约束
             self.resize(420, 280)           # 点极简默认缩到较小尺寸
         else:
@@ -7257,6 +7266,8 @@ class MainWindow(QMainWindow):
             _resolve_target_lang(self.tgt_combo.currentData(),
                                  self.input_edit.toPlainText()))
         if not phon:
+            _log_error(f"注音失败: lang={_resolve_target_lang(self.tgt_combo.currentData(), self.input_edit.toPlainText())!r} "
+                       f"target={target[:60]!r}")
             self.status.showMessage(L("这段文字标不出注音"), 3000)
             return
         cut = le if le is not None else len(body.rstrip())
@@ -7304,14 +7315,17 @@ class MainWindow(QMainWindow):
         if b is None:
             return
         try:
+            # 提示前面always带上功能名：只说"未找到语音识别模型"，用户根本
+            # 不知道这说的是哪个按钮
+            _name = L("语音录入")
             if not VoiceRecorder.input_available():
                 b.setEnabled(False)
-                b.setToolTip(L("没有可用的麦克风"))
+                b.setToolTip(f"{_name} — {L('没有可用的麦克风')}")
                 return
             be = _stt_backend()
             if not be.available():
                 b.setEnabled(False)
-                b.setToolTip(be.unavailable_reason())
+                b.setToolTip(f"{_name} — {be.unavailable_reason()}")
                 return
             b.setEnabled(True)
             b.setToolTip(L("语音录入"))
@@ -7342,8 +7356,10 @@ class MainWindow(QMainWindow):
         self._voice_on = on
         b = self.voice_btn
         b.setStyleSheet(
+            # 8px 必须与 QPushButton#toolbtn 的常态圆角一致，否则一按下去
+            # 四角就变尖，看着像换了个按钮
             "QPushButton{background:#5aa8b0;border:1px solid #5aa8b0;"
-            "border-radius:5px;}" if on else "")
+            "border-radius:8px;}" if on else "")
 
     def _voice_start(self):
         try:
@@ -8061,6 +8077,14 @@ class MainWindow(QMainWindow):
             if _phon:
                 _cut = (self._lit_end if self._lit_end is not None
                         else len(_lit.rstrip()))
+                # 边界必须落在换行处或文末。落在词中间说明它算错了，硬插进去
+                # 会把译文劈成两半（"comma" 只剩 "c" 就是这么来的）。
+                # 宁可这次不注音，也不能破坏译文本身。
+                if 0 < _cut < len(out) and out[_cut] not in "\r\n":
+                    _log_error(f"注音边界异常已跳过: cut={_cut} "
+                               f"lit_end={self._lit_end} out={out[:60]!r}")
+                    _phon = ""
+            if _phon:
                 _ins = "\n\n" + _phon
                 self._lit_end = _cut
                 # 记下这一行的位置：注音钮据此撤换，不会重复叠加
