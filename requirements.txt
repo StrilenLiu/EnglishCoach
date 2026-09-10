@@ -103,7 +103,19 @@ regex
 pydantic
 loguru
 
-# spaCy 英文模型（Kokoro 分词用）。pip 索引里没有，需从官方 Releases 安装：
-# spaCy English model used by Kokoro. Not on PyPI — install from the official
-# GitHub release:
-#   pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+# ---- pip 装不了的那部分 / What pip cannot install ----
+# 下面这些都不是 pip 包，pip install -r 到此为止。跑一次 Setup Dev 脚本
+# （或 python setup_assets.py）就能全部配齐；不配也行，程序用到时会问你
+# 要不要现在下载。
+#
+#   spaCy 英文模型 en_core_web_sm 3.8.0  —— Kokoro 英文分词用，不在 PyPI 上
+#   Kokoro-82M          约 350MB  —— 离线朗读     ~/EnglishCoach Models/Kokoro
+#   faster-whisper-base 约 145MB  —— 语音识别     ~/EnglishCoach Models/Whisper
+#   Argos en↔zh         约 100MB  —— 离线翻译     ~/EnglishCoach Models/Argos
+#
+# None of these are pip packages, so pip install -r stops here. Run the
+# Setup Dev script (or python setup_assets.py) to get them all, or skip it —
+# the app offers to download whatever is missing when you first use it.
+#
+# 只手工装 spaCy 模型的话 / To install just the spaCy model by hand:
+#   pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl

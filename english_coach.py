@@ -4183,14 +4183,17 @@ def _get_kokoro_pipeline(lang_code="a"):
 #  对话框: 设置 / 关于 / 更新说明 / 帮助 / 开发者
 # =============================================================================
 
+# 文档窗与设置窗一律只用 #4ea1ff 这一种蓝。以前标题分三级用了三种蓝
+# (#4ea1ff / #7bbcff / #9ad)，同一页里深浅不一，看着杂乱；层级靠字号和
+# 粗细区分就够了，不必再靠颜色。灰(#888)和正文色不动。
 DOC_CSS = """
 <style>
   body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; color:#dcdcdc;
          line-height:1.7; }
   h1 { color:#4ea1ff; font-size:13px; }
-  h2 { color:#7bbcff; font-size:12px; margin-top:12px;
+  h2 { color:#4ea1ff; font-size:12px; margin-top:12px;
        border-bottom:1px solid #333; padding-bottom:2px; }
-  h3 { color:#9ad; font-size:12px; }
+  h3 { color:#4ea1ff; font-size:12px; }
   code { background:#2a2a2a; padding:1px 5px; border-radius:3px; color:#ffcb6b; }
   a { color:#4ea1ff; }
   .ver { color:#4ea1ff; font-weight:bold; }
@@ -4203,8 +4206,8 @@ DOC_CSS = """
 DOC_STYLESHEET = """
 body { color:#dcdcdc; line-height:170%; }
 .t1 { color:#4ea1ff; font-size:15px; font-weight:bold; margin-bottom:10px; }
-.t2 { color:#7bbcff; font-size:13px; font-weight:bold; }
-.t3 { color:#9ad; font-size:13px; font-weight:bold; }
+.t2 { color:#4ea1ff; font-size:13px; font-weight:bold; }
+.t3 { color:#4ea1ff; font-size:13px; font-weight:bold; }
 code { background:#2a2a2a; color:#ffcb6b; }
 a { color:#4ea1ff; }
 .ver { color:#4ea1ff; font-weight:bold; }
@@ -4222,6 +4225,41 @@ def _nav_label(zh):
     if _ui_lang() == "English US" and zh in _SETTINGS_NAV_EN:
         return _SETTINGS_NAV_EN[zh]
     return L(zh)
+
+
+class _WrapLabel(QLabel):
+    """会换行、并且如实报告自己要多高的说明文字。
+
+    QLabel 开了 wordWrap 之后，minimumSizeHint 仍然只报【一行】的高度
+    （实测 14px，而它在当前宽度下真正要 42~56px）。这个偏小的数字一路传到
+    外面的 QScrollArea：滚动区以为内层最少只要这么高，就把它压矮，少掉的
+    高度从最有弹性的那一行身上找补 —— 表现就是最下面"显示密钥"按钮被压扁
+    半截，自定义引擎页第一次进去必现。之前说明文字压住输入框的重叠，也是
+    同一个数字惹的。
+
+    这里按当前宽度如实算高度，滚动区就有了准数。
+    """
+
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+        self._last_hfw = None
+
+    def minimumSizeHint(self):
+        from PyQt6.QtCore import QSize
+        w = self.width()
+        if w > 0:
+            return QSize(0, self.heightForWidth(w))   # 宽度可任意压，高度不行
+        return super().minimumSizeHint()
+
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        # 宽度变了，换行后的高度跟着变，得通知布局重新要位置。
+        # 只在算出来的高度真的变了才通知，免得 resize -> 重排 -> resize 打转。
+        h = self.heightForWidth(self.width()) if self.width() > 0 else None
+        if h != self._last_hfw:
+            self._last_hfw = h
+            self.updateGeometry()
 
 
 def _module_present(name):
@@ -4252,6 +4290,7 @@ class SettingsDialog(QDialog):
         self._show_keys_btns = []     # 翻译引擎页与自定义引擎页各一个，状态同步
         self._status_rows = []        # (中文原串, 标签, 值控件, 取值函数)
         self._forms = []              # 五页的表单，用来统一标签列宽
+        self._asset_btns = []         # (资产 id, 下载钮)，缺了才现身
 
         outer = QVBoxLayout(self)
 
@@ -4362,18 +4401,17 @@ class SettingsDialog(QDialog):
 
     def _title_row(self, form, text):
         lb = QLabel(L(text))
-        lb.setStyleSheet("font-weight:bold; color:#7bbcff;")
+        lb.setStyleSheet("font-weight:bold; color:#4ea1ff;")
         # 放在字段列（左边留空标签），与下面各行的输入框对齐——跨两列顶到最
         # 左边反而不好看。原设置窗就是这个位置。
         form.addRow("", lb)
         return lb
 
     def _hint_row(self, form, text):
-        lb = QLabel(L(text))
-        lb.setWordWrap(True)
+        lb = _WrapLabel(L(text))
         lb.setStyleSheet("color:#8a8a8a; font-size:11px;")
-        # 同样放字段列。跨两列时 QFormLayout 不会为自动换行的标签
-        # 预留行高，长说明会压到下一行的输入框上（自定义引擎页那次重叠）。
+        # 放字段列。跨两列时 QFormLayout 不会为自动换行的标签预留行高，
+        # 长说明会压到下一行的输入框上（自定义引擎页那次重叠）。
         form.addRow("", lb)
         return lb
 
@@ -4408,6 +4446,9 @@ class SettingsDialog(QDialog):
         b.setChecked(self._keys_shown())
         # 固定宽度(不随窗宽变)，但取按内容所需宽度确保文字完整
         b.setFixedWidth(BTN_W)
+        # 高度兜底：它是本页最后一行，布局要挤高度时第一个挨刀，压下去文字
+        # 就被拦腰截断。钉住 sizeHint，宁可出滚动条也不许压扁。
+        b.setMinimumHeight(b.sizeHint().height())
         b.toggled.connect(self._on_show_keys)
         self._show_keys_btns.append(b)
         form.addRow("", b)
@@ -4454,14 +4495,40 @@ class SettingsDialog(QDialog):
         for w in labels:
             w.setMinimumWidth(need)
 
+    def _asset_row(self, form, aid):
+        """缺哪样就给哪样一个下载钮，就位了自动隐藏。
+
+        状态行写着"未找到"却没有下文，等于告诉用户"坏了，但我不说怎么办"。
+        真正的下载走主窗的 _ensure_asset，与麦克风钮、朗读、Argos 那几条
+        路完全同一套（问一次、后台下、状态栏出进度、失败给手动命令）。
+        """
+        b = QPushButton(f"{L('下载')} {L(_ASSETS[aid]['name'])}")
+        b.setMinimumHeight(b.sizeHint().height())
+
+        def _go():
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "_ensure_asset"):
+                _p._ensure_asset(aid, self._refresh_status)
+            self._refresh_status()
+        b.clicked.connect(_go)
+        form.addRow("", b)
+        self._asset_btns.append((aid, b))
+        return b
+
     def _refresh_status(self):
-        """重算所有状态行。开窗时调一次，切语言时再调一次。"""
+        """重算所有状态行。开窗时调一次，切语言时、下载完成后再调。"""
         for _key, lb, val, getter in getattr(self, "_status_rows", []):
             try:
                 lb.setText(L(_key) + ":")
                 val.setText(getter())
             except Exception:
                 _log_exc("settings_status")
+        for aid, b in getattr(self, "_asset_btns", []):
+            try:
+                b.setText(f"{L('下载')} {L(_ASSETS[aid]['name'])}")
+                b.setVisible(not _asset_ready(aid))
+            except Exception:
+                _log_exc("settings_asset_btn")
 
     # ---------- 五个页面 ----------
 
@@ -4672,6 +4739,7 @@ class SettingsDialog(QDialog):
         self._status_row(form, "模型目录",
                          lambda: _whisper_model_dir() or L("未找到"))
         self._status_row(form, "麦克风", self._mic_state_text)
+        self._asset_row(form, "whisper")
         return page
 
     def _page_tts(self):
@@ -4684,8 +4752,12 @@ class SettingsDialog(QDialog):
                          lambda: self._tts_state_text("edge_tts", "edge"))
         self._status_row(form, "Kokoro（离线本地）",
                          lambda: self._tts_state_text("kokoro", "kokoro"))
+        self._status_row(form, "英文分词组件",
+                         lambda: self._pkg_text("en_core_web_sm"))
         self._status_row(form, "Kokoro 模型目录", lambda: (
             os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or L("未找到")))
+        self._asset_row(form, "kokoro")
+        self._asset_row(form, "spacy_en")
         return page
 
     # ---------- 状态取值 ----------
@@ -5437,6 +5509,45 @@ _EN["已安装"] = "Installed"
 _EN["缺失"] = "Missing"
 _EN["未找到"] = "Not found"
 _EN["未找到模型"] = "Model not found"
+
+# —— 组件/模型自愈下载（v2.19.0）——
+_EN["语音识别模型"] = "speech recognition model"
+_EN["离线朗读模型"] = "offline speech model"
+_EN["英文分词组件"] = "English tokenizer"
+_EN["离线翻译模型"] = "offline translation models"
+_EN["约 145MB"] = "about 145MB"
+_EN["约 350MB"] = "about 350MB"
+_EN["约 12MB"] = "about 12MB"
+_EN["约 100MB"] = "about 100MB"
+_EN["正在下载"] = "Downloading"
+_EN["正在连接…"] = "Connecting…"
+_EN["正在安装…"] = "Installing…"
+_EN["官方源"] = "official source"
+_EN["国内镜像"] = "mirror"
+_EN["重试"] = "retry"
+_EN["已就绪"] = "is ready"
+_EN["下载失败"] = "download failed"
+_EN["下载组件"] = "Download"
+_EN["该功能需要先下载"] = "This feature first needs"
+_EN["优先从官方源下载，失败会自动改用国内镜像。"] = (
+    "It is fetched from the official source first, falling back to a mirror "
+    "if that fails.")
+_EN["下载在后台进行，进度显示在底部状态栏。"] = (
+    "The download runs in the background; the status bar shows its progress.")
+_EN["以后不再询问，缺什么直接下载"] = "Download what is missing without asking"
+_EN["已有组件正在下载，请稍候"] = "Something is already downloading, please wait"
+_EN["最后一次的原因"] = "Last error"
+_EN["可以这样手动安装"] = "To install it by hand"
+_EN["详细过程已写入日志，双击底部状态栏可打开。"] = (
+    "The full trace is in the log; double-click the status bar to open it.")
+_EN["点击下载语音识别模型"] = "click to download the speech recognition model"
+_EN["下载到的文件是空的"] = "the downloaded file is empty"
+_EN["下载完成但缺少 model.bin"] = "downloaded, but model.bin is missing"
+_EN["打包版不能自行安装组件"] = (
+    "a packaged build cannot install components itself")
+_EN["镜像仓库里没有可安装的 whl"] = "the mirror repository has no installable wheel"
+_EN["模型已下载但未能装入 Argos"] = "downloaded, but Argos would not install them"
+_EN["下载"] = "Download"
 
 
 def L(s):
@@ -6549,19 +6660,40 @@ class HistoryDialog(QDialog):
 
 
 class PillBusyBar(QWidget):
-    """自绘胶囊形忙碌指示条：Qt 原生不确定进度条的滑块到两端会变方角
-    （样式引擎限制），改用 QPainter 自绘，滑块任何位置都是完整胶囊。"""
+    """自绘胶囊形进度条：Qt 原生不确定进度条的滑块到两端会变方角
+    （样式引擎限制），改用 QPainter 自绘，滑块任何位置都是完整胶囊。
+
+    两种模式共用同一副长相，免得下载进度和合成忙碌看着像两个不同的东西：
+      * 不确定(默认)：滑块来回弹，用于不知道要多久的事
+      * 确定：setFraction(0~1) 从左往右填，用于知道下了多少的下载
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(6)
         self._pos = 0.0
         self._dir = 1
+        self._frac = None            # None = 不确定模式
         self._t = QTimer(self)
         self._t.setInterval(16)
         self._t.timeout.connect(self._tick)
 
+    def setFraction(self, frac):
+        """frac 为 0~1 走确定模式；传 None 回到来回弹的不确定模式。"""
+        if frac is None:
+            if self._frac is not None:
+                self._frac = None
+                if self.isVisible():
+                    self._t.start()
+            self.update()
+            return
+        self._frac = max(0.0, min(1.0, float(frac)))
+        self._t.stop()               # 确定模式不需要动画计时器
+        self.update()
+
     def showEvent(self, e):
-        self._t.start(); super().showEvent(e)
+        if self._frac is None:
+            self._t.start()
+        super().showEvent(e)
 
     def hideEvent(self, e):
         self._t.stop(); super().hideEvent(e)
@@ -6583,10 +6715,15 @@ class PillBusyBar(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(255, 255, 255, 26))      # 极淡胶囊槽
         p.drawRoundedRect(0, 0, w, h, r, r)
-        cw = max(int(w * 0.28), h * 2)              # 滑块宽
-        x = int((w - cw) * self._pos)
         p.setBrush(QColor("#5aa8b0"))               # 青色胶囊滑块
-        p.drawRoundedRect(x, 0, cw, h, r, r)
+        if self._frac is None:
+            cw = max(int(w * 0.28), h * 2)          # 不确定：定宽滑块来回弹
+            x = int((w - cw) * self._pos)
+        else:
+            x = 0                                   # 确定：从左往右填
+            cw = max(int(w * self._frac), h) if self._frac > 0 else 0
+        if cw > 0:
+            p.drawRoundedRect(x, 0, cw, h, r, r)
 
 
 # =============================================================================
@@ -6772,6 +6909,315 @@ class VoiceRecorder(QObject):
         pcm = _np.frombuffer(bytes(self._buf), dtype=_np.int16)
         self._buf = bytearray()
         return pcm.astype(_np.float32) / 32768.0
+
+
+# =============================================================================
+#  组件与模型的自愈下载
+#
+#  README 承诺源码直接 python english_coach.py 就能跑，但离线朗读、语音识别、
+#  离线翻译各自要一份几百 MB 的模型，还有一个不在 PyPI 上的 spaCy 英文模型，
+#  这些 pip install -r requirements.txt 一概装不上（pip 没有"装完再下点数据"
+#  的钩子）。以前的做法是构建脚本负责下载、打进产物——打包用户没问题，源码
+#  用户就卡住了。
+#
+#  这里把"缺什么就现下什么"做成统一机制：登记表描述每样东西怎么检测、从哪
+#  下、怎么装；下载走后台线程，状态栏出文字和进度；官方源失败先判断是不是
+#  网络问题，是才换国内镜像重试，全败则写日志并把手动安装命令告诉用户。
+# =============================================================================
+
+HF_OFFICIAL = "https://huggingface.co"
+HF_MIRROR = "https://hf-mirror.com"
+
+ASSET_RETRIES = 3          # 每个源试几次
+ASSET_BACKOFF = (2, 4, 8)  # 每次失败后等几秒再来
+
+
+class AssetError(Exception):
+    """下载/安装失败，message 已经是可以直接给用户看的说法。"""
+
+    def __init__(self, msg, how_to_fix=""):
+        super().__init__(msg)
+        self.how_to_fix = how_to_fix
+
+
+def _is_network_error(exc):
+    """网络问题(换镜像有意义) vs 源本身的问题(换了也一样)。
+
+    分清这两种是为了别白等：连不上、超时、SSL 握手失败，换个国内镜像很可能
+    就好了；而 404、文件名不对、磁盘写不进去，换几个源都是同样的结果，早点
+    报错比让用户对着退避计时器干等六轮强。
+    """
+    import socket
+    name = type(exc).__name__
+    if isinstance(exc, (socket.timeout, socket.gaierror, ConnectionError,
+                        TimeoutError)):
+        return True
+    if any(k in name for k in ("Timeout", "Connection", "SSL", "Proxy",
+                               "TooManyRedirects", "ChunkedEncoding",
+                               "IncompleteRead", "LocalEntryNotFound")):
+        return True
+    txt = str(exc).lower()
+    if any(k in txt for k in ("404", "not found", "no such file",
+                              "permission denied", "disk", "invalid")):
+        return False
+    return any(k in txt for k in ("timed out", "connection", "network",
+                                  "unreachable", "reset by peer", "ssl",
+                                  "handshake", "proxy", "resolve"))
+
+
+def _hf_snapshot(repo_id, target, endpoint, report):
+    """从 HF(官方或镜像)整仓下载到 target。"""
+    import os as _os
+    _os.environ["HF_ENDPOINT"] = endpoint
+    _os.environ.pop("HF_HUB_OFFLINE", None)     # 自愈时必须允许联网
+    from huggingface_hub import snapshot_download
+    _os.makedirs(target, exist_ok=True)
+    report(-1, L("正在连接…"))
+    snapshot_download(repo_id=repo_id, local_dir=target)
+    return target
+
+
+def _download_file(url, target, report):
+    """带进度的单文件下载。先下到 .part 再改名，中途断了不会留下半个假文件。"""
+    import os as _os
+    import requests as _rq
+    _os.makedirs(_os.path.dirname(target) or ".", exist_ok=True)
+    tmp = target + ".part"
+    with _rq.get(url, stream=True, timeout=30) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("content-length") or 0)
+        done = 0
+        with open(tmp, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                done += len(chunk)
+                report(int(done * 100 / total) if total else -1, "")
+    if _os.path.getsize(tmp) <= 0:
+        _os.remove(tmp)
+        raise AssetError(L("下载到的文件是空的"))
+    _os.replace(tmp, target)
+    return target
+
+
+def _pip_install(args, report):
+    """在当前解释器里跑一次 pip。打包版不会走到这里(见 _ASSETS 的 frozen_hint)。"""
+    import subprocess
+    report(-1, L("正在安装…"))
+    cmd = [sys.executable, "-m", "pip", "install", "--no-input"] + list(args)
+    pr = subprocess.run(cmd, capture_output=True, text=True)
+    if pr.returncode != 0:
+        tail = (pr.stderr or pr.stdout or "").strip().splitlines()
+        raise AssetError("pip: " + (" / ".join(tail[-3:]) if tail else "failed"))
+    return True
+
+
+# ---- 各资产的检测与安装 ----
+
+def _have_whisper():
+    return bool(_whisper_model_dir())
+
+
+def _get_whisper(endpoint, report):
+    t = os.path.expanduser("~/EnglishCoach Models/Whisper")
+    _hf_snapshot("Systran/faster-whisper-base", t, endpoint, report)
+    if not os.path.isfile(os.path.join(t, "model.bin")):
+        raise AssetError(L("下载完成但缺少 model.bin"))
+    return t
+
+
+def _have_kokoro_model():
+    return bool(os.environ.get("ENGLISHCOACH_KOKORO_DIR"))
+
+
+def _get_kokoro(endpoint, report):
+    t = os.path.expanduser("~/EnglishCoach Models/Kokoro")
+    _hf_snapshot("hexgrad/Kokoro-82M", t, endpoint, report)
+    os.environ["ENGLISHCOACH_KOKORO_DIR"] = t   # 立刻生效，不用重启
+    return t
+
+
+def _have_spacy_en():
+    return _module_present("en_core_web_sm")
+
+
+def _get_spacy_en(endpoint, report):
+    """spaCy 英文模型不在 PyPI 上，pip 镜像只会返回 0 字节占位。
+    官方走 GitHub Releases 的 whl；镜像走 HF 上的 spacy/en_core_web_sm 仓库
+    ——那里的 whl 文件名不写死，问一下仓库再取，免得版本一换就断。
+    """
+    if getattr(sys, "frozen", False):
+        raise AssetError(L("打包版不能自行安装组件"))
+    if endpoint == HF_OFFICIAL:
+        _pip_install([
+            "https://github.com/explosion/spacy-models/releases/download/"
+            "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"],
+            report)
+        return "en_core_web_sm"
+    os.environ["HF_ENDPOINT"] = endpoint
+    os.environ.pop("HF_HUB_OFFLINE", None)
+    from huggingface_hub import list_repo_files, hf_hub_download
+    report(-1, L("正在连接…"))
+    whls = [f for f in list_repo_files("spacy/en_core_web_sm")
+            if f.endswith(".whl")]
+    if not whls:
+        raise AssetError(L("镜像仓库里没有可安装的 whl"))
+    local = hf_hub_download("spacy/en_core_web_sm", sorted(whls)[-1])
+    _pip_install([local], report)
+    return "en_core_web_sm"
+
+
+ARGOS_FILES = (
+    ("en_zh.argosmodel", "https://argos-net.com/v1/translate-en_zh-1_9.argosmodel"),
+    ("zh_en.argosmodel", "https://argos-net.com/v1/translate-zh_en-1_9.argosmodel"),
+)
+
+
+def _have_argos():
+    try:
+        import argostranslate.translate as at
+        have = {l.code for l in at.get_installed_languages()}
+        return {"en", "zh"} <= have
+    except Exception:
+        return False
+
+
+def _get_argos(endpoint, report):
+    """Argos 只有官方一个源(argos-net.com)，没有国内镜像，所以登记表里
+    mirror 留空，失败就直接报错，不做无意义的第二轮。"""
+    import argostranslate.package as ap
+    cache = os.path.expanduser("~/EnglishCoach Models/Argos")
+    os.makedirs(cache, exist_ok=True)
+    for i, (fn, url) in enumerate(ARGOS_FILES):
+        dst = os.path.join(cache, fn)
+        if not os.path.isfile(dst):
+            report(-1, f"{L('正在下载')} {i + 1}/{len(ARGOS_FILES)}")
+            _download_file(url, dst, report)
+        ap.install_from_path(dst)
+    if not _have_argos():
+        raise AssetError(L("模型已下载但未能装入 Argos"))
+    return cache
+
+
+# 登记表。加第五样第六样只要往这里加一条。
+#   size     : 给用户看的体积，用来决定值不值得问一声
+#   have     : 检测函数，True 表示已就位
+#   fetch    : fetch(endpoint, report) -> 说明字符串，失败抛异常
+#   mirror   : 国内镜像 endpoint；None 表示这一样没有镜像可换
+#   manual   : 全败时告诉用户怎么手动装
+_ASSETS = {
+    "whisper": {
+        "name": "语音识别模型",
+        "size": "约 145MB",
+        "have": _have_whisper,
+        "fetch": _get_whisper,
+        "official": HF_OFFICIAL,
+        "mirror": HF_MIRROR,
+        "manual": ('python -c "import os;from huggingface_hub import '
+                   "snapshot_download;t=os.path.expanduser('~/EnglishCoach "
+                   "Models/Whisper');os.makedirs(t,exist_ok=True);"
+                   "snapshot_download('Systran/faster-whisper-base',"
+                   'local_dir=t)"'),
+    },
+    "kokoro": {
+        "name": "离线朗读模型",
+        "size": "约 350MB",
+        "have": _have_kokoro_model,
+        "fetch": _get_kokoro,
+        "official": HF_OFFICIAL,
+        "mirror": HF_MIRROR,
+        "manual": ('python -c "import os;from huggingface_hub import '
+                   "snapshot_download;t=os.path.expanduser('~/EnglishCoach "
+                   "Models/Kokoro');os.makedirs(t,exist_ok=True);"
+                   "snapshot_download('hexgrad/Kokoro-82M',local_dir=t)\""),
+    },
+    "spacy_en": {
+        "name": "英文分词组件",
+        "size": "约 12MB",
+        "have": _have_spacy_en,
+        "fetch": _get_spacy_en,
+        "official": HF_OFFICIAL,
+        "mirror": HF_MIRROR,
+        "manual": ("pip install https://github.com/explosion/spacy-models/"
+                   "releases/download/en_core_web_sm-3.8.0/"
+                   "en_core_web_sm-3.8.0-py3-none-any.whl"),
+    },
+    "argos": {
+        "name": "离线翻译模型",
+        "size": "约 100MB",
+        "have": _have_argos,
+        "fetch": _get_argos,
+        "official": "argos-net",
+        "mirror": None,               # 没有国内镜像
+        "manual": ("下载 https://argos-net.com/v1/translate-en_zh-1_9."
+                   "argosmodel 与 translate-zh_en-1_9.argosmodel，"
+                   "放进 ~/EnglishCoach Models/Argos"),
+    },
+}
+
+
+def _asset_ready(aid):
+    a = _ASSETS.get(aid)
+    try:
+        return bool(a and a["have"]())
+    except Exception:
+        return False
+
+
+class AssetWorker(QThread):
+    """后台把一样资产装好。
+
+    先官方源试 ASSET_RETRIES 次(退避 2/4/8 秒)；每次失败都判断是不是网络
+    问题，只要有一次是网络问题、而且这一样有镜像，就转投镜像再试同样的轮
+    数。两轮都不成，把最后的原因和手动安装命令一起抛回去。
+    """
+
+    progress = pyqtSignal(int, str)      # 百分比(-1=不确定), 附加说明
+    finished_ok = pyqtSignal(str)        # asset id
+    failed = pyqtSignal(str, str, str)   # asset id, 原因, 手动安装办法
+
+    def __init__(self, aid, parent=None):
+        super().__init__(parent)
+        self.aid = aid
+        self._stop = False
+
+    def cancel(self):
+        self._stop = True
+
+    def run(self):
+        import time
+        a = _ASSETS[self.aid]
+        report = lambda pct, txt: (None if self._stop
+                                   else self.progress.emit(pct, txt))
+        sources = [("官方源", a["official"])]
+        if a.get("mirror"):
+            sources.append(("国内镜像", a["mirror"]))
+        last = ""
+        net_trouble = False
+        for si, (label, endpoint) in enumerate(sources):
+            if si and not net_trouble:
+                break            # 不是网络问题，换镜像也是同样的结果
+            for attempt in range(ASSET_RETRIES):
+                if self._stop:
+                    return
+                try:
+                    if attempt or si:
+                        report(-1, f"{L(label)} {L('重试')} {attempt + 1}")
+                    a["fetch"](endpoint, report)
+                    self.finished_ok.emit(self.aid)
+                    return
+                except Exception as e:
+                    last = f"{type(e).__name__}: {e}"
+                    if _is_network_error(e):
+                        net_trouble = True
+                    _log_error(f"[资产] {self.aid} 经{label}第{attempt + 1}次"
+                               f"失败: {last}")
+                    if attempt < ASSET_RETRIES - 1:
+                        time.sleep(ASSET_BACKOFF[
+                            min(attempt, len(ASSET_BACKOFF) - 1)])
+        _log_error(f"[资产] {self.aid} 全部来源均失败: {last}")
+        self.failed.emit(self.aid, last, a.get("manual", ""))
 
 
 def _open_log_file():
@@ -7813,6 +8259,12 @@ class MainWindow(QMainWindow):
                 b.setEnabled(False)
                 b.setToolTip(f"{_name} — {L('没有可用的麦克风')}")
                 return
+            # 只缺模型的话不置灰：灰着的按钮等于死路一条，用户不知道去哪儿
+            # 弄模型。留着可点，点一下就问要不要下。
+            if not _asset_ready("whisper"):
+                b.setEnabled(True)
+                b.setToolTip(f"{_name} — {L('点击下载语音识别模型')}")
+                return
             be = _stt_backend()
             if not be.available():
                 b.setEnabled(False)
@@ -7833,12 +8285,26 @@ class MainWindow(QMainWindow):
         self._voice_timer = QElapsedTimer()
         self._voice_timer.start()
         self._voice_was_on = getattr(self, "_voice_on", False)
+        # 模型没下过：这一下不录音，改成问要不要下。下完自动把按钮点亮，
+        # 用户再按一次就能说话。
+        self._voice_diverted = not self._ensure_asset("whisper")
+        if self._voice_diverted:
+            return
         if not self._voice_was_on:
             self._voice_start()
+            # 计时从【真正开始录音】起算，不把准备时间算进去。第一次按要现建
+            # QAudioSource，mac 上还要弹麦克风授权，这一步能花掉半秒多；若从
+            # 按下起算，一次普通的轻点也会越过下面 400ms 那道界，被当成"按住
+            # 说话"，松手立刻就停 —— 现象正是"第一次按青色一闪就没了，第二次
+            # 才正常"。
+            self._voice_timer.restart()
 
     def _voice_released(self):
         """短按一下开始、再短按一下结束；按住不放则松手即结束。
         400ms 为界——比这短的按压当成点击。"""
+        if getattr(self, "_voice_diverted", False):
+            self._voice_diverted = False      # 那一下被下载流程接走了
+            return
         held = self._voice_timer.elapsed() if hasattr(self, "_voice_timer") else 0
         if self._voice_was_on or held >= 400:
             self._voice_stop()
@@ -8424,6 +8890,13 @@ class MainWindow(QMainWindow):
                 return
             self._abort_translation()
         engine = self.engine_combo.currentData()
+        # Argos 的模型以前只从打包目录里装，源码运行永远装不上，选了这个
+        # 引擎就只会报"离线模型未就绪"。现在缺了就现下。
+        if engine == ENGINE_ARGOS and not _asset_ready("argos"):
+            self.translate_btn.setEnabled(True)
+            self._ensure_asset(
+                "argos", lambda: self._start_translate(auto=auto, force=True))
+            return
         keys = {
             "deepl": self.settings.value("deepl_key", ""),
             "google_api": self.settings.value("google_api_key", ""),
@@ -8638,16 +9111,21 @@ class MainWindow(QMainWindow):
             ta, tb = tgt_segs[min(j, m - 1)]
             self._align.append((sa, sb, ta, tb))
 
-    def _themed_msgbox(self, icon, title, text):
-        """弹窗跟随主题。QMessageBox 是独立的顶层窗口，不继承主窗样式表，
+    def _style_msgbox(self, box):
+        """让弹窗跟随主题。QMessageBox 是独立的顶层窗口，不继承主窗样式表，
         非 mac 平台不显式喂给它，深色主题下就会弹出一片白。
         mac 不设：那边深浅由 AppKit 原生外观驱动，自涂颜色反而打架。"""
+        if sys.platform != "darwin":
+            box.setStyleSheet(getattr(self, "_base_ss", "") or self.styleSheet())
+        return box
+
+    def _themed_msgbox(self, icon, title, text):
+        """跟随主题的提示弹窗。"""
         box = QMessageBox(self)
         box.setIcon(icon)
         box.setWindowTitle(L(title))
         box.setText(text)
-        if sys.platform != "darwin":
-            box.setStyleSheet(getattr(self, "_base_ss", "") or self.styleSheet())
+        self._style_msgbox(box)
         return box.exec()
 
     def on_translate_fail(self, msg):
@@ -8909,6 +9387,21 @@ class MainWindow(QMainWindow):
         rate = self.rate_slider.value()
         self._speak_rate = rate
         is_kokoro = voice_spec.get("engine") == "kokoro"
+        # 离线嗓音要模型；英文离线嗓音还要 spaCy 英文分词（misaki 的隐藏
+        # 依赖）。缺了就先去下，下完回到这里重来一遍。
+        if is_kokoro:
+            _need = None
+            if not _asset_ready("kokoro"):
+                _need = "kokoro"
+            elif self._last_lang == "EN" and not _asset_ready("spacy_en"):
+                _need = "spacy_en"
+            if _need is not None:
+                # 上面已经 stop_speak/退役过 worker，这里把状态收干净再撤
+                self._is_speaking = False
+                self._pending_sig = None
+                self._ensure_asset(
+                    _need, lambda e=editor, r=from_pos_ratio: self.do_speak(e, r))
+                return
         self._synth_in_progress = True
         # 文字提示立即显示并持续到合成结束（不被其它状态信息冲掉）
         self._show_synth_busy(bar=False)
@@ -8919,6 +9412,139 @@ class MainWindow(QMainWindow):
         self.tts_worker.finished_ok.connect(self.on_tts_ok)
         self.tts_worker.failed.connect(self.on_tts_fail)
         self.tts_worker.start()
+
+    # ---------- 组件/模型的自愈下载 ----------
+
+    def _ensure_asset(self, aid, on_ready=None):
+        """确保某样组件或模型就位。
+
+        已就位：立刻执行 on_ready 并返回 True，调用方照常往下走。
+        缺失：问一声(可记住选择)后开始后台下载，返回 False —— 调用方到此
+        为止，等下载完 on_ready 会被回调，那时再重来一遍。
+        """
+        if _asset_ready(aid):
+            if on_ready is not None:
+                on_ready()
+            return True
+        a = _ASSETS.get(aid)
+        if a is None:
+            return False
+        if getattr(self, "_asset_worker", None) is not None:
+            self.status.showMessage(L("已有组件正在下载，请稍候"), 3000)
+            return False
+        if not self._confirm_asset(a):
+            return False
+        self._asset_pending = on_ready
+        w = AssetWorker(aid, self)
+        w.progress.connect(self._on_asset_progress)
+        w.finished_ok.connect(self._on_asset_ok)
+        w.failed.connect(self._on_asset_failed)
+        self._asset_worker = w
+        self._show_asset_busy()
+        self.status.showMessage(f"{L('正在下载')} {L(a['name'])}…", 0)
+        w.start()
+        return False
+
+    def _confirm_asset(self, a):
+        """下载前问一声。几百 MB 的东西不吭声就开始下，在按流量计费或网速
+        慢的机器上很不友好。勾了"以后不再询问"就记进设置，之后直接下。"""
+        if self.settings.value("asset_auto_download", "false") == "true":
+            return True
+        from PyQt6.QtWidgets import QCheckBox
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle(L("下载组件"))
+        box.setText(
+            f"{L('该功能需要先下载')}「{L(a['name'])}」（{L(a['size'])}）。\n\n"
+            f"{L('优先从官方源下载，失败会自动改用国内镜像。')}\n"
+            f"{L('下载在后台进行，进度显示在底部状态栏。')}")
+        box.setStandardButtons(QMessageBox.StandardButton.Yes
+                               | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        chk = QCheckBox(L("以后不再询问，缺什么直接下载"))
+        box.setCheckBox(chk)
+        self._style_msgbox(box)
+        ok = box.exec() == QMessageBox.StandardButton.Yes
+        if ok and chk.isChecked():
+            self.settings.setValue("asset_auto_download", "true")
+        return ok
+
+    def _show_asset_busy(self):
+        """状态栏右侧永久区放一条进度条。和合成用的那条各是各的：下载可能
+        跨着一次朗读发生，共用一条会互相抢。"""
+        from PyQt6.QtWidgets import QWidget as _QW, QHBoxLayout as _QH
+        if getattr(self, "_asset_holder", None) is None:
+            holder = _QW()
+            hl = _QH(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(0)
+            pb = PillBusyBar()
+            hl.addWidget(pb)
+            spacer = _QW()
+            hl.addWidget(spacer)
+            self._asset_holder = holder
+            self._asset_bar = pb
+            self._asset_spacer = spacer
+            self.status.addPermanentWidget(holder)
+        self._asset_bar.setFixedWidth(max(220, int(self.width() * 0.32)))
+        self._asset_spacer.setFixedWidth(max(20, int(self.width() * 0.05)))
+        self._asset_bar.setFraction(None)        # 连接阶段还不知道总量
+        self._asset_holder.show()
+
+    def _hide_asset_busy(self):
+        holder = getattr(self, "_asset_holder", None)
+        if holder is not None:
+            holder.hide()
+
+    def _on_asset_progress(self, pct, extra):
+        bar = getattr(self, "_asset_bar", None)
+        w = getattr(self, "_asset_worker", None)
+        if bar is None or w is None:
+            return
+        bar.setFraction(None if pct < 0 else pct / 100.0)
+        name = L(_ASSETS.get(w.aid, {}).get("name", ""))
+        msg = f"{L('正在下载')} {name}"
+        if pct >= 0:
+            msg += f" {pct}%"
+        if extra:
+            msg += f" · {extra}"
+        self.status.showMessage(msg, 0)
+
+    def _on_asset_ok(self, aid):
+        self._drop_asset_worker()
+        self._hide_asset_busy()
+        self.status.showMessage(
+            f"{L(_ASSETS[aid]['name'])} {L('已就绪')}", 4000)
+        self._sync_voice_btn()          # 麦克风钮可能就此从"待下载"变可用
+        cb, self._asset_pending = getattr(self, "_asset_pending", None), None
+        if cb is not None:
+            try:
+                cb()                    # 回到当初被挡住的那件事
+            except Exception:
+                _log_exc("asset_ready_cb")
+
+    def _on_asset_failed(self, aid, reason, manual):
+        self._drop_asset_worker()
+        self._hide_asset_busy()
+        self._asset_pending = None
+        name = L(_ASSETS[aid]["name"])
+        self.status.showMessage(f"{name} {L('下载失败')}", 6000)
+        body = (f"{name} {L('下载失败')}。\n\n"
+                f"{L('最后一次的原因')}：{reason}\n\n"
+                f"{L('可以这样手动安装')}：\n{manual}\n\n"
+                f"{L('详细过程已写入日志，双击底部状态栏可打开。')}")
+        self._themed_msgbox(QMessageBox.Icon.Warning, "下载组件", body)
+
+    def _drop_asset_worker(self):
+        w = getattr(self, "_asset_worker", None)
+        self._asset_worker = None
+        if w is not None:
+            try:
+                w.progress.disconnect()
+                w.finished_ok.disconnect()
+                w.failed.disconnect()
+            except Exception:
+                pass
 
     def _show_synth_busy(self, bar=True):
         """合成时：文字『正在生成音频…』走左侧消息区(showMessage)，与『翻译完成』等
@@ -10225,6 +10851,11 @@ class MainWindow(QMainWindow):
                     rw.cancel()
                     rw.quit()
                     rw.wait(1000)
+            aw = getattr(self, "_asset_worker", None)
+            if aw is not None and aw.isRunning():
+                aw.cancel()               # 下到一半退出：.part 文件会留下，
+                aw.quit()                 # 下次重来会覆盖，不会当成完整文件
+                aw.wait(2000)
         except Exception:
             pass
 

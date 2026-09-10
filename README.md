@@ -398,16 +398,30 @@ Check the runtime log, which records uncaught exceptions:
 conda create -n EnglishCoach python=3.10
 conda activate EnglishCoach
 
-# 2. 安装运行依赖 / Install runtime dependencies
-pip install -r requirements.txt
+# 2. 一键配齐：装依赖 + 装 spaCy 英文模型 + 下载三份离线模型
+#    One shot: dependencies, the spaCy English model, and the three offline models
+./Setup\ Dev.sh          # Linux
+./Setup\ Dev.command     # macOS（在访达里双击也行 / or double-click it in Finder）
+"Setup Dev.bat"          # Windows
 
-# 3. 安装 spaCy 英文模型（Kokoro 分词需要，pip 索引中没有）
-#    Install the spaCy English model (needed by Kokoro, not on PyPI)
-pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
-
-# 4. 运行 / Run
+# 3. 运行 / Run
 python english_coach.py
 ```
+
+`pip install -r requirements.txt` 只装得了 pip 包。离线朗读、语音识别、离线翻译各需要一份模型权重，spaCy 的英文模型又不在 PyPI 上（走 GitHub Releases，国内镜像只会返回 0 字节占位），这些 pip 都管不了 —— `Setup Dev` 脚本就是来补这一段的。它会先走官方源，失败且确属网络问题时自动改用国内镜像。
+
+只想手工来的话，这两步等价：
+
+```bash
+pip install -r requirements.txt
+python setup_assets.py            # 缺什么装什么；--force 可强制重下
+```
+
+**哪一样都不装也能跑。** 程序在真正用到某样东西时会问你要不要现在下载，进度显示在底部状态栏，失败会写进日志并给出手动安装命令；设置窗的「语音识别引擎」「朗读引擎」两页也各有下载按钮。
+
+`pip install -r requirements.txt` only installs pip packages. The offline speech, speech recognition and offline translation features each need a model, and the spaCy English model is not on PyPI at all — it ships via GitHub Releases, and Chinese mirrors answer with a zero-byte placeholder. The `Setup Dev` scripts cover that gap, trying the official source first and falling back to a mirror when the failure really is a network one.
+
+**None of it is required up front.** The app offers to download whatever is missing at the moment you use it, shows progress in the status bar, and on failure writes the details to the log and tells you the manual command; the Speech Recognition and Text to Speech pages in Settings each carry a download button too.
 
 **Linux 用户**：PyPI 上 Linux 的 torch 默认是 **CUDA 版**，会额外拖入 12 个 `nvidia-*` 包（共数 GB）。只要 CPU 版的话，先用官方 CPU 索引装 torch：
 
