@@ -5700,9 +5700,13 @@ def _rounded_scrollbar_qss():
 
 
 def _safe_fusion(widget):
-    """延后调用的安全包装：窗口可能已被销毁(RuntimeError)，静默跳过。"""
+    """延后调用的安全包装：窗口可能已被销毁(RuntimeError)，静默跳过。
+
+    不再要求 isVisible()：模态窗 exec() 之前就要定好样式，等它"可见"了
+    再改，用户已经看见白杠闪过一下了。
+    """
     try:
-        if widget is not None and widget.isVisible():
+        if widget is not None:
             _force_fusion_scrollbars(widget)
     except RuntimeError:
         pass
@@ -5819,8 +5823,8 @@ def _fusion_style():
     return _FUSION_STYLE
 
 
-def _force_fusion_scrollbars(widget):
-    """深色主题下把滚动条切到 Fusion —— 只换颜色，不换造型。
+def _style_one_scrollbar(sb):
+    """按当前主题给【一个】滚动条定样式 —— 只换颜色，不换造型。
 
     Win10 的 windowsvista 引擎自绘滚动条，既不认 QSS 也不认调色板，深色界面
     上就杵着一条白杠。Fusion 画的是同样的矩形滑轨＋两端箭头，唯一的区别是
@@ -5828,21 +5832,90 @@ def _force_fusion_scrollbars(widget):
     压成深色，和整体主题合上。
     （不用 _make_round_scrollbar_style 的自绘胶囊：那会连形状一起改掉。）
 
-    浅色主题不插手——原生颜色本来就对，原生手感更好。
+    浅色主题还原成平台原生：原生颜色本来就对，手感也更好。这一步不能省——
+    深色套过 Fusion 的滚动条，切回浅色时不还原就一直挂着 Fusion。
     mac 与 Win11 的原生滚动条深浅自适应，_native_scrollbar_platform 挡掉。
     """
-    if widget is None or _native_scrollbar_platform() or _theme_is_light():
+    if sb is None or _native_scrollbar_platform():
+        return
+    dark = not _theme_is_light()
+    # 已经是想要的状态就别再 setStyle：那会再触发一轮 polish，而本函数正是
+    # 从 polish 事件里被调用的。
+    if bool(sb.property("_ec_fusion")) == dark:
+        return
+    st = _fusion_style() if dark else None
+    if dark and st is None:
+        return
+    sb.setStyle(st)                 # None = 还原成 app 的平台样式
+    sb.setProperty("_ec_fusion", dark)
+    sb.update()
+
+
+class _ScrollBarStyleFilter(QObject):
+    """滚动条一出生就按当前主题定样式。
+
+    装在 QApplication 上，而不是逐个窗口去调 _force_fusion_scrollbars——
+    那样早晚会漏，版本更新说明、使用说明、关于这三个窗就是这么漏掉的：
+    主窗和设置窗改好了，它们还挂着一条白杠。装在 app 上，以后新加的窗口
+    不用记得做任何事。
+
+    只认 Polish 事件：那是控件显示前的一次性事件，比 Show 更早，也不像
+    绘制事件那样每帧都来。isinstance 只在 Polish 时才走，代价可以忽略。
+    """
+
+    def eventFilter(self, obj, ev):
+        try:
+            if ev.type() == QEvent.Type.Polish:
+                from PyQt6.QtWidgets import QScrollBar
+                if isinstance(obj, QScrollBar):
+                    _style_one_scrollbar(obj)
+        except Exception:
+            pass
+        return False
+
+
+_SB_FILTER = None
+
+
+def _install_scrollbar_filter(app):
+    """把滚动条样式过滤器装到 app 上。mac 与 Win11 原生就对，不装。"""
+    global _SB_FILTER
+    if _SB_FILTER is not None or app is None or _native_scrollbar_platform():
+        return
+    _SB_FILTER = _ScrollBarStyleFilter(app)
+    app.installEventFilter(_SB_FILTER)
+
+
+def _force_fusion_scrollbars(widget):
+    """给 widget 里现有的滚动条按当前主题重新定样式。
+
+    过滤器管的是"新出生的"，这个函数管"已经在场的"——主题热切换时，所有
+    窗口里的滚动条都得按新深浅再来一遍。
+    """
+    if widget is None or _native_scrollbar_platform():
         return
     try:
         from PyQt6.QtWidgets import QScrollBar
-        st = _fusion_style()
-        if st is None:
-            return
         for sb in widget.findChildren(QScrollBar):
-            sb.setStyle(st)
-            sb.update()
+            _style_one_scrollbar(sb)
     except Exception:
         _log_exc("dark_scrollbars")
+
+
+def _restyle_all_scrollbars():
+    """全部窗口的滚动条按当前主题重来一遍。主题热切换时调用——
+    那时开着的可能不止主窗，设置窗、历史、说明文档都可能在。"""
+    if _native_scrollbar_platform():
+        return
+    try:
+        from PyQt6.QtWidgets import QApplication as _QA
+        _app = _QA.instance()
+        if _app is None:
+            return
+        for w in _app.topLevelWidgets():
+            _force_fusion_scrollbars(w)
+    except Exception:
+        _log_exc("restyle_scrollbars")
 
 
 
@@ -7227,10 +7300,11 @@ class MainWindow(QMainWindow):
                     pass
 
     def apply_theme(self):
-        # 深浅换了，自绘滚动条要按新主题重来。放 singleShot 里，无论下面
-        # 走哪条分支（mac 会提前 return）都执行得到。
-        QTimer.singleShot(0, lambda: _safe_fusion(self))
         """主题切换即时生效。mac：AppKit 原生驱动(不涂调色板/QSS，避免打架)；非 mac：调色板+样式表。"""
+        # 深浅换了，所有窗口的滚动条都要按新主题重来——这时开着的可能不止
+        # 主窗。放 singleShot 里，无论下面走哪条分支（mac 会提前 return）
+        # 都执行得到。
+        QTimer.singleShot(0, _restyle_all_scrollbars)
         from PyQt6.QtWidgets import QApplication as _QA
         from PyQt6.QtGui import QPalette, QColor
         app = _QA.instance()
@@ -10164,6 +10238,11 @@ def main():
                     app.setStyle("windows11")
         except Exception:
             pass
+    # 滚动条样式过滤器要装在建任何窗口【之前】：它靠 Polish 事件接住每一个
+    # 新生的滚动条，装晚了，先建出来的那些就漏了。必须排在上面选定
+    # windows11 样式之后——_native_scrollbar_platform 要看当前样式表决定
+    # 这台机器到底用不用得着它。
+    _install_scrollbar_filter(app)
     try:
         _apply_color_scheme(app)
         win = MainWindow()
@@ -10232,7 +10311,9 @@ def main():
     except Exception:
         pass
     win.show()
-    # 控件全部就位后再套自绘滚动条：Win10/Linux 深色下原生滚动条是白的
+    # 控件全部就位后再刷一遍已有滚动条：Win10/Linux 深色下原生滚动条是白的。
+    # 之后新建的（说明文档、历史、消息框…）由 _install_scrollbar_filter
+    # 装的过滤器接手。
     QTimer.singleShot(0, lambda: _safe_fusion(win))
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
