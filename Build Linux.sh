@@ -470,6 +470,26 @@ then
         "确认网络后重试；大陆可先设 export HF_ENDPOINT=https://hf-mirror.com；或手动下载 hexgrad/Kokoro-82M 到 ~/EnglishCoach Models/Kokoro/ 再编译"
 fi
 
+echo "    预下载 Whisper 语音识别模型（base，约 145MB）..."
+if ! "$PY" - <<'PYEOF'
+import os, sys
+try:
+    from huggingface_hub import snapshot_download
+    target = os.path.expanduser("~/EnglishCoach Models/Whisper")
+    os.makedirs(target, exist_ok=True)
+    snapshot_download(repo_id="Systran/faster-whisper-base", local_dir=target)
+    print("  ✓ Whisper 模型已就绪:", target)
+except Exception as e:
+    print("  Whisper 预下载异常:", e)
+    sys.exit(1)
+PYEOF
+then
+    record_problem \
+        "Whisper 语音识别模型未能下载" \
+        "产物内不含模型，语音录入功能在用户端完全不可用" \
+        "确认网络后重试；大陆可先设 export HF_ENDPOINT=https://hf-mirror.com；或手动下载 Systran/faster-whisper-base 到 ~/EnglishCoach Models/Whisper/ 再编译"
+fi
+
 echo "==> [5/8] 准备 Argos 中英离线模型（打包进产物）"
 # 此前 Linux 脚本漏了这一步：后面的 MODEL_ARG 会引用 argos_models 目录，
 # 目录不存在时 MODEL_ARG 为空，模型打不进产物，离线翻译在用户端直接失效。
@@ -645,6 +665,15 @@ if [ -d "$HOME/EnglishCoach Models/Kokoro" ]; then
     echo "    将打包 Kokoro 模型"
 fi
 
+WHISPER_DATA=""
+if [ -d "$HOME/EnglishCoach Models/Whisper" ]; then
+    rm -rf _whisper_stage
+    mkdir -p _whisper_stage
+    cp -R "$HOME/EnglishCoach Models/Whisper/." _whisper_stage/
+    WHISPER_DATA="--add-data _whisper_stage:whisper_model"
+    echo "    将打包 Whisper 模型"
+fi
+
 # 只清理本平台自己的产物目录，不动 dist 下其它平台的成果
 DESTDIR="dist/${TAG}"
 rm -rf build "${APP_NAME}.spec" "$DESTDIR"
@@ -652,12 +681,13 @@ mkdir -p "$DESTDIR"
 
 "$PY" -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $VARIANT_ARG $MODEL_ARG $KOKORO_DATA $XCB_ARGS $CONDA_LIB_ARGS $CUDA_EXCLUDE \
+    $ICON_ARG $VARIANT_ARG $MODEL_ARG $KOKORO_DATA $WHISPER_DATA $XCB_ARGS $CONDA_LIB_ARGS $CUDA_EXCLUDE \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \
     --collect-all kokoro \
     --collect-all misaki \
+    --collect-all faster_whisper \
     --collect-all language_tags \
     --collect-all espeakng_loader \
     --collect-all num2words \
@@ -882,6 +912,19 @@ if [ "${_kok_real}" -lt 1 ]; then
         "先确保模型下到 ~/EnglishCoach Models/Kokoro/（应含 kokoro-v1_0.pth，约 330MB）再重新编译"
 else
     echo "      ✓ Kokoro 模型权重 ${_kok_real} 个（>80MB）"
+fi
+
+# Whisper 语音识别权重。faster-whisper 的 CTranslate2 格式固定叫 model.bin，
+# base 约 145MB；只看文件在不在不够，小体积的占位文件同样会让识别失败。
+_wsp_real=$(find "${_appdir}" -path "*whisper_model*" -name "model.bin" \
+            -size +100M 2>/dev/null | wc -l)
+if [ "${_wsp_real}" -lt 1 ]; then
+    record_problem \
+        "产物内没有 Whisper 语音识别权重（whisper_model/model.bin 缺失或不足 100MB）" \
+        "语音录入在用户端完全不可用" \
+        "先确保模型下到 ~/EnglishCoach Models/Whisper/（应含 model.bin，约 145MB）再重新编译"
+else
+    echo "      ✓ Whisper 语音识别权重就绪（>100MB）"
 fi
 
 # 音色文件：中文/英文嗓音各需对应的 voices/*.pt，缺了照样要联网

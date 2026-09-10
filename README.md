@@ -34,11 +34,11 @@ Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/E
 
 English Coach 是一款桌面语言工具，三件事做透：**翻译**让你看懂意思，**朗读**让你听清读法，**注音**让你知道怎么念。
 
-具体包括：14 个翻译引擎（含 10 个大模型引擎，另可自定义三组）、双语音合成后端（在线 edge-tts / 离线 Kokoro）、译文自动或手动标注音标与拼音、逐词卡拉OK字幕、原文译文选区联动、翻译历史与文件导入导出。界面支持中英双语与深浅主题。
+具体包括：14 个翻译引擎（含 10 个大模型引擎，另可自定义三组）、双语音合成后端（在线 edge-tts / 离线 Kokoro）、本地 Whisper 语音录入（说话转文字，不联网）、译文自动或手动标注音标与拼音、逐词卡拉OK字幕、原文译文选区联动、翻译历史与文件导入导出。界面支持中英双语与深浅主题。
 
 English Coach is a desktop language tool built around three things: **translation** for meaning, **speech** for sound, and **ruby** for how to say it.
 
-It bundles 14 translation engines — 10 of them powered by large language models, plus three slots for your own — two text-to-speech backends (online edge-tts and offline Kokoro), IPA and pinyin annotation of the translation either automatically or on demand, word-by-word karaoke subtitles driven by real timestamps, two-way selection linking between the source and target panes, a searchable translation history, and file import/export. The interface is fully bilingual (Chinese/English) and follows light or dark themes.
+It bundles 14 translation engines — 10 of them powered by large language models, plus three slots for your own — two text-to-speech backends (online edge-tts and offline Kokoro), local Whisper voice input (speech to text, offline), IPA and pinyin annotation of the translation either automatically or on demand, word-by-word karaoke subtitles driven by real timestamps, two-way selection linking between the source and target panes, a searchable translation history, and file import/export. The interface is fully bilingual (Chinese/English) and follows light or dark themes.
 
 ---
 

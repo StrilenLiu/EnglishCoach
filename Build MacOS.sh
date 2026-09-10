@@ -169,6 +169,23 @@ except Exception as e:
     raise
 PYEOF
 
+# 预下载 Whisper 语音识别模型（faster-whisper 用的 CTranslate2 格式）
+echo "    预下载 Whisper 语音识别模型（base，约 145MB）..."
+python - <<'PYEOF' || record_problem "Whisper 语音识别模型未能下载" \
+        "产物内不含模型，语音录入功能不可用" \
+        "大陆可先设 export HF_ENDPOINT=https://hf-mirror.com 后重试"
+import os
+try:
+    from huggingface_hub import snapshot_download
+    target = os.path.expanduser("~/EnglishCoach Models/Whisper")
+    os.makedirs(target, exist_ok=True)
+    snapshot_download(repo_id="Systran/faster-whisper-base", local_dir=target)
+    print("  ✓ Whisper 模型已就绪:", target)
+except Exception as e:
+    print("  Whisper 预下载异常:", e)
+    raise
+PYEOF
+
 
 # 校验 ctranslate2 + sentencepiece 能否导入（这是 Big Sur 上最易失败处）
 echo "    校验离线翻译依赖 ..."
@@ -298,14 +315,25 @@ if [ -d "$HOME/EnglishCoach Models/Kokoro" ]; then
     echo "    将打包 Kokoro 模型: $HOME/EnglishCoach Models/Kokoro"
 fi
 
+# Whisper 同理：路径含空格，先搬到无空格的临时目录再打包
+WHISPER_DATA=""
+if [ -d "$HOME/EnglishCoach Models/Whisper" ]; then
+    rm -rf _whisper_stage
+    mkdir -p _whisper_stage
+    cp -R "$HOME/EnglishCoach Models/Whisper/." _whisper_stage/
+    WHISPER_DATA="--add-data _whisper_stage:whisper_model"
+    echo "    将打包 Whisper 模型: $HOME/EnglishCoach Models/Whisper"
+fi
+
 python -m PyInstaller \
     --name "$APP_NAME" --windowed --noconfirm --clean \
-    $ICON_ARG $DATA_ARG $MODEL_ARG $KOKORO_DATA \
+    $ICON_ARG $DATA_ARG $MODEL_ARG $KOKORO_DATA $WHISPER_DATA \
     --collect-all argostranslate \
     --collect-all ctranslate2 \
     --collect-all sentencepiece \
     --collect-all kokoro \
     --collect-all misaki \
+    --collect-all faster_whisper \
     --collect-all language_tags \
     --collect-all espeakng_loader \
     --collect-all num2words \
@@ -332,6 +360,10 @@ PLIST="dist/${APP_NAME}.app/Contents/Info.plist"
 if [ -f "$PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${MIN_MACOS:-11.0}" "$PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string ${MIN_MACOS:-11.0}" "$PLIST"
+    # 没有这条使用说明，macOS 会在 App 第一次访问麦克风时直接终止进程
+    _MIC_DESC="English Coach 需要访问麦克风，用于语音录入。"
+    /usr/libexec/PlistBuddy -c "Set :NSMicrophoneUsageDescription ${_MIC_DESC}" "$PLIST" 2>/dev/null \
+      || /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string ${_MIC_DESC}" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" 2>/dev/null || true
 fi

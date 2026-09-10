@@ -216,7 +216,7 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.17.0"
+APP_VERSION = "2.18.0"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -408,6 +408,34 @@ def _add_history(src_text, tgt_text, engine):
 
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
+    {
+        "version": "2.18.0",
+        "date": "2026-09-10",
+        "title": "语音录入 · 引擎下拉宽度锁死 · 注音图标放大",
+        "notes": [
+            "新增语音录入：主界面设置钮左边多一个麦克风钮，点一下开始说、再点一下结束，或者按住说话、松手即停（400 毫秒为界区分点击与长按）。录音时按钮变青色",
+            "识别出的文字直接填进光标所在的文本框——光标不在任何框里时填进原文区；识别语言跟随该框的语言设置，选「自动检测」就交给模型自己判断",
+            "用本地 Whisper（base 模型，随产物打包）：不联网、不要 API Key，录音不出本机。它跑在 ctranslate2 上——Argos 离线翻译用的也是这个，所以除模型本身没引入新的运行时。录音走 Qt 自己的音频输入，直接把采样喂给识别器，不落盘也不需要 ffmpeg",
+            "识别后端做成可替换的：将来接在线服务只需照 SttBackend 的形状再写一个实现并登记，调用侧不用改",
+            "极简模式下语音钮移到译文区右上角，与左端的极简钮对称——那里原本是留给对称占位块的位置",
+            "没有麦克风、或模型缺失时按钮直接置灰，气球提示写明原因；打开麦克风失败会弹窗说明。macOS 打包已写入麦克风用途说明，否则系统会在首次访问时直接终止程序",
+            "修复自定义引擎名过长把主界面引擎下拉撑大、且再也缩不回来（下拉宽度只在建立时算一次），进而把交换钮挤得不居中。现在宽度只按内置引擎算，自定义名多长都不影响；名称超过 10 个字符即截断，免得被下拉二次省略成一串点",
+            "修复英文界面下自定义引擎的标签仍是中文：标签是拼出来的，而界面重译按整串查表，「引擎 1 名称」这样的组合在词表里找不到。现已改为整串词条",
+            "注音钮图标放大：高约 1.5 倍、宽约 1.2 倍，与同排其它图标大小相称",
+        ],
+        "title_en": "Voice input, a pinned engine dropdown, and a larger Ruby icon",
+        "notes_en": [
+            "Voice input: a microphone button sits left of the settings button. Click to start talking and click again to finish, or hold the button and release when done — 400ms separates a click from a hold. The button turns teal while recording",
+            "The transcription goes straight into whichever pane holds the cursor, or the source pane when neither does, in the language that pane is set to. Leave the language on automatic and the model decides for itself",
+            "It runs Whisper locally (the base model, shipped with the build): no network, no API key, and the recording never leaves the machine. Whisper runs on ctranslate2 — the same runtime Argos offline translation already uses — so nothing new is pulled in beyond the model. Recording goes through Qt's own audio input and the samples are handed straight to the recogniser, with no file on disk and no ffmpeg",
+            "The recognition backend is replaceable: adding an online service later means writing one more implementation of SttBackend and registering it, with no change to the calling side",
+            "In minimal mode the microphone button moves to the top right of the target pane, mirroring the minimal-mode button on the left — where the symmetry spacer used to sit",
+            "With no microphone, or no model, the button is simply disabled and its tooltip says why; failing to open the microphone raises a dialog. The macOS build now declares its microphone usage, without which the system terminates the app on first access",
+            "Fixed a long custom engine name stretching the main window's engine dropdown with no way back — the width is measured once when the dropdown is built — which in turn pushed the swap button off centre. The width now comes from the built-in engines alone, and names are cut at ten characters so they are not elided into a trail of dots",
+            "Fixed the custom engine labels staying Chinese in the English interface: they were assembled from pieces, and retranslation looks up the whole string, which \"引擎 1 名称\" never was. Each label is a single entry now",
+            "The Ruby icon is about 1.5 times taller and 1.2 times wider, matching the other icons in its row",
+        ],
+    },
     {
         "version": "2.17.0",
         "date": "2026-09-07",
@@ -2696,6 +2724,11 @@ class Icons:
         "ruby": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <g transform="translate(-3.58 22.10) scale(0.01459 -0.01216)"><path d="M1679 682Q1679 784 1619.5 846.5Q1560 909 1464 909Q1361 909 1297.0 850.5Q1233 792 1217 682ZM674 504Q562 504 505.5 466.0Q449 428 449 354Q449 286 494.5 247.5Q540 209 621 209Q722 209 791.0 281.5Q860 354 860 463V504ZM186 1090Q305 1118 416.5 1132.5Q528 1147 625 1147Q775 1147 883.5 1108.5Q992 1070 1063 991Q1140 1068 1242.0 1107.5Q1344 1147 1466 1147Q1731 1147 1889.5 988.0Q2048 829 2048 563V461H1210Q1224 335 1301.5 272.0Q1379 209 1520 209Q1633 209 1751.5 242.5Q1870 276 1995 344V68Q1868 20 1740.5 -4.5Q1613 -29 1487 -29Q1308 -29 1175.5 24.5Q1043 78 971 178Q870 71 758.5 21.0Q647 -29 508 -29Q314 -29 201.0 69.5Q88 168 88 336Q88 533 223.5 625.0Q359 717 649 717H860V745Q860 830 793.0 869.5Q726 909 584 909Q469 909 370.0 886.0Q271 863 186 817Z" fill="{c}" stroke="none"/></g><path d="M5.5 4.3 H18.5" stroke-width="2.1"/></svg>""",
+        "mic": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
+                  stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 2.6a2.6 2.6 0 0 0-2.6 2.6v6.3a2.6 2.6 0 0 0 5.2 0V5.2A2.6 2.6 0 0 0 12 2.6z"/>
+                  <path d="M18 11v1a6 6 0 0 1-12 0v-1"/>
+                  <path d="M12 18v3"/><path d="M8.5 21.2h7"/></svg>""",
         "swap": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
                   stroke-linecap="round" stroke-linejoin="round">
                   <path d="m16 3 4 4-4 4"/><path d="M20 7H4"/>
@@ -4714,6 +4747,10 @@ def about_html_en():
       <li><b>Text-to-Speech</b> - dual engines edge-tts (online, high quality) and Kokoro
       (offline, no network); multiple Chinese/English voices, adjustable speed, karaoke
       word-by-word highlighting.</li>
+      <li><b>Voice input</b> - click to start and click again to stop, or hold to talk and
+      release. The transcription goes straight into whichever pane holds the cursor (the
+      source pane when neither does), in the language that pane is set to. It runs a local
+      Whisper model: no network, and the recording never leaves the machine.</li>
       <li><b>Ruby</b> - pronunciation under the translation: IPA for English, toned pinyin
       for Chinese. Single words are annotated as they are translated, and the Ruby button
       annotates a whole passage or just the selection. The transcription comes from the
@@ -4748,6 +4785,7 @@ def about_html_zh():
     <ul>
       <li><b>翻译</b> — 多引擎：Google（免费）、DeepL、Argos（离线）等传统引擎，外加 DeepSeek / OpenAI GPT / Gemini / Claude / 智谱GLM / 文心一言 / 豆包 / 通义千问 / Kimi / HunYuan 等大模型引擎；大模型引擎可开启多风格翻译（主译文 + 书面/口语/俚语/美英式等辅助译法）。</li>
       <li><b>朗读</b> — edge-tts（线上联网，音质佳）与 Kokoro（本地离线，无需联网）双引擎，多种中英嗓音、语速可调、卡拉OK逐词高亮。</li>
+      <li><b>语音录入</b> — 点一下开始说、再点结束，或按住说话松手即停。识别成文字后直接填进光标所在的文本框（不在任何框里时进原文区），识别语言跟随该框的语言设置。用本地 Whisper 模型，不联网、录音不出本机。</li>
       <li><b>注音</b> — 给译文标上读音：英文标国际音标，中文标带声调的拼音。单字与单词在翻译时自动标注，也可随时点译文区的注音钮，给整段或选中的部分标注。音标取自朗读所用的同一套发音引擎，看到的与听到的一致；词典里查不到的名字也能推断出读法。</li>
     </ul>
     <div class="t2">技术栈</div>
@@ -5031,6 +5069,18 @@ _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
 _EN["注音"] = "Ruby"
+_EN["语音录入"] = "Voice Input"
+_EN["正在录音…"] = "Recording…"
+_EN["识别中…"] = "Transcribing…"
+_EN["已录入"] = "Text inserted"
+_EN["没有录到声音"] = "No audio captured"
+_EN["没有识别出文字"] = "No speech recognised"
+_EN["语音识别失败"] = "Speech recognition failed"
+_EN["没有可用的麦克风"] = "No microphone available"
+_EN["无法打开麦克风"] = "Could not open the microphone"
+_EN["未找到语音识别模型"] = "Speech model not found"
+_EN["语音识别组件缺失"] = "Speech recognition component missing"
+_EN["语音识别不可用"] = "Speech recognition unavailable"
 _EN["已注音"] = "Annotated"
 _EN["这段文字标不出注音"] = "No pronunciation available for this text"
 _EN["自定义 API 引擎（可选，最多三组）"] = "Custom API Engines (optional, up to three)"
@@ -6120,6 +6170,191 @@ class PillBusyBar(QWidget):
         p.drawRoundedRect(x, 0, cw, h, r, r)
 
 
+# =============================================================================
+#  语音录入（STT）
+#
+#  后端刻意做成可替换的：眼下只有本地 Whisper 一个实现，将来接在线服务时照
+#  SttBackend 的形状再写一个、往 _STT_BACKENDS 里一登记即可，调用侧不用动。
+# =============================================================================
+
+STT_SAMPLE_RATE = 16000      # Whisper 只吃 16kHz 单声道
+
+
+def _whisper_model_dir():
+    """找本地 Whisper 模型，路径约定与 Kokoro 一致（见 _ec_bootstrap_hf）。"""
+    cands = []
+    if os.environ.get("ENGLISHCOACH_MODELS"):
+        cands.append(os.path.join(os.environ["ENGLISHCOACH_MODELS"], "Whisper"))
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        cands.append(os.path.join(mei, "whisper_model"))
+    cands.append(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "whisper_model"))
+    cands.append(os.path.expanduser("~/EnglishCoach Models/Whisper"))
+    for d in cands:
+        if os.path.isdir(d) and os.path.isfile(os.path.join(d, "model.bin")):
+            return d
+    return ""
+
+
+class SttBackend:
+    """语音转文字后端的形状。新后端照这个实现即可。"""
+
+    name = ""
+
+    def available(self):
+        return False
+
+    def unavailable_reason(self):
+        return L("语音识别不可用")
+
+    def transcribe(self, samples, lang):
+        """samples: float32 单声道 16kHz；lang: 'zh'/'en'/None(自动)。"""
+        return ""
+
+
+class WhisperLocalStt(SttBackend):
+    """本地 Whisper。跑在 ctranslate2 上——Argos 离线翻译用的也是它，
+    所以除了模型本身没引入新的运行时。"""
+
+    name = "whisper-local"
+
+    def __init__(self):
+        self._model = None
+
+    def available(self):
+        if not _whisper_model_dir():
+            return False
+        try:
+            import faster_whisper       # noqa: F401
+        except Exception:
+            return False
+        return True
+
+    def unavailable_reason(self):
+        if not _whisper_model_dir():
+            return L("未找到语音识别模型")
+        return L("语音识别组件缺失")
+
+    def _load(self):
+        if self._model is None:
+            from faster_whisper import WhisperModel
+            # int8 量化：CPU 上快得多，对短句的准确率影响可忽略
+            self._model = WhisperModel(_whisper_model_dir(),
+                                       device="cpu", compute_type="int8")
+        return self._model
+
+    def transcribe(self, samples, lang):
+        # 不开 vad_filter：那要拉进 onnxruntime（约 50MB），而用户是主动按键
+        # 录音、本就没有大段静音，省下这份体积更划算
+        segs, _info = self._load().transcribe(
+            samples, language=lang or None, beam_size=1, vad_filter=False)
+        return "".join(sg.text for sg in segs).strip()
+
+
+_STT_BACKENDS = {WhisperLocalStt.name: WhisperLocalStt}
+_stt_instance = None
+
+
+def _stt_backend():
+    """当前后端。settings 的 stt_engine 决定，认不出的名字退回本地 Whisper。"""
+    global _stt_instance
+    if _stt_instance is None:
+        from PyQt6.QtCore import QSettings as _QS
+        _n = _QS("Strilen", "EnglishCoach").value(
+            "stt_engine", WhisperLocalStt.name)
+        _stt_instance = _STT_BACKENDS.get(_n, WhisperLocalStt)()
+    return _stt_instance
+
+
+def _stt_lang_code(lang_name):
+    """界面上的语言选项 -> Whisper 语言代码。「自动检测」返回 None 让它自己判。"""
+    return {"中文": "zh", "English": "en"}.get(lang_name)
+
+
+class SttWorker(QThread):
+    """识别放后台：Whisper 一句话也要跑上一两秒，卡在主线程界面会僵住。"""
+
+    finished_ok = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, samples, lang, parent=None):
+        super().__init__(parent)
+        self._samples, self._lang = samples, lang
+
+    def run(self):
+        try:
+            self.finished_ok.emit(
+                _stt_backend().transcribe(self._samples, self._lang))
+        except Exception as e:
+            _log_error(f"语音识别失败: {e}")
+            self.failed.emit(str(e))
+
+
+class VoiceRecorder(QObject):
+    """用 QAudioSource 录 16kHz 单声道 PCM，采样直接进内存。
+
+    不落盘、不经 ffmpeg——Whisper 要的就是原始采样，中间转一道音频文件只会
+    平添一个几十兆的解码器依赖。
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._src = None
+        self._io = None
+        self._buf = bytearray()
+
+    @staticmethod
+    def input_available():
+        try:
+            from PyQt6.QtMultimedia import QMediaDevices
+            return not QMediaDevices.defaultAudioInput().isNull()
+        except Exception:
+            return False
+
+    def start(self):
+        from PyQt6.QtMultimedia import (QAudioSource, QAudioFormat,
+                                        QMediaDevices)
+        fmt = QAudioFormat()
+        fmt.setSampleRate(STT_SAMPLE_RATE)
+        fmt.setChannelCount(1)
+        fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
+        dev = QMediaDevices.defaultAudioInput()
+        if dev.isNull():
+            raise RuntimeError(L("没有可用的麦克风"))
+        self._buf = bytearray()
+        self._src = QAudioSource(dev, fmt, self)
+        self._io = self._src.start()
+        if self._io is None:
+            raise RuntimeError(L("无法打开麦克风"))
+        self._io.readyRead.connect(self._drain)
+
+    def _drain(self):
+        try:
+            self._buf += bytes(self._io.readAll())
+        except Exception:
+            pass
+
+    def stop(self):
+        """停止录音，返回 float32 采样；没录到东西返回 None。"""
+        try:
+            if self._io is not None:
+                self._drain()
+            if self._src is not None:
+                self._src.stop()
+        except Exception:
+            _log_exc("recorder_stop")
+        finally:
+            self._src = None
+            self._io = None
+        if len(self._buf) < 2:
+            return None
+        import numpy as _np
+        pcm = _np.frombuffer(bytes(self._buf), dtype=_np.int16)
+        self._buf = bytearray()
+        return pcm.astype(_np.float32) / 32768.0
+
+
 class _DockReopenFilter(QObject):
     """macOS：点 Dock 图标把藏进菜单栏的主窗召回。
 
@@ -6226,6 +6461,17 @@ class MainWindow(QMainWindow):
             self._tool_btns.append(b)
             return b
 
+        # 语音钮紧贴设置钮左边。不登记进 _tool_btns——那一组极简模式要整体
+        # 隐藏，而语音钮在极简下仍要用，只是换个位置（见 _place_voice_btn）。
+        self.voice_btn = QPushButton(Icons.icon("mic"), "")
+        self.voice_btn.setProperty("_icn", "mic")
+        self.voice_btn.setFixedSize(36, 36)
+        self.voice_btn.setObjectName("toolbtn")
+        self.voice_btn.setToolTip(L("语音录入"))
+        self.voice_btn.pressed.connect(self._voice_pressed)
+        self.voice_btn.released.connect(self._voice_released)
+        box.addWidget(self.voice_btn)
+        self._tool_box = box
         box.addWidget(mk("settings", L("设置"), self.open_settings))
         box.addWidget(mk("history", L("更新说明"),
                          lambda: DocDialog(L("版本更新说明"), changelog_html(), self).exec()))
@@ -6320,6 +6566,7 @@ class MainWindow(QMainWindow):
         _mirror.setVisible(False)
         self._mini_mirror = _mirror
         rl.addWidget(_mirror)
+        self._right_layout = rl
         self._minimal_ui = False
         self._restore_minimal = (self.settings.value("minimal_ui", "false") == "true")
         self._lit_end = None
@@ -6700,7 +6947,9 @@ class MainWindow(QMainWindow):
         for _b in getattr(self, "_tool_btns", []):
             _b.setVisible(not mini)
         if hasattr(self, "_mini_mirror"):
-            self._mini_mirror.setVisible(mini)
+            # 极简下语音钮占了这个位置，占位块就不必再显示
+            self._mini_mirror.setVisible(mini and not hasattr(self, "voice_btn"))
+        self._place_voice_btn(mini)
         self.min_btn.setVisible(True)   # 极简钮始终可见（否则无法退出极简）
         self._ui_swap.setVisible(True)  # 极简模式保留交换钮
         if mini:
@@ -7028,6 +7277,127 @@ class MainWindow(QMainWindow):
         except Exception:
             _log_exc("ruby_dim")
         self.status.showMessage(L("已注音"), 2000)
+
+    # ---- 语音录入 --------------------------------------------------
+
+    def _place_voice_btn(self, mini):
+        """正常模式贴在设置钮左边；极简模式移到译文区右上——那里正是与
+        左端极简钮对称的位置。同一个按钮换位置，状态不用两头同步。"""
+        b = getattr(self, "voice_btn", None)
+        if b is None:
+            return
+        try:
+            box, rl = self._tool_box, self._right_layout
+            (rl if mini else box).removeWidget(b)
+            (box if not mini else rl).removeWidget(b)
+            if mini:
+                rl.addWidget(b)
+            else:
+                box.insertWidget(0, b)
+            b.setVisible(True)
+        except Exception:
+            _log_exc("place_voice_btn")
+
+    def _sync_voice_btn(self):
+        """麦克风或识别组件缺一样就置灰，并把原因写进气球提示。"""
+        b = getattr(self, "voice_btn", None)
+        if b is None:
+            return
+        try:
+            if not VoiceRecorder.input_available():
+                b.setEnabled(False)
+                b.setToolTip(L("没有可用的麦克风"))
+                return
+            be = _stt_backend()
+            if not be.available():
+                b.setEnabled(False)
+                b.setToolTip(be.unavailable_reason())
+                return
+            b.setEnabled(True)
+            b.setToolTip(L("语音录入"))
+        except Exception:
+            _log_exc("sync_voice_btn")
+
+    def _voice_target_editor(self):
+        """光标在哪个框就写进哪个框；不在任何框里时默认原文区。"""
+        return (self.output_edit
+                if QApplication.focusWidget() is self.output_edit
+                else self.input_edit)
+
+    def _voice_pressed(self):
+        self._voice_timer = QElapsedTimer()
+        self._voice_timer.start()
+        self._voice_was_on = getattr(self, "_voice_on", False)
+        if not self._voice_was_on:
+            self._voice_start()
+
+    def _voice_released(self):
+        """短按一下开始、再短按一下结束；按住不放则松手即结束。
+        400ms 为界——比这短的按压当成点击。"""
+        held = self._voice_timer.elapsed() if hasattr(self, "_voice_timer") else 0
+        if self._voice_was_on or held >= 400:
+            self._voice_stop()
+
+    def _voice_set_active(self, on):
+        self._voice_on = on
+        b = self.voice_btn
+        b.setStyleSheet(
+            "QPushButton{background:#5aa8b0;border:1px solid #5aa8b0;"
+            "border-radius:5px;}" if on else "")
+
+    def _voice_start(self):
+        try:
+            if getattr(self, "_voice_rec", None) is None:
+                self._voice_rec = VoiceRecorder(self)
+            self._voice_editor = self._voice_target_editor()
+            self._voice_rec.start()
+            self._voice_set_active(True)
+            self.status.showMessage(L("正在录音…"), 0)
+        except Exception as e:
+            _log_error(f"录音启动失败: {e}")
+            self._voice_set_active(False)
+            self._themed_msgbox(QMessageBox.Icon.Warning, "语音录入",
+                                f"{L('无法打开麦克风')}\n\n{e}")
+
+    def _voice_stop(self):
+        self._voice_set_active(False)
+        rec = getattr(self, "_voice_rec", None)
+        if rec is None:
+            return
+        try:
+            samples = rec.stop()
+        except Exception:
+            _log_exc("voice_stop")
+            samples = None
+        if samples is None or len(samples) < STT_SAMPLE_RATE // 4:
+            # 不足 0.25 秒：多半是误触，不值得跑一趟识别
+            self.status.showMessage(L("没有录到声音"), 2500)
+            return
+        ed = getattr(self, "_voice_editor", None) or self.input_edit
+        lang = _stt_lang_code(
+            (self.tgt_combo if ed is self.output_edit
+             else self.src_combo).currentData())
+        self.status.showMessage(L("识别中…"), 0)
+        self.voice_btn.setEnabled(False)
+        self._stt_worker = SttWorker(samples, lang, self)
+        self._stt_worker.finished_ok.connect(self._on_stt_ok)
+        self._stt_worker.failed.connect(self._on_stt_fail)
+        self._stt_worker.start()
+
+    def _on_stt_ok(self, text):
+        self._sync_voice_btn()
+        if not text:
+            self.status.showMessage(L("没有识别出文字"), 2500)
+            return
+        ed = getattr(self, "_voice_editor", None) or self.input_edit
+        ed.setFocus()
+        ed.insertPlainText(text)
+        self.status.showMessage(L("已录入"), 2000)
+
+    def _on_stt_fail(self, msg):
+        self._sync_voice_btn()
+        self.status.showMessage(L("语音识别失败"), 3000)
+        self._themed_msgbox(QMessageBox.Icon.Warning, "语音录入", msg)
 
     def _paste(self, editor):
         text = QApplication.clipboard().text()
@@ -9420,6 +9790,10 @@ def main():
         pass
     try:
         win._sync_export_text_buttons()   # 启动时空文本 -> 导出文字钮初始为灰
+    except Exception:
+        pass
+    try:
+        win._sync_voice_btn()   # 没麦克风或缺模型时，语音钮启动就该是灰的
     except Exception:
         pass
     try:

@@ -7,9 +7,35 @@
 > edit it by hand. To change a release note, edit the `CHANGELOG` list in
 > `english_coach.py` and re-run the generator.
 
-**当前版本 / Current version: v2.17.0**
+**当前版本 / Current version: v2.18.0**
 
 ---
+
+## v2.18.0 — 2026-09-10
+
+**语音录入 · 引擎下拉宽度锁死 · 注音图标放大**
+
+*Voice input, a pinned engine dropdown, and a larger Ruby icon*
+
+- 新增语音录入：主界面设置钮左边多一个麦克风钮，点一下开始说、再点一下结束，或者按住说话、松手即停（400 毫秒为界区分点击与长按）。录音时按钮变青色
+- 识别出的文字直接填进光标所在的文本框——光标不在任何框里时填进原文区；识别语言跟随该框的语言设置，选「自动检测」就交给模型自己判断
+- 用本地 Whisper（base 模型，随产物打包）：不联网、不要 API Key，录音不出本机。它跑在 ctranslate2 上——Argos 离线翻译用的也是这个，所以除模型本身没引入新的运行时。录音走 Qt 自己的音频输入，直接把采样喂给识别器，不落盘也不需要 ffmpeg
+- 识别后端做成可替换的：将来接在线服务只需照 SttBackend 的形状再写一个实现并登记，调用侧不用改
+- 极简模式下语音钮移到译文区右上角，与左端的极简钮对称——那里原本是留给对称占位块的位置
+- 没有麦克风、或模型缺失时按钮直接置灰，气球提示写明原因；打开麦克风失败会弹窗说明。macOS 打包已写入麦克风用途说明，否则系统会在首次访问时直接终止程序
+- 修复自定义引擎名过长把主界面引擎下拉撑大、且再也缩不回来（下拉宽度只在建立时算一次），进而把交换钮挤得不居中。现在宽度只按内置引擎算，自定义名多长都不影响；名称超过 10 个字符即截断，免得被下拉二次省略成一串点
+- 修复英文界面下自定义引擎的标签仍是中文：标签是拼出来的，而界面重译按整串查表，「引擎 1 名称」这样的组合在词表里找不到。现已改为整串词条
+- 注音钮图标放大：高约 1.5 倍、宽约 1.2 倍，与同排其它图标大小相称
+
+- *Voice input: a microphone button sits left of the settings button. Click to start talking and click again to finish, or hold the button and release when done — 400ms separates a click from a hold. The button turns teal while recording*
+- *The transcription goes straight into whichever pane holds the cursor, or the source pane when neither does, in the language that pane is set to. Leave the language on automatic and the model decides for itself*
+- *It runs Whisper locally (the base model, shipped with the build): no network, no API key, and the recording never leaves the machine. Whisper runs on ctranslate2 — the same runtime Argos offline translation already uses — so nothing new is pulled in beyond the model. Recording goes through Qt's own audio input and the samples are handed straight to the recogniser, with no file on disk and no ffmpeg*
+- *The recognition backend is replaceable: adding an online service later means writing one more implementation of SttBackend and registering it, with no change to the calling side*
+- *In minimal mode the microphone button moves to the top right of the target pane, mirroring the minimal-mode button on the left — where the symmetry spacer used to sit*
+- *With no microphone, or no model, the button is simply disabled and its tooltip says why; failing to open the microphone raises a dialog. The macOS build now declares its microphone usage, without which the system terminates the app on first access*
+- *Fixed a long custom engine name stretching the main window's engine dropdown with no way back — the width is measured once when the dropdown is built — which in turn pushed the swap button off centre. The width now comes from the built-in engines alone, and names are cut at ten characters so they are not elided into a trail of dots*
+- *Fixed the custom engine labels staying Chinese in the English interface: they were assembled from pieces, and retranslation looks up the whole string, which "引擎 1 名称" never was. Each label is a single entry now*
+- *The Ruby icon is about 1.5 times taller and 1.2 times wider, matching the other icons in its row*
 
 ## v2.17.0 — 2026-09-07
 

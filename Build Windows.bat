@@ -96,6 +96,8 @@ if errorlevel 1 (
 python -c "import torch,transformers,kokoro;print('Kokoro deps OK, torch',torch.__version__,'transformers',transformers.__version__)" || call :problem "Kokoro dependency chain check failed" "Offline speech synthesis will not work"
 echo     Pre-download Kokoro model (~330MB, first time slow)...
 python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Kokoro');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='hexgrad/Kokoro-82M',local_dir=t);print('Kokoro model ready:',t)" || call :problem "Kokoro offline speech model was not downloaded" "The build contains no model; users must be online for first playback"
+echo     Pre-download Whisper speech model (base, ~145MB)...
+python -c "import os;from huggingface_hub import snapshot_download;t=os.path.expanduser('~/EnglishCoach Models/Whisper');os.makedirs(t,exist_ok=True);snapshot_download(repo_id='Systran/faster-whisper-base',local_dir=t);print('Whisper model ready:',t)" || call :problem "Whisper speech model was not downloaded" "The build contains no model; voice input will not work at all"
 
 echo ==^> [3/7] Prepare Argos en/zh offline models (cache subdir: argos)
 if not exist argos_models mkdir argos_models
@@ -126,6 +128,15 @@ if exist "%USERPROFILE%\EnglishCoach Models\Kokoro" (
     set KOKORO_DATA=--add-data _kokoro_stage;kokoro_model
 )
 
+set WHISPER_DATA=
+if exist "%USERPROFILE%\EnglishCoach Models\Whisper" (
+    REM Same space-in-path problem as Kokoro; stage to a no-space directory
+    if exist _whisper_stage rmdir /s /q _whisper_stage
+    mkdir _whisper_stage
+    xcopy "%USERPROFILE%\EnglishCoach Models\Whisper" _whisper_stage\ /E /I /Q >nul
+    set WHISPER_DATA=--add-data _whisper_stage;whisper_model
+)
+
 echo ==^> [5/7] Clean old build
 set DESTDIR=dist\Windows-x64-CPU
 if exist build rmdir /s /q build
@@ -149,11 +160,13 @@ python -m PyInstaller ^
     %DATA_ARG% ^
     %MODEL_ARG% ^
     %KOKORO_DATA% ^
+    %WHISPER_DATA% ^
     --collect-all argostranslate ^
     --collect-all ctranslate2 ^
     --collect-all sentencepiece ^
     --collect-all kokoro ^
     --collect-all misaki ^
+    --collect-all faster_whisper ^
     --collect-all language_tags ^
     --collect-all espeakng_loader ^
     --collect-all num2words ^
@@ -211,6 +224,16 @@ if %KOK_N% LSS 1 (
     call :problem "No Kokoro model weights in the build" "Offline speech needs a network download on first use"
 ) else (
     echo       OK - Kokoro weights: %KOK_N%
+)
+
+set "WSP_N=0"
+for /r "%DESTDIR%\%APP_NAME%" %%F in (model.bin) do (
+    if %%~zF GTR 100000000 set /a WSP_N+=1
+)
+if %WSP_N% LSS 1 (
+    call :problem "No Whisper speech model in the build" "Voice input will not work at all"
+) else (
+    echo       OK - Whisper speech model present
 )
 
 REM 打包后结算：产物已生成但内容不合格，同样阻断，避免误当成品发布

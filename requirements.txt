@@ -63,6 +63,8 @@ sacremoses
 torch==2.2.2
 transformers==4.40.2
 kokoro
+# 语音录入：faster-whisper 跑在上面那个 ctranslate2 上，除模型外不引入新运行时
+faster-whisper
 soundfile
 lameenc
 

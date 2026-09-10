@@ -81,4 +81,5 @@ api_keys.json
 # Face 模型仓库的副本，自带 .gitattributes 声明 LFS，git add 会因缺 git-lfs 失败。
 # argos_models: 构建时下载的 Argos 中英离线翻译模型，两个各约 100MB。
 _kokoro_stage/
+_whisper_stage/
 argos_models/
