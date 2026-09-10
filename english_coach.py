@@ -2723,7 +2723,7 @@ class Icons:
         # 免得哪台机器缺 IPA 字形就渲染成空白。
         "ruby": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <g transform="translate(0.59 22.42) scale(0.01126 -0.01310)"><path d="M1718 660Q1717 811 1634.5 901.0Q1552 991 1415 991Q1262 991 1169.5 904.0Q1077 817 1063 659ZM995 963Q1069 1053 1175.0 1100.0Q1281 1147 1413 1147Q1639 1147 1771.0 1001.5Q1903 856 1903 606V516H1057Q1069 325 1171.0 225.0Q1273 125 1456 125Q1560 125 1660.0 151.5Q1760 178 1860 231V57Q1760 15 1656.0 -7.0Q1552 -29 1446 -29Q1279 -29 1155.0 31.5Q1031 92 954 211Q881 91 773.0 31.0Q665 -29 522 -29Q333 -29 228.0 64.5Q123 158 123 326Q123 515 249.5 611.0Q376 707 627 707H885V725Q885 852 801.5 921.5Q718 991 567 991Q471 991 380.0 968.0Q289 945 205 899V1069Q306 1108 401.0 1127.5Q496 1147 586 1147Q728 1147 834.5 1099.0Q941 1051 995 963ZM702 563Q479 563 393.0 512.0Q307 461 307 338Q307 240 371.5 182.5Q436 125 547 125Q700 125 792.5 233.5Q885 342 885 522V563Z" fill="{c}" stroke="none"/></g><path d="M7.4 4.3 H16.6" stroke-width="1.7"/></svg>""",
+                  <g transform="translate(1.75 22.42) scale(0.01012 -0.01310)"><path d="M1718 660Q1717 811 1634.5 901.0Q1552 991 1415 991Q1262 991 1169.5 904.0Q1077 817 1063 659ZM995 963Q1069 1053 1175.0 1100.0Q1281 1147 1413 1147Q1639 1147 1771.0 1001.5Q1903 856 1903 606V516H1057Q1069 325 1171.0 225.0Q1273 125 1456 125Q1560 125 1660.0 151.5Q1760 178 1860 231V57Q1760 15 1656.0 -7.0Q1552 -29 1446 -29Q1279 -29 1155.0 31.5Q1031 92 954 211Q881 91 773.0 31.0Q665 -29 522 -29Q333 -29 228.0 64.5Q123 158 123 326Q123 515 249.5 611.0Q376 707 627 707H885V725Q885 852 801.5 921.5Q718 991 567 991Q471 991 380.0 968.0Q289 945 205 899V1069Q306 1108 401.0 1127.5Q496 1147 586 1147Q728 1147 834.5 1099.0Q941 1051 995 963ZM702 563Q479 563 393.0 512.0Q307 461 307 338Q307 240 371.5 182.5Q436 125 547 125Q700 125 792.5 233.5Q885 342 885 522V563Z" fill="{c}" stroke="none"/></g><path d="M7.5 4.2 H16.5" stroke-width="1.7"/></svg>""",
         "mic": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M12 2.6a2.6 2.6 0 0 0-2.6 2.6v6.3a2.6 2.6 0 0 0 5.2 0V5.2A2.6 2.6 0 0 0 12 2.6z"/>
@@ -2962,7 +2962,7 @@ LLM_ENGINE_SET = {
 
 # ---- 用户自定义 API 引擎（三组，一律按 OpenAI 兼容的 chat 接口调用）----
 CUSTOM_ENGINE_SLOTS = (1, 2, 3)
-CUSTOM_ENGINE_SUFFIX = " -API Key"
+CUSTOM_ENGINE_SUFFIX = " -API-Key联网"
 
 
 def _custom_engine_configs(settings):
@@ -2971,21 +2971,26 @@ def _custom_engine_configs(settings):
     名称、接口地址、模型名三样齐全才算数——缺一样就发不出请求，与其让它出现
     在下拉里等着报错，不如根本不列出来。重名的后一组自动带上槽位序号区分。
     """
-    out = {}
+    slots = []
     for i in CUSTOM_ENGINE_SLOTS:
         name = (settings.value(f"custom{i}_name", "") or "").strip()
         url = (settings.value(f"custom{i}_endpoint", "") or "").strip()
         model = (settings.value(f"custom{i}_model", "") or "").strip()
-        if not (name and url and model):
-            continue
-        # 显示成「引擎名 模型名 -API Key」，与内置引擎的「Google -线上联网」
-        # 同一体例。前半段超过 20 字符就截断——下拉宽度是按内置引擎钉死的，
-        # 再长也只会被二次省略。
-        head = f"{name} {model}"
+        if name and url and model:
+            slots.append((i, name, url, model))
+    # 先数一遍模型名：两组用同一个模型时，两条都补上引擎名，只补后一条会
+    # 显得一条有一条没有。
+    dup = {m for _, _, _, m in slots
+           if sum(1 for _, _, _, x in slots if x == m) > 1}
+    out = {}
+    for i, name, url, model in slots:
+        # 显示成「模型名 -API-Key联网」，与内置的「DeepSeek -API-Key联网」
+        # 一字不差同体例。引擎名留给用户自己认，撞车时才拿出来区分。
+        head = f"{model} -{name}" if model in dup else model
         if len(head) > 20:
             head = head[:20] + "…"
         eid = head + CUSTOM_ENGINE_SUFFIX
-        if eid in out:
+        if eid in out:                      # 截断后仍撞车，用槽位号兜底
             eid = f"{head} {i}{CUSTOM_ENGINE_SUFFIX}"
         out[eid] = {
             "endpoint": url, "model": model,
@@ -4561,16 +4566,7 @@ class SettingsDialog(QDialog):
 
     def _open_log(self):
         """用系统默认程序打开日志文件。"""
-        import os
-        from PyQt6.QtGui import QDesktopServices
-        from PyQt6.QtCore import QUrl
-        p = _log_path()
-        if not os.path.exists(p):
-            try:
-                open(p, "a", encoding="utf-8").close()
-            except Exception:
-                pass
-        QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+        _open_log_file()
 
     def _retheme(self):
         """主题热切换时被主窗 apply_theme 调用：按新深浅重建本窗自绘样式
@@ -5078,6 +5074,7 @@ _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
 _EN["注音"] = "Ruby"
+_EN["点击打开运行日志"] = "Click to open the runtime log"
 _EN["语音录入"] = "Voice Input"
 _EN["正在录音…"] = "Recording…"
 _EN["识别中…"] = "Transcribing…"
@@ -5424,9 +5421,27 @@ def _install_global_excepthook():
 
 
 def _rounded_scrollbar_qss():
-    """（已停用）历史上用于 Win10/Linux 自绘圆角滚动条。现决定各平台一律用
-    系统原生滚动条，故返回空串，不再注入任何滚动条 QSS。"""
-    return ""
+    """Win10 / Linux 深色主题下的滚动条配色。
+
+    这些平台用的是旧样式引擎，滚动条不认 setColorScheme，深色界面里仍画成
+    系统的浅色——一条白杠戳在黑底上。浅色主题不插手：那时原生颜色本来就对，
+    保持原生手感更好。（mac 与 Win11 走 _native_scrollbar_platform，根本到
+    不了这里。）
+    """
+    if _theme_is_light():
+        return ""
+    return ("""
+            QScrollBar:vertical { background:#252526; width:12px; margin:0; }
+            QScrollBar:horizontal { background:#252526; height:12px; margin:0; }
+            QScrollBar::handle:vertical { background:#4a4a4d; border-radius:6px;
+                min-height:28px; }
+            QScrollBar::handle:horizontal { background:#4a4a4d; border-radius:6px;
+                min-width:28px; }
+            QScrollBar::handle:hover { background:#5f5f64; }
+            QScrollBar::add-line, QScrollBar::sub-line { height:0; width:0;
+                border:none; background:transparent; }
+            QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
+""")
 
 
 
@@ -6362,6 +6377,32 @@ class VoiceRecorder(QObject):
         pcm = _np.frombuffer(bytes(self._buf), dtype=_np.int16)
         self._buf = bytearray()
         return pcm.astype(_np.float32) / 32768.0
+
+
+def _open_log_file():
+    """用系统默认程序打开日志。设置窗的按钮和状态栏点击共用一条路径。"""
+    from PyQt6.QtGui import QDesktopServices
+    p = _log_path()
+    if not os.path.exists(p):
+        try:
+            open(p, "a", encoding="utf-8").close()
+        except Exception:
+            pass
+    QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+
+
+class _StatusClickFilter(QObject):
+    """点状态栏＝打开日志。出错提示就显示在这条栏上，顺手点开看详情最自然，
+    不必再进设置窗找那个按钮。"""
+
+    def eventFilter(self, obj, ev):
+        try:
+            if ev.type() == QEvent.Type.MouseButtonPress:
+                _open_log_file()
+                return True
+        except Exception:
+            _log_exc("status_click")
+        return False
 
 
 class _DockReopenFilter(QObject):
@@ -7438,6 +7479,12 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.status.setSizeGripEnabled(False)   # 去掉 Windows 右下角的灰色拖拽块
         self.setStatusBar(self.status)
+        # 点状态栏＝打开日志。出错提示就显示在这里，顺手点开看详情最自然。
+        # 过滤器要留个引用，否则被回收，点击就没反应了。
+        self._status_click = _StatusClickFilter(self)
+        self.status.installEventFilter(self._status_click)
+        self.status.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.status.setToolTip(L("点击打开运行日志"))
         self.status.showMessage(L("就绪"))
 
     # ---------- 样式 ----------
