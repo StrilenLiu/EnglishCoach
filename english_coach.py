@@ -2695,7 +2695,7 @@ class Icons:
         # 免得哪台机器缺 IPA 字形就渲染成空白。
         "ruby": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}"
                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <g transform="translate(3.37 18.52) scale(0.00808 -0.00808)"><path d="M1679 682Q1679 784 1619.5 846.5Q1560 909 1464 909Q1361 909 1297.0 850.5Q1233 792 1217 682ZM674 504Q562 504 505.5 466.0Q449 428 449 354Q449 286 494.5 247.5Q540 209 621 209Q722 209 791.0 281.5Q860 354 860 463V504ZM186 1090Q305 1118 416.5 1132.5Q528 1147 625 1147Q775 1147 883.5 1108.5Q992 1070 1063 991Q1140 1068 1242.0 1107.5Q1344 1147 1466 1147Q1731 1147 1889.5 988.0Q2048 829 2048 563V461H1210Q1224 335 1301.5 272.0Q1379 209 1520 209Q1633 209 1751.5 242.5Q1870 276 1995 344V68Q1868 20 1740.5 -4.5Q1613 -29 1487 -29Q1308 -29 1175.5 24.5Q1043 78 971 178Q870 71 758.5 21.0Q647 -29 508 -29Q314 -29 201.0 69.5Q88 168 88 336Q88 533 223.5 625.0Q359 717 649 717H860V745Q860 830 793.0 869.5Q726 909 584 909Q469 909 370.0 886.0Q271 863 186 817Z" fill="{c}" stroke="none"/></g><path d="M7 5.2 H17" stroke-width="1.9"/></svg>""",
+                  <g transform="translate(-3.58 22.10) scale(0.01459 -0.01216)"><path d="M1679 682Q1679 784 1619.5 846.5Q1560 909 1464 909Q1361 909 1297.0 850.5Q1233 792 1217 682ZM674 504Q562 504 505.5 466.0Q449 428 449 354Q449 286 494.5 247.5Q540 209 621 209Q722 209 791.0 281.5Q860 354 860 463V504ZM186 1090Q305 1118 416.5 1132.5Q528 1147 625 1147Q775 1147 883.5 1108.5Q992 1070 1063 991Q1140 1068 1242.0 1107.5Q1344 1147 1466 1147Q1731 1147 1889.5 988.0Q2048 829 2048 563V461H1210Q1224 335 1301.5 272.0Q1379 209 1520 209Q1633 209 1751.5 242.5Q1870 276 1995 344V68Q1868 20 1740.5 -4.5Q1613 -29 1487 -29Q1308 -29 1175.5 24.5Q1043 78 971 178Q870 71 758.5 21.0Q647 -29 508 -29Q314 -29 201.0 69.5Q88 168 88 336Q88 533 223.5 625.0Q359 717 649 717H860V745Q860 830 793.0 869.5Q726 909 584 909Q469 909 370.0 886.0Q271 863 186 817Z" fill="{c}" stroke="none"/></g><path d="M5.5 4.3 H18.5" stroke-width="2.1"/></svg>""",
         "swap": """<svg viewBox="0 0 24 24" fill="none" stroke="{c}" stroke-width="1.8"
                   stroke-linecap="round" stroke-linejoin="round">
                   <path d="m16 3 4 4-4 4"/><path d="M20 7H4"/>
@@ -2945,9 +2945,10 @@ def _custom_engine_configs(settings):
         model = (settings.value(f"custom{i}_model", "") or "").strip()
         if not (name and url and model):
             continue
-        # 名字太长会把引擎下拉撑开，超过 20 个字符就截断加省略号。
-        if len(name) > 20:
-            name = name[:20] + "…"
+        # 下拉宽度是按内置引擎钉死的，名字加上 " -自定义API" 后缀要放得进去，
+        # 所以超过 10 个字符就截断——再长只会被下拉二次省略成一串点。
+        if len(name) > 10:
+            name = name[:10] + "…"
         eid = name + CUSTOM_ENGINE_SUFFIX
         if eid in out:
             eid = f"{name} {i}{CUSTOM_ENGINE_SUFFIX}"
@@ -3702,16 +3703,23 @@ def _fit_combo_popup_width(combo):
         pass
 
 
-def fit_combo_width(combo, extra=0, popup_extra=0):
+def fit_combo_width(combo, extra=0, popup_extra=0, width_items=None):
     """按最长项设为固定显示宽度。弹出列表比按钮略宽、完整显示、
     行距适中、无多余空白、边框均匀。
-    extra=闭合框(第一部分)额外加宽；popup_extra=弹出列表(第二部分)额外加宽。"""
+    extra=闭合框(第一部分)额外加宽；popup_extra=弹出列表(第二部分)额外加宽。
+
+    width_items: 只按这些文本算宽度，不看下拉里实际有什么。引擎下拉用它把宽
+    度钉死在内置引擎的长度上——用户自定义的引擎名再长也不该把主界面撑变形，
+    撑开之后还缩不回来（宽度只在建下拉时算一次）。
+    """
     from PyQt6.QtGui import QFontMetrics
     from PyQt6.QtWidgets import QFrame, QListView
     fm = QFontMetrics(combo.font())
     widest = 0
-    for i in range(combo.count()):
-        widest = max(widest, fm.horizontalAdvance(combo.itemText(i)))
+    _texts = ([L(t) for t in width_items] if width_items is not None
+              else [combo.itemText(i) for i in range(combo.count())])
+    for _t in _texts:
+        widest = max(widest, fm.horizontalAdvance(_t))
     # 留足右侧下拉箭头 + 最小内边距（尽量紧凑，给交换钮居中腾空间）
     combo.setFixedWidth(widest + 52 + extra)   # +52基础，extra额外加宽
     combo.setFixedHeight(36)   # 与正方形按钮等高
@@ -4278,10 +4286,12 @@ class SettingsDialog(QDialog):
             for _e in (_n, _u, _m, _k):
                 _e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
                 _e.setMinimumWidth(220)
-            form.addRow(f"{L('引擎')} {_i} {L('名称')}:", _n)
+            # 用整串做词条：界面重译走的是整串查表（见 _translate_text），
+            # 拼出来的标签查不到就会留在中文。
+            form.addRow(L(f"引擎 {_i} 名称") + ":", _n)
             form.addRow(L("接口地址") + ":", _u)
             form.addRow(L("模型名") + ":", _m)
-            form.addRow(f"{L('引擎')} {_i} Key:", _k)
+            form.addRow(L(f"引擎 {_i} Key") + ":", _k)
             self._custom_edits[_i] = (_n, _u, _m)
             # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
             self._key_edits[f"custom{_i}"] = _k
@@ -5037,6 +5047,12 @@ _EN["接口地址"] = "Endpoint"
 _EN["模型名"] = "Model"
 _EN["引擎"] = "Engine"
 _EN["名称"] = "Name"
+_EN["引擎 1 名称"] = "Engine 1 Name"
+_EN["引擎 2 名称"] = "Engine 2 Name"
+_EN["引擎 3 名称"] = "Engine 3 Name"
+_EN["引擎 1 Key"] = "Engine 1 Key"
+_EN["引擎 2 Key"] = "Engine 2 Key"
+_EN["引擎 3 Key"] = "Engine 3 Key"
 _EN["关闭时最小化到托盘不退出程序"] = "Close to tray instead of quitting"
 _EN["显示主窗口"] = "Show Main Window"
 _EN["退出"] = "Quit"
@@ -6240,7 +6256,10 @@ class MainWindow(QMainWindow):
 
         self.engine_combo = QComboBox()
         _combo_fill(self.engine_combo, _engine_choices(self.settings))
-        fit_combo_width(self.engine_combo, extra=20, popup_extra=15)   # 闭合框+20(再+5)，弹出列表再+15
+        # 宽度只按内置引擎算：自定义引擎名多长都不影响主界面，也就不会把
+        # 交换钮挤得不居中。
+        fit_combo_width(self.engine_combo, extra=20, popup_extra=15,
+                        width_items=ALL_ENGINES)
         _combo_select_data(self.engine_combo, 
             self.settings.value("engine", ENGINE_ARGOS))
         self.engine_combo.currentTextChanged.connect(self._on_engine_changed)
