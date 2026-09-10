@@ -4212,145 +4212,231 @@ a { color:#4ea1ff; }
 """
 
 
+# 设置窗导航项的页名。除"翻译引擎"外都直接走 L()——那一条在词表里已经被
+# 主界面的引擎标签占着("翻译引擎" -> "Engine")，导航栏需要更完整的说法，
+# 一个中文串在词表里只能有一个英文，所以在这里单独覆盖，不去改那条公用词条。
+_SETTINGS_NAV_EN = {"翻译引擎": "Translation Engines"}
+
+
+def _nav_label(zh):
+    if _ui_lang() == "English US" and zh in _SETTINGS_NAV_EN:
+        return _SETTINGS_NAV_EN[zh]
+    return L(zh)
+
+
+def _module_present(name):
+    """模块装没装——不真的导入它。kokoro 一导入就把 torch 拖进来，好几秒；
+    设置窗只是要显示一行状态，犯不上把界面卡住。"""
+    import importlib.util
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
 class SettingsDialog(QDialog):
     def __init__(self, settings: QSettings, parent=None):
         super().__init__(parent)
+        from PyQt6.QtWidgets import (QListWidget, QListWidgetItem,
+                                     QStackedWidget)
         self.settings = settings
         self.setWindowTitle(L("设置"))
-        self.setMinimumWidth(440)
-        self.resize(460, 640)
+        self.setMinimumWidth(600)
+        self.resize(660, 620)
         self._apply_own_combo_style()
 
+        # 跨页共用的登记表。控件分到哪一页都不影响保存与显隐密钥——这几个名字
+        # 被 _persist_keys / _toggle_echo / _retheme 引用，改页不改名。
+        self._key_edits = {}          # key_name -> QLineEdit
+        self._custom_edits = {}       # 槽位 -> (名称, 地址, 模型名)
+        self._show_keys_btns = []     # 翻译引擎页与自定义引擎页各一个，状态同步
+        self._status_rows = []        # (中文原串, 标签, 值控件, 取值函数)
+
         outer = QVBoxLayout(self)
-        # 内容较多，放进滚动区
-        scroll = QScrollArea()
-        QTimer.singleShot(0, lambda: _safe_fusion(self))   # 本窗滚动条也要
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        # 右侧多留白，避免滚动条压住文字
-        layout.setContentsMargins(4, 4, 18, 4)
-        scroll.setWidget(content)
-        outer.addWidget(scroll, 1)
 
-        # 翻译引擎只在主界面那个下拉里选，选完即存（见主窗 engine_combo 的
-        # currentIndexChanged）。设置里再放一份只会和它抢，改了哪边生效说不清。
+        # 左侧竖排导航 + 右侧页面。五个页名中英文都长(Custom Translation
+        # Engines / Speech Recognition)，横排页签在这个窗宽下必然挤成省略号，
+        # 竖排则两种语言都放得下，窗口还能矮一点。
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        self.nav = QListWidget()
+        self.nav.setObjectName("settingsNav")
+        self.nav.setFixedWidth(152)
+        self.nav.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.stack = QStackedWidget()
+        body.addWidget(self.nav)
+        body.addWidget(self.stack, 1)
+        outer.addLayout(body, 1)
 
-        # —— 备选引擎 Key ——
-        key_label = QLabel(L("备选引擎 API Key（可选）"))
-        key_label.setStyleSheet("font-weight:bold; color:#7bbcff; margin-top:6px;")
-        layout.addWidget(key_label)
+        # 页名登记中文原串：导航项是 QListWidgetItem 不是 widget，
+        # retranslate_widget_tree 遍历不到，切语言时得照这份原串自己重设。
+        self._nav_keys = ["通用", "翻译引擎", "自定义翻译引擎",
+                          "语音识别引擎", "朗读引擎"]
+        for _k, _build in zip(self._nav_keys,
+                              (self._page_general, self._page_engines,
+                               self._page_custom, self._page_stt,
+                               self._page_tts)):
+            self.stack.addWidget(self._wrap_scroll(_build()))
+            QListWidgetItem(_nav_label(_k), self.nav)
+        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.nav.setCurrentRow(0)
+        self._refresh_status()
+        # 五页一次建齐(不做懒加载)，这一次 findChildren 才盖得住所有页的滚动条
+        QTimer.singleShot(0, lambda: _safe_fusion(self))
 
+        # 所有设置即时保存生效，只保留"关闭"按钮
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        close_btn = QPushButton(L("关闭"))
+        close_btn.setFixedWidth(BTN_W)
+        close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
+            "QPushButton:hover{background:#2b95ef;}")
+        def _close_and_save():
+            self._persist_keys()
+            self.accept()
+        close_btn.clicked.connect(_close_and_save)
+        self._close_btn = close_btn
+        def _retranslate_self():
+            to_lang = _ui_lang()
+            retranslate_widget_tree(self, to_lang)
+            # 导航项：整表重译够不着，按登记的中文原串重设
+            for _i, _k in enumerate(self._nav_keys):
+                _it = self.nav.item(_i)
+                if _it is not None:
+                    _it.setText(_nav_label(_k))
+            # 状态行的值带路径和数量，词表里查不到，得用新语言重算一遍
+            self._refresh_status()
+            for _b in self._show_keys_btns:
+                _b.setText(L("隐藏密钥") if _b.isChecked() else L("显示密钥"))
+            # 保险：语言下拉必须恒为两项(中文/English US)。若因任何原因丢项，自愈重建，
+            # 保留当前选择(按 userData 身份)。彻底防"切换后中文项消失"。
+            try:
+                lc = self.lang_combo
+                _ensure_combo_items(
+                    lc, [("中文", "中文"), ("English US", "English US")])
+                # 主题下拉同样保证三项齐全(文字随界面语言，身份值不变)
+                _tc = getattr(self, "theme_combo", None)
+                if _tc is not None:
+                    _ensure_combo_items(_tc, [(L("深色"), "深色"),
+                                              (L("浅色"), "浅色"),
+                                              (L("跟随系统"), "跟随系统")])
+            except Exception:
+                pass
+        self._retranslate_self = _retranslate_self
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        outer.addLayout(btn_row)
+
+    # ---------- 分页脚手架 ----------
+
+    def _wrap_scroll(self, inner):
+        """每页各自套一个滚动区。页与页内容长短差得远，共用一个滚动条会让
+        只有三四行的页也拖着一条空轨道。"""
+        sc = QScrollArea()
+        sc.setWidgetResizable(True)
+        sc.setFrameShape(QFrame.Shape.NoFrame)
+        sc.setWidget(inner)
+        return sc
+
+    def _new_page(self):
+        """返回 (页面控件, 表单布局)。表单的三项策略与旧版逐条一致——
+        换的是分页，不是观感。"""
+        page = QWidget()
+        box = QVBoxLayout(page)
+        box.setContentsMargins(12, 10, 18, 10)   # 右侧留白，避免滚动条压住文字
         form = QFormLayout()
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        box.addLayout(form)
+        box.addStretch(1)
+        return page, form
 
-        self.deepl_edit = QLineEdit(settings.value("deepl_key", ""))
-        self.deepl_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.deepl_edit.setPlaceholderText(L("免费版 Key 以 :fx 结尾"))
-        from PyQt6.QtWidgets import QSizePolicy as _SP
-        self.deepl_edit.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
-        self.deepl_edit.setMinimumWidth(220)
-        form.addRow("DeepL Key:", self.deepl_edit)
+    def _title_row(self, form, text):
+        lb = QLabel(L(text))
+        lb.setStyleSheet("font-weight:bold; color:#7bbcff;")
+        form.addRow(lb)          # 单参数 addRow 跨两列，标题不缩在字段列里
+        return lb
 
-        self.google_api_edit = QLineEdit(settings.value("google_api_key", ""))
-        self.google_api_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.google_api_edit.setPlaceholderText(L("Google 云翻译 Key (AIza...)"))
-        self.google_api_edit.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
-        self.google_api_edit.setMinimumWidth(220)
-        form.addRow(L("Google 云翻译 Key") + ":", self.google_api_edit)
+    def _hint_row(self, form, text):
+        lb = QLabel(L(text))
+        lb.setWordWrap(True)
+        lb.setStyleSheet("color:#8a8a8a; font-size:11px;")
+        form.addRow(lb)          # 说明文字较长，跨两列才不会挤成细长条
+        return lb
 
-        # 各 LLM 引擎的 Key 输入框（动态生成）
-        self._key_edits = {}   # key_name -> QLineEdit
-        _llm_key_rows = [
-            ("deepseek", "DeepSeek Key:", "sk-..."),
-            ("openai", "GPT Key:", "sk-..."),
-            ("gemini", "Gemini Key:", "AIza..."),
-            ("claude", "Claude Key:", "sk-ant-..."),
-            ("glm", "GLM Key:", "xxxxxxxx.xxxxxxxx"),
-            ("ernie", L("文心一言 Key:"), L("百度千帆 Key")),
-            ("doubao", L("豆包 Key:"), L("火山引擎 Key")),
-            ("qwen", L("通义千问 Key:"), L("阿里百炼 sk-...")),
-            ("kimi", "Kimi Key:", "sk-..."),
-            ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
-        ]
-        for kn, label, ph in _llm_key_rows:
-            e = QLineEdit(settings.value(f"{kn}_key", ""))
-            e.setEchoMode(QLineEdit.EchoMode.Password)
-            e.setPlaceholderText(ph)
-            e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
-            e.setMinimumWidth(220)
-            form.addRow(label, e)
-            self._key_edits[kn] = e
-        # 兼容旧引用
-        self.deepseek_edit = self._key_edits["deepseek"]
-        self.hunyuan_edit = self._key_edits["hunyuan"]
+    def _gap_row(self, form, h=10):
+        w = QWidget()
+        w.setFixedHeight(h)
+        form.addRow(w)
 
-        # 显示API-Key（与输入框左对齐；按下=显示且青色，弹起=隐藏灰色）
-        self.show_keys_btn = QPushButton(L("显示密钥"))
-        self.show_keys_btn.setCheckable(True)
+    def _sep_row(self, form):
+        f = QFrame()
+        f.setFrameShape(QFrame.Shape.HLine)
+        f.setFrameShadow(QFrame.Shadow.Plain)
+        f.setFixedHeight(1)
+        f.setStyleSheet("background:#4a4a4a; border:none;")
+        form.addRow(f)           # 分隔线要通到两列，半条线很难看
+
+    def _key_row(self, form, key_name, label, placeholder):
+        """一行 API Key 输入框，顺手登记进 _key_edits——保存与显隐密钥
+        都只认这张表，不用在别处再点一次名。"""
+        e = QLineEdit(self.settings.value(f"{key_name}_key", ""))
+        e.setEchoMode(QLineEdit.EchoMode.Password)
+        e.setPlaceholderText(placeholder)
+        e.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        e.setMinimumWidth(220)
+        form.addRow(label, e)
+        self._key_edits[key_name] = e
+        return e
+
+    def _show_keys_row(self, form):
+        b = QPushButton(L("隐藏密钥") if self._keys_shown() else L("显示密钥"))
+        b.setCheckable(True)
+        b.setChecked(self._keys_shown())
         # 固定宽度(不随窗宽变)，但取按内容所需宽度确保文字完整
-        self.show_keys_btn.setFixedWidth(BTN_W)
-        self.show_keys_btn.toggled.connect(self._on_show_keys)
-        form.addRow("", self.show_keys_btn)
+        b.setFixedWidth(BTN_W)
+        b.toggled.connect(self._on_show_keys)
+        self._show_keys_btns.append(b)
+        form.addRow("", b)
+        return b
 
-        # —— 自定义 API 引擎 ——
-        # 三组自选服务，一律按 OpenAI 兼容的 chat/completions 调用，因此多风格
-        # 翻译与单词模式对它们和对内置引擎一样有效。这里刻意用普通输入框而不是
-        # 可编辑下拉：下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套
-        # 样式规则，深色主题下曾因此出过边框错乱。
-        _cust_gap = QWidget(); _cust_gap.setFixedHeight(10)
-        form.addRow("", _cust_gap)
-        _cust_title = QLabel(L("自定义 API 引擎（可选，最多三组）"))
-        _cust_title.setStyleSheet("font-weight:bold; color:#7bbcff;")
-        form.addRow("", _cust_title)
-        _cust_tip = QLabel(L(
-            "名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
-            "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
-            "的地址，请只填信得过的服务。"))
-        _cust_tip.setWordWrap(True)
-        _cust_tip.setStyleSheet("color:#8a8a8a; font-size:11px;")
-        form.addRow("", _cust_tip)
+    def _keys_shown(self):
+        for b in getattr(self, "_show_keys_btns", []):
+            return b.isChecked()
+        return False
 
-        self._custom_edits = {}
-        for _i in CUSTOM_ENGINE_SLOTS:
-            if _i > 1:                       # 三组之间拉一条横线分隔
-                _sep = QFrame()
-                _sep.setFrameShape(QFrame.Shape.HLine)
-                _sep.setFrameShadow(QFrame.Shadow.Plain)
-                _sep.setFixedHeight(1)
-                _sep.setStyleSheet("background:#4a4a4a; border:none;")
-                form.addRow("", _sep)
-            _n = QLineEdit(settings.value(f"custom{_i}_name", ""))
-            _n.setPlaceholderText(L("显示名称，如 MyGPT"))
-            _u = QLineEdit(settings.value(f"custom{_i}_endpoint", ""))
-            _u.setPlaceholderText("https://api.example.com/v1/chat/completions")
-            _m = QLineEdit(settings.value(f"custom{_i}_model", ""))
-            _m.setPlaceholderText(L("模型名，如 gpt-4o-mini"))
-            _k = QLineEdit(settings.value(f"custom{_i}_key", ""))
-            _k.setEchoMode(QLineEdit.EchoMode.Password)
-            _k.setPlaceholderText("sk-...")
-            for _e in (_n, _u, _m, _k):
-                _e.setSizePolicy(_SP.Policy.Expanding, _SP.Policy.Fixed)
-                _e.setMinimumWidth(220)
-            # 用整串做词条：界面重译走的是整串查表（见 _translate_text），
-            # 拼出来的标签查不到就会留在中文。
-            form.addRow(L(f"引擎 {_i} 名称") + ":", _n)
-            form.addRow(L("接口地址") + ":", _u)
-            form.addRow(L("模型名") + ":", _m)
-            form.addRow(L(f"引擎 {_i} Key") + ":", _k)
-            self._custom_edits[_i] = (_n, _u, _m)
-            # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
-            self._key_edits[f"custom{_i}"] = _k
-        # 与下面的语言/主题设置之间也拉一条线，自定义引擎区就有了完整边界
-        _cust_end = QFrame()
-        _cust_end.setFrameShape(QFrame.Shape.HLine)
-        _cust_end.setFrameShadow(QFrame.Shadow.Plain)
-        _cust_end.setFixedHeight(1)
-        _cust_end.setStyleSheet("background:#4a4a4a; border:none;")
-        form.addRow("", _cust_end)
+    def _status_row(self, form, label_text, getter):
+        """一行只读状态。值由 getter() 现算：里面带路径、数量这类动态内容，
+        整表重译按整串查词表是查不到的，所以切语言时靠 _refresh_status()
+        用新语言重算，而不是指望 retranslate_widget_tree。"""
+        lb = QLabel(L(label_text) + ":")
+        val = QLabel("")
+        val.setWordWrap(True)
+        val.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        form.addRow(lb, val)
+        self._status_rows.append((label_text, lb, val, getter))
+        return val
+
+    def _refresh_status(self):
+        """重算所有状态行。开窗时调一次，切语言时再调一次。"""
+        for _key, lb, val, getter in getattr(self, "_status_rows", []):
+            try:
+                lb.setText(L(_key) + ":")
+                val.setText(getter())
+            except Exception:
+                _log_exc("settings_status")
+
+    # ---------- 五个页面 ----------
+
+    def _page_general(self):
+        page, form = self._new_page()
+        settings = self.settings
 
         # 界面语言 / 样式风格（重启后生效）
         self.lang_combo = QComboBox()
@@ -4363,11 +4449,11 @@ class SettingsDialog(QDialog):
         _lang_cur = settings.value("ui_lang", "中文")
         _lang_idx = self.lang_combo.findData(_lang_cur)
         self.lang_combo.setCurrentIndex(_lang_idx if _lang_idx >= 0 else 0)
-        from PyQt6.QtWidgets import QSizePolicy as _SPl
         self.lang_combo.setFixedHeight(36)
         _apply_combo_popup_style(self.lang_combo)
         _pin_popup_to_top(self.lang_combo)
-        self.lang_combo.setSizePolicy(_SPl.Policy.Expanding, _SPl.Policy.Fixed)
+        self.lang_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                      QSizePolicy.Policy.Fixed)
         self.lang_combo.setMinimumWidth(200)
         form.addRow(L("语言") + ":", self.lang_combo)
 
@@ -4389,7 +4475,8 @@ class SettingsDialog(QDialog):
         self.theme_combo.setFixedHeight(36)
         _apply_combo_popup_style(self.theme_combo)
         _pin_popup_to_top(self.theme_combo)
-        self.theme_combo.setSizePolicy(_SPl.Policy.Expanding, _SPl.Policy.Fixed)
+        self.theme_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Fixed)
         self.theme_combo.setMinimumWidth(200)
         form.addRow(L("样式风格") + ":", self.theme_combo)
 
@@ -4402,13 +4489,15 @@ class SettingsDialog(QDialog):
             self._apply_own_combo_style()   # 设置窗自己的下拉也即时切换深浅
         self.theme_combo.currentIndexChanged.connect(_theme_live)
 
+        self._gap_row(form, 6)
+
         # 多风格翻译开关（默认勾选）
         self.multi_style_chk = QCheckBox(L("LLM 引擎多风格翻译"))
         self.multi_style_chk.toggled.connect(
             lambda v: self.settings.setValue("multi_style", "true" if v else "false"))
         self.multi_style_chk.setChecked(settings.value("multi_style", "true") == "true")
         form.addRow("", self.multi_style_chk)
-        # 保持程序置顶（在多风格与日志行之间）
+
         self.on_top_chk = QCheckBox(L("保持程序置顶"))
         self.on_top_chk.setChecked(settings.value("always_on_top", "false") == "true")
 
@@ -4424,6 +4513,7 @@ class SettingsDialog(QDialog):
                 _log_exc("on_top_live")
         self.on_top_chk.toggled.connect(_on_top_live)
         form.addRow("", self.on_top_chk)
+
         # 关闭行为。托盘不可用的桌面（GNOME 默认就没有）根本不显示这一行——
         # 给出一个点了会让程序消失且找不回来的选项，比没有这个功能更糟。
         _p0 = self.parent()
@@ -4444,8 +4534,8 @@ class SettingsDialog(QDialog):
                     _log_exc("tray_live")
             self.tray_chk.toggled.connect(_tray_live)
             form.addRow("", self.tray_chk)
-        _gap = QWidget(); _gap.setFixedHeight(10)   # 与日志行隔开一点距离
-        form.addRow("", _gap)
+
+        self._gap_row(form)
 
         log_btn = QPushButton(L("查看日志"))
         log_btn.setFixedWidth(BTN_W)
@@ -4453,60 +4543,166 @@ class SettingsDialog(QDialog):
         exp_log_btn = QPushButton(L("导出日志"))
         exp_log_btn.setFixedWidth(BTN_W)          # 与查看日志等宽同风格
         exp_log_btn.clicked.connect(self._export_log)
-        _logrow = QHBoxLayout(); _logrow.setContentsMargins(0, 0, 0, 0)
+        _logrow = QHBoxLayout()
+        _logrow.setContentsMargins(0, 0, 0, 0)
         _logrow.setSpacing(8)
-        _logrow.addWidget(log_btn); _logrow.addWidget(exp_log_btn); _logrow.addStretch(1)
-        _logw = QWidget(); _logw.setLayout(_logrow)
+        _logrow.addWidget(log_btn)
+        _logrow.addWidget(exp_log_btn)
+        _logrow.addStretch(1)
+        _logw = QWidget()
+        _logw.setLayout(_logrow)
         form.addRow("", _logw)
+        return page
 
+    def _page_engines(self):
+        page, form = self._new_page()
+        # 翻译引擎本身只在主界面那个下拉里选，选完即存（见主窗 engine_combo 的
+        # currentIndexChanged）。设置里再放一份只会和它抢，改了哪边生效说不清。
+        self._title_row(form, "备选引擎 API Key（可选）")
+        self._hint_row(form, "Key 只写进本机的系统设置，不随程序上传到任何地方。"
+                             "留空即不启用该引擎。")
 
-        layout.addLayout(form)
+        self.deepl_edit = self._key_row(
+            form, "deepl", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
+        self.google_api_edit = self._key_row(
+            form, "google_api", L("Google 云翻译 Key") + ":",
+            L("Google 云翻译 Key (AIza...)"))
 
+        # 各 LLM 引擎的 Key 输入框（动态生成）
+        for kn, label, ph in (
+                ("deepseek", "DeepSeek Key:", "sk-..."),
+                ("openai", "GPT Key:", "sk-..."),
+                ("gemini", "Gemini Key:", "AIza..."),
+                ("claude", "Claude Key:", "sk-ant-..."),
+                ("glm", "GLM Key:", "xxxxxxxx.xxxxxxxx"),
+                ("ernie", L("文心一言 Key:"), L("百度千帆 Key")),
+                ("doubao", L("豆包 Key:"), L("火山引擎 Key")),
+                ("qwen", L("通义千问 Key:"), L("阿里百炼 sk-...")),
+                ("kimi", "Kimi Key:", "sk-..."),
+                ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
+        ):
+            self._key_row(form, kn, label, ph)
+        # 兼容旧引用
+        self.deepseek_edit = self._key_edits["deepseek"]
+        self.hunyuan_edit = self._key_edits["hunyuan"]
 
-        # 所有设置即时保存生效，只保留"关闭"按钮
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-        close_btn = QPushButton(L("关闭"))
-        close_btn.setFixedWidth(BTN_W)
-        close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
-            "QPushButton:hover{background:#2b95ef;}")
-        def _close_and_save():
-            self._persist_keys()
-            self.accept()
-        close_btn.clicked.connect(_close_and_save)
-        self._close_btn = close_btn
-        def _retranslate_self():
-            to_lang = _ui_lang()
-            retranslate_widget_tree(self, to_lang)
-            self.show_keys_btn.setText(
-                L("显示密钥") if not self.show_keys_btn.isChecked() else L("隐藏密钥"))
-            # 保险：语言下拉必须恒为两项(中文/English US)。若因任何原因丢项，自愈重建，
-            # 保留当前选择(按 userData 身份)。彻底防"切换后中文项消失"。
-            try:
-                lc = self.lang_combo
-                _ensure_combo_items(
-                    lc, [("中文", "中文"), ("English US", "English US")])
-                # 主题下拉同样保证三项齐全(文字随界面语言，身份值不变)
-                _tc = getattr(self, "theme_combo", None)
-                if _tc is not None:
-                    _ensure_combo_items(_tc, [(L("深色"), "深色"),
-                                              (L("浅色"), "浅色"),
-                                              (L("跟随系统"), "跟随系统")])
-            except Exception:
-                pass
-        self._retranslate_self = _retranslate_self
-        btn_row.addStretch()
-        btn_row.addWidget(close_btn)
-        outer.addLayout(btn_row)
+        # 显示API-Key（与输入框左对齐；按下=显示且青色，弹起=隐藏灰色）
+        self.show_keys_btn = self._show_keys_row(form)
+        return page
+
+    def _page_custom(self):
+        page, form = self._new_page()
+        # 三组自选服务，一律按 OpenAI 兼容的 chat/completions 调用，因此多风格
+        # 翻译与单词模式对它们和对内置引擎一样有效。这里刻意用普通输入框而不是
+        # 可编辑下拉：下拉内嵌的行编辑器会同时命中 QComboBox 与 QLineEdit 两套
+        # 样式规则，深色主题下曾因此出过边框错乱。
+        self._title_row(form, "自定义 API 引擎（可选，最多三组）")
+        self._hint_row(form,
+                       "名称、接口地址、模型名三项都填好，该引擎才会出现在引擎列表里。"
+                       "接口需兼容 OpenAI 的 chat/completions 格式。Key 会原样发往你填写"
+                       "的地址，请只填信得过的服务。")
+
+        for _i in CUSTOM_ENGINE_SLOTS:
+            if _i > 1:                       # 三组之间拉一条横线分隔
+                self._sep_row(form)
+            _n = QLineEdit(self.settings.value(f"custom{_i}_name", ""))
+            _n.setPlaceholderText(L("显示名称，如 MyGPT"))
+            _u = QLineEdit(self.settings.value(f"custom{_i}_endpoint", ""))
+            _u.setPlaceholderText("https://api.example.com/v1/chat/completions")
+            _m = QLineEdit(self.settings.value(f"custom{_i}_model", ""))
+            _m.setPlaceholderText(L("模型名，如 gpt-4o-mini"))
+            for _e in (_n, _u, _m):
+                _e.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                 QSizePolicy.Policy.Fixed)
+                _e.setMinimumWidth(220)
+            # 用整串做词条：界面重译走的是整串查表（见 _translate_text），
+            # 拼出来的标签查不到就会留在中文。
+            form.addRow(L(f"引擎 {_i} 名称") + ":", _n)
+            form.addRow(L("接口地址") + ":", _u)
+            form.addRow(L("模型名") + ":", _m)
+            # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
+            self._key_row(form, f"custom{_i}", L(f"引擎 {_i} Key") + ":", "sk-...")
+            self._custom_edits[_i] = (_n, _u, _m)
+
+        self._gap_row(form)
+        self._show_keys_row(form)
+        return page
+
+    def _page_stt(self):
+        page, form = self._new_page()
+        self._title_row(form, "语音识别引擎")
+        self._hint_row(form,
+                       "录音不出本机：本地 Whisper 不联网、不需要 API Key。"
+                       "识别语言跟随文本框的语言设置，选「自动检测」就交给模型自己判断。")
+        self._status_row(form, "当前引擎", lambda: L("本地 Whisper（离线本地）"))
+        self._status_row(form, "状态", self._stt_state_text)
+        self._status_row(form, "识别组件",
+                         lambda: self._pkg_text("faster_whisper"))
+        self._status_row(form, "模型目录",
+                         lambda: _whisper_model_dir() or L("未找到"))
+        self._status_row(form, "麦克风", self._mic_state_text)
+        return page
+
+    def _page_tts(self):
+        page, form = self._new_page()
+        self._title_row(form, "朗读引擎")
+        self._hint_row(form,
+                       "嗓音与语速在主界面选择。这里只显示两个朗读后端的状态："
+                       "线上的 edge-tts 与离线的 Kokoro。")
+        self._status_row(form, "edge-tts（线上联网）",
+                         lambda: self._tts_state_text("edge_tts", "edge"))
+        self._status_row(form, "Kokoro（离线本地）",
+                         lambda: self._tts_state_text("kokoro", "kokoro"))
+        self._status_row(form, "Kokoro 模型目录", lambda: (
+            os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or L("未找到")))
+        return page
+
+    # ---------- 状态取值 ----------
+
+    def _pkg_text(self, module):
+        return f"{module} — " + (L("已安装") if _module_present(module)
+                                 else L("缺失"))
+
+    def _stt_state_text(self):
+        if not _whisper_model_dir():
+            return f"{L('不可用')} — {L('未找到语音识别模型')}"
+        if not _module_present("faster_whisper"):
+            return f"{L('不可用')} — {L('语音识别组件缺失')}"
+        return L("可用")
+
+    def _mic_state_text(self):
+        try:
+            ok = VoiceRecorder.input_available()
+        except Exception:
+            ok = False
+        return L("可用") if ok else L("没有可用的麦克风")
+
+    def _tts_state_text(self, module, engine):
+        """朗读后端一行：装没装 + 这个后端提供几个嗓音。
+        数量是现算的，语言一换由 _refresh_status() 重来，不走词表。"""
+        if not _module_present(module):
+            return L("缺失")
+        if engine == "kokoro" and not os.environ.get("ENGLISHCOACH_KOKORO_DIR"):
+            return f"{L('已安装')} — {L('未找到模型')}"
+        n_en = sum(1 for v in EN_VOICES.values() if v.get("engine") == engine)
+        n_zh = sum(1 for v in ZH_VOICES.values() if v.get("engine") == engine)
+        return f"{L('已安装')} — {n_en} EN / {n_zh} ZH"
+
+    _SHOW_KEYS_ON_CSS = ("QPushButton{background:#5aa8b0;color:#0e2024;"
+                         "border:1px solid #5aa8b0;border-radius:5px;}")
 
     def _on_show_keys(self, on):
+        """同一批 Key 分在翻译引擎页和自定义引擎页，两页各有一个按钮。
+        按哪个都两页一起亮——只亮一半会让人以为另一页没生效。
+        (顺带修好按钮文字：以前只在切界面语言时才改，按下去始终写着"显示密钥"。)"""
         self._toggle_echo(on)
-        if on:
-            self.show_keys_btn.setStyleSheet(
-                "QPushButton{background:#5aa8b0;color:#0e2024;"
-                "border:1px solid #5aa8b0;border-radius:5px;}")
-        else:
-            self.show_keys_btn.setStyleSheet("")
+        for b in getattr(self, "_show_keys_btns", []):
+            if b.isChecked() != on:
+                b.blockSignals(True)        # 否则两个按钮会互相触发
+                b.setChecked(on)
+                b.blockSignals(False)
+            b.setText(L("隐藏密钥") if on else L("显示密钥"))
+            b.setStyleSheet(self._SHOW_KEYS_ON_CSS if on else "")
 
     def _toggle_echo(self, show):
         mode = QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password
@@ -4583,16 +4779,32 @@ class SettingsDialog(QDialog):
         try:
             self._apply_own_combo_style()
             # show/hide 密钥按钮若处于按下态，其内联样式也随主题重置
-            if hasattr(self, "show_keys_btn") and self.show_keys_btn.isChecked():
-                self.show_keys_btn.setStyleSheet(
-                    "QPushButton{background:#5aa8b0;color:#0e2024;"
-                    "border:1px solid #5aa8b0;border-radius:5px;}")
-            else:
-                if hasattr(self, "show_keys_btn"):
-                    self.show_keys_btn.setStyleSheet("")
+            for _b in getattr(self, "_show_keys_btns", []):
+                _b.setStyleSheet(
+                    self._SHOW_KEYS_ON_CSS if _b.isChecked() else "")
             self.update()
         except Exception:
             _log_exc("settings_retheme")
+
+    def _nav_css(self):
+        """左侧导航栏配色，按当前深浅。取色与 _win_hybrid_qss 同一套，
+        看着像同一个窗里的东西。
+
+        mac 不调用这里：那边整窗都让系统原生控件自己深浅自适应，导航栏
+        跟着走就是最自然的样子，多加一层 QSS 反而会和原生打架。
+        """
+        if _theme_is_light():
+            _bg, _tx, _bd, _hv = "#e9eaec", "#1f1f22", "#c9c9cc", "#dcdce0"
+        else:
+            _bg, _tx, _bd, _hv = "#252526", "#dcdcdc", "#3a3a3a", "#37373d"
+        return (f"\nQListWidget#settingsNav {{ background:{_bg}; color:{_tx};"
+                f" border:none; border-right:1px solid {_bd}; outline:none;"
+                f" padding-top:6px; }}"
+                f"\nQListWidget#settingsNav::item {{ padding:9px 12px;"
+                f" border:none; }}"
+                f"\nQListWidget#settingsNav::item:hover {{ background:{_hv}; }}"
+                f"\nQListWidget#settingsNav::item:selected {{"
+                f" background:#0e639c; color:white; }}")
 
     def _apply_own_combo_style(self):
         """(重)应用设置窗自己的下拉样式，按当前深浅。主题切换时可重调实现即时切换。"""
@@ -4602,8 +4814,13 @@ class SettingsDialog(QDialog):
             # 一模一样，且只有一个深浅真相来源(setColorScheme)，杜绝改主题时下拉/按钮
             # 因残缺样式表覆盖而错乱(这正是"改深浅色才坏、重启又好"的根因)。
             _p = self.parent()
-            if _p is not None and hasattr(_p, "_win_hybrid_qss"):
-                self.setStyleSheet(_p._win_hybrid_qss())
+            _css = (_p._win_hybrid_qss()
+                    if (_p is not None and hasattr(_p, "_win_hybrid_qss"))
+                    else "")
+            # 左侧导航栏是本窗独有的控件，主窗那份表里没有它的规则，不补就是
+            # 一片没主题的原生底色。追加在后面，不去动 _win_hybrid_qss 本体
+            # ——那份表主界面也在用。
+            self.setStyleSheet(_css + self._nav_css())
             return
         _base_css = (_themed(_combo_popup_css())
             + "QLineEdit{border:1px solid #4a4a4a;border-radius:8px;padding:5px 10px;min-height:22px;}")
@@ -4655,7 +4872,12 @@ class SettingsDialog(QDialog):
             _log_exc("persist_custom_engines")
 
     def _persist_keys(self):
-        """保存所有 API Key 与多风格开关(关闭设置窗时调用)。"""
+        """保存所有 API Key 与多风格开关(关闭设置窗时调用)。
+
+        DeepL 与 Google 现在也登记在 _key_edits 里，下面那个循环已经覆盖到，
+        单写的两行是留着的保险——真要有人把它们从登记表里挪走，Key 也不会
+        悄无声息地丢掉。重复写同一个值，没有代价。
+        """
         self._persist_custom_engines()
         try:
             self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
@@ -5150,6 +5372,40 @@ for _k, _v in {
     "深色": "Dark", "浅色": "Light", "跟随系统": "Follow System", "设置": "Settings",
 }.items():
     _EN[_k] = _v
+
+# —— 设置窗分页（v2.19.0）——
+_EN["通用"] = "General"
+_EN["自定义翻译引擎"] = "Custom Engines"
+_EN["语音识别引擎"] = "Speech Recognition"
+_EN["朗读引擎"] = "Text to Speech"
+_EN["Key 只写进本机的系统设置，不随程序上传到任何地方。留空即不启用该引擎。"] = (
+    "Keys are written to this machine's own settings and are never uploaded "
+    "anywhere by the app. Leave one blank to keep that engine switched off.")
+_EN["录音不出本机：本地 Whisper 不联网、不需要 API Key。"
+   "识别语言跟随文本框的语言设置，选「自动检测」就交给模型自己判断。"] = (
+    "The recording never leaves this machine: Whisper runs locally, with no "
+    "network and no API key. Recognition follows the language the pane is set "
+    "to; leave it on Auto Detect and the model decides for itself.")
+_EN["嗓音与语速在主界面选择。这里只显示两个朗读后端的状态："
+   "线上的 edge-tts 与离线的 Kokoro。"] = (
+    "Voices and speech rate are chosen in the main window. This page only "
+    "reports the state of the two backends: edge-tts online and Kokoro "
+    "offline.")
+_EN["当前引擎"] = "Engine in use"
+_EN["状态"] = "Status"
+_EN["识别组件"] = "Component"
+_EN["模型目录"] = "Model folder"
+_EN["麦克风"] = "Microphone"
+_EN["本地 Whisper（离线本地）"] = "Whisper, running locally"
+_EN["edge-tts（线上联网）"] = "edge-tts (online)"
+_EN["Kokoro（离线本地）"] = "Kokoro (offline)"
+_EN["Kokoro 模型目录"] = "Kokoro model folder"
+_EN["可用"] = "Ready"
+_EN["不可用"] = "Unavailable"
+_EN["已安装"] = "Installed"
+_EN["缺失"] = "Missing"
+_EN["未找到"] = "Not found"
+_EN["未找到模型"] = "Model not found"
 
 
 def L(s):
