@@ -5550,36 +5550,43 @@ def _make_round_scrollbar_style():
     return _RoundSB
 
 
-_ROUND_SB_STYLE = None
+_FUSION_STYLE = None
 
 
-def _round_sb_style():
-    """自绘滚动条样式的单例。QStyle 不被 setStyle 接管所有权，必须由模块
-    自己留住引用，否则一被回收滚动条就变回原生样子。"""
-    global _ROUND_SB_STYLE
-    if _ROUND_SB_STYLE is None:
-        _ROUND_SB_STYLE = _make_round_scrollbar_style()()
-    return _ROUND_SB_STYLE
+def _fusion_style():
+    """Fusion 样式的单例。QStyle 的所有权不随 setStyle 转移，必须由模块自己
+    留住引用，否则一被回收滚动条就弹回原生样子。"""
+    global _FUSION_STYLE
+    if _FUSION_STYLE is None:
+        from PyQt6.QtWidgets import QStyleFactory
+        _FUSION_STYLE = QStyleFactory.create("Fusion")
+    return _FUSION_STYLE
 
 
 def _force_fusion_scrollbars(widget):
-    """给 widget 里的滚动条套上自绘圆角样式。
+    """深色主题下把滚动条切到 Fusion —— 只换颜色，不换造型。
 
-    只在 Win10 及以下 / Linux 的深色主题下动手：那里的样式引擎画出来的是
-    浅色滚动条，深色界面上就是一条白杠，而它既不认 QSS 也不跟调色板。
+    Win10 的 windowsvista 引擎自绘滚动条，既不认 QSS 也不认调色板，深色界面
+    上就杵着一条白杠。Fusion 画的是同样的矩形滑轨＋两端箭头，唯一的区别是
+    它跟着调色板走，深色调色板下自然是深色。所以形状原样保留，只把那片浅白
+    压成深色，和整体主题合上。
+    （不用 _make_round_scrollbar_style 的自绘胶囊：那会连形状一起改掉。）
+
     浅色主题不插手——原生颜色本来就对，原生手感更好。
-    mac 与 Win11 原生已是圆角胶囊，_native_scrollbar_platform 直接挡掉。
+    mac 与 Win11 的原生滚动条深浅自适应，_native_scrollbar_platform 挡掉。
     """
     if widget is None or _native_scrollbar_platform() or _theme_is_light():
         return
     try:
         from PyQt6.QtWidgets import QScrollBar
-        st = _round_sb_style()
+        st = _fusion_style()
+        if st is None:
+            return
         for sb in widget.findChildren(QScrollBar):
             sb.setStyle(st)
             sb.update()
     except Exception:
-        _log_exc("round_scrollbars")
+        _log_exc("dark_scrollbars")
 
 
 
@@ -5694,14 +5701,16 @@ def _tooltip_css():
     import sys
     if sys.platform == "darwin":
         return ""
+    # 不写 border-radius：气球原本就是方角，加了圆角等于顺手改了风格。
+    # 这里要改的只有颜色——深色主题下那片浅白。
     if _theme_is_light():
         return ("""
             QToolTip { background:#f7f7f7; color:#1f1f22; border:1px solid #c8c8c8;
-                padding:2px 5px; font-size:11px; border-radius:6px; }
+                padding:2px 5px; font-size:11px; }
 """)
     return ("""
             QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
-                padding:2px 5px; font-size:11px; border-radius:6px; }
+                padding:2px 5px; font-size:11px; }
 """)
 
 
@@ -7681,6 +7690,15 @@ class MainWindow(QMainWindow):
                 border-radius:6px; padding:8px; font-size:14px; }}
             QTextEdit[activeRegion="1"] {{ border:1px solid #4ea1ff; }}
             QTextEdit[activeRegion="0"] {{ border:1px solid {bd}; }}
+
+            /* 正方形工具按钮：这条规则一直只写在 mac 那份里，Windows 这边漏了，
+               于是方钮落到下面普通按钮的 5px，只有按下(:checked 自带样式表)
+               才是 8px —— 「按下去圆、松开就尖」正是这么来的。
+               这里只补圆角，配色、内边距、按下反馈一概沿用下面那条普通按钮
+               规则(QSS 只覆盖显式写出的属性)，Windows 的观感不受影响。 */
+            QPushButton#toolbtn {{ border-radius:8px; }}
+            QPushButton#toolbtn:hover {{ border-radius:8px; }}
+            QPushButton#toolbtn:pressed {{ border-radius:8px; }}
 
             /* 普通按钮：绘制、圆角、深浅、淡蓝反馈 */
             QPushButton {{ background:{bg}; color:{tx}; border:1px solid {bd};
