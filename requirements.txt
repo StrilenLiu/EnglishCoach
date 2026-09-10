@@ -63,7 +63,22 @@ sacremoses
 torch==2.2.2
 transformers==4.40.2
 kokoro
-# 语音录入：faster-whisper 跑在上面那个 ctranslate2 上，除模型外不引入新运行时
+# ---- 语音录入 / Voice input ----
+# faster-whisper 跑在上面那个 ctranslate2 上（Argos 离线翻译用的同一个），
+# 所以除了模型本身，不引入新的运行时依赖。
+#
+# 模型不是 pip 包，需另行准备（构建脚本会自动下载并打进产物）：
+#   仓库 repo : Systran/faster-whisper-base   （约 145MB）
+#   放置位置  : ~/EnglishCoach Models/Whisper/   （须含 model.bin）
+#   手动下载  : python -c "import os;from huggingface_hub import snapshot_download;\
+#               t=os.path.expanduser('~/EnglishCoach Models/Whisper');\
+#               os.makedirs(t,exist_ok=True);\
+#               snapshot_download('Systran/faster-whisper-base',local_dir=t)"
+#   大陆网络先设 export HF_ENDPOINT=https://hf-mirror.com
+#
+# The model is not a pip package. The build scripts download it and bundle it;
+# to fetch it by hand use the command above. Without it the microphone button
+# stays disabled and says so in its tooltip.
 faster-whisper
 soundfile
 lameenc

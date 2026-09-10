@@ -328,12 +328,23 @@ def _network_hint(err):
     return "（请检查网络连接；部分线上引擎在部分地区需自行配置网络代理）"
 
 
+_SESSION_LOG = []        # 本次运行写过的日志，供状态栏单击就地查看
+
+
 def _log_error(msg):
     """把出错记录追加到日志文件（带时间戳）。"""
     import datetime
+    ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # 同时留一份在内存：状态栏单击要就地显示"本次运行"的日志，从文件里
+    # 捞的话还得区分哪些是上几次留下的。上限防止长时间运行吃内存。
+    try:
+        _SESSION_LOG.append(f"[{ts}] {msg}")
+        if len(_SESSION_LOG) > 500:
+            del _SESSION_LOG[:len(_SESSION_LOG) - 500]
+    except Exception:
+        pass
     try:
         with open(_log_path(), "a", encoding="utf-8") as f:
-            ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             f.write(f"[{ts}] {msg}\n")
     except Exception:
         pass
@@ -2978,15 +2989,12 @@ def _custom_engine_configs(settings):
         model = (settings.value(f"custom{i}_model", "") or "").strip()
         if name and url and model:
             slots.append((i, name, url, model))
-    # 先数一遍模型名：两组用同一个模型时，两条都补上引擎名，只补后一条会
-    # 显得一条有一条没有。
-    dup = {m for _, _, _, m in slots
-           if sum(1 for _, _, _, x in slots if x == m) > 1}
     out = {}
     for i, name, url, model in slots:
-        # 显示成「模型名 -API-Key联网」，与内置的「DeepSeek -API-Key联网」
-        # 一字不差同体例。引擎名留给用户自己认，撞车时才拿出来区分。
-        head = f"{model} -{name}" if model in dup else model
+        # 显示成「模型名 -引擎名 -API-Key联网」，末段与内置的
+        # 「DeepSeek -API-Key联网」一字不差同体例。两组用同一个模型时，
+        # 引擎名就是唯一的区分依据，所以它始终带着。
+        head = f"{model} -{name}"
         if len(head) > 20:
             head = head[:20] + "…"
         eid = head + CUSTOM_ENGINE_SUFFIX
@@ -4216,6 +4224,7 @@ class SettingsDialog(QDialog):
         outer = QVBoxLayout(self)
         # 内容较多，放进滚动区
         scroll = QScrollArea()
+        QTimer.singleShot(0, lambda: _safe_fusion(self))   # 本窗滚动条也要
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         content = QWidget()
@@ -5074,7 +5083,10 @@ _EN["版本更新说明"] = "Change Log"
 _EN["关于 EnglishCoach"] = "About English Coach"
 _EN["保持程序置顶"] = "Keep Window on Top"
 _EN["注音"] = "Ruby"
-_EN["点击打开运行日志"] = "Click to open the runtime log"
+_EN["点击打开运行日志"] = "Click for this run's log, double-click for the full file"
+_EN["本次运行日志"] = "This Run's Log"
+_EN["本次运行暂无日志"] = "Nothing logged in this run yet"
+_EN["双击状态栏可打开完整日志文件"] = "Double-click the status bar to open the full log file"
 _EN["语音录入"] = "Voice Input"
 _EN["正在录音…"] = "Recording…"
 _EN["识别中…"] = "Transcribing…"
@@ -5421,27 +5433,13 @@ def _install_global_excepthook():
 
 
 def _rounded_scrollbar_qss():
-    """Win10 / Linux 深色主题下的滚动条配色。
+    """不再走 QSS。
 
-    这些平台用的是旧样式引擎，滚动条不认 setColorScheme，深色界面里仍画成
-    系统的浅色——一条白杠戳在黑底上。浅色主题不插手：那时原生颜色本来就对，
-    保持原生手感更好。（mac 与 Win11 走 _native_scrollbar_platform，根本到
-    不了这里。）
+    Windows 的样式引擎自绘滚动条、忽略 QSS 的圆角与配色（见
+    _RoundScrollBarStyle 的说明），塞样式表是白费力气。深色下的白滚动条改由
+    那个自绘 QProxyStyle 解决。
     """
-    if _theme_is_light():
-        return ""
-    return ("""
-            QScrollBar:vertical { background:#252526; width:12px; margin:0; }
-            QScrollBar:horizontal { background:#252526; height:12px; margin:0; }
-            QScrollBar::handle:vertical { background:#4a4a4d; border-radius:6px;
-                min-height:28px; }
-            QScrollBar::handle:horizontal { background:#4a4a4d; border-radius:6px;
-                min-width:28px; }
-            QScrollBar::handle:hover { background:#5f5f64; }
-            QScrollBar::add-line, QScrollBar::sub-line { height:0; width:0;
-                border:none; background:transparent; }
-            QScrollBar::add-page, QScrollBar::sub-page { background:transparent; }
-""")
+    return ""
 
 
 
@@ -5552,10 +5550,36 @@ def _make_round_scrollbar_style():
     return _RoundSB
 
 
+_ROUND_SB_STYLE = None
+
+
+def _round_sb_style():
+    """自绘滚动条样式的单例。QStyle 不被 setStyle 接管所有权，必须由模块
+    自己留住引用，否则一被回收滚动条就变回原生样子。"""
+    global _ROUND_SB_STYLE
+    if _ROUND_SB_STYLE is None:
+        _ROUND_SB_STYLE = _make_round_scrollbar_style()()
+    return _ROUND_SB_STYLE
+
+
 def _force_fusion_scrollbars(widget):
-    """（已停用）历史上给滚动条套自绘/Fusion 圆角样式。现决定各平台一律用
-    系统原生滚动条，本函数改为空操作，保留以兼容旧调用点。"""
-    return
+    """给 widget 里的滚动条套上自绘圆角样式。
+
+    只在 Win10 及以下 / Linux 的深色主题下动手：那里的样式引擎画出来的是
+    浅色滚动条，深色界面上就是一条白杠，而它既不认 QSS 也不跟调色板。
+    浅色主题不插手——原生颜色本来就对，原生手感更好。
+    mac 与 Win11 原生已是圆角胶囊，_native_scrollbar_platform 直接挡掉。
+    """
+    if widget is None or _native_scrollbar_platform() or _theme_is_light():
+        return
+    try:
+        from PyQt6.QtWidgets import QScrollBar
+        st = _round_sb_style()
+        for sb in widget.findChildren(QScrollBar):
+            sb.setStyle(st)
+            sb.update()
+    except Exception:
+        _log_exc("round_scrollbars")
 
 
 
@@ -6392,17 +6416,42 @@ def _open_log_file():
 
 
 class _StatusClickFilter(QObject):
-    """点状态栏＝打开日志。出错提示就显示在这条栏上，顺手点开看详情最自然，
-    不必再进设置窗找那个按钮。"""
+    """状态栏左半的提示文字可点：单击就地看本次运行的日志，双击用系统程序
+    打开整个日志文件。右半是进度条的地盘，不接管。
+
+    单击要等一个双击间隔才动作——否则双击的第一下会先把弹窗打开。
+    """
+
+    def __init__(self, win):
+        super().__init__(win)
+        self._win = win
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._single)
 
     def eventFilter(self, obj, ev):
         try:
-            if ev.type() == QEvent.Type.MouseButtonPress:
+            t = ev.type()
+            if t not in (QEvent.Type.MouseButtonPress,
+                         QEvent.Type.MouseButtonDblClick):
+                return False
+            if ev.position().x() > obj.width() * 0.5:
+                return False                      # 右半留给进度条
+            if t == QEvent.Type.MouseButtonDblClick:
+                self._timer.stop()
                 _open_log_file()
-                return True
+            else:
+                self._timer.start(QApplication.doubleClickInterval())
+            return True
         except Exception:
             _log_exc("status_click")
         return False
+
+    def _single(self):
+        try:
+            self._win._show_session_log()
+        except Exception:
+            _log_exc("show_session_log")
 
 
 class _DockReopenFilter(QObject):
@@ -6908,6 +6957,9 @@ class MainWindow(QMainWindow):
                     pass
 
     def apply_theme(self):
+        # 深浅换了，自绘滚动条要按新主题重来。放 singleShot 里，无论下面
+        # 走哪条分支（mac 会提前 return）都执行得到。
+        QTimer.singleShot(0, lambda: _safe_fusion(self))
         """主题切换即时生效。mac：AppKit 原生驱动(不涂调色板/QSS，避免打架)；非 mac：调色板+样式表。"""
         from PyQt6.QtWidgets import QApplication as _QA
         from PyQt6.QtGui import QPalette, QColor
@@ -7276,6 +7328,21 @@ class MainWindow(QMainWindow):
         box.addWidget(copy_btn)
         box.addWidget(paste_btn)
         return box
+
+    def _show_session_log(self):
+        """就地显示本次运行写下的日志。双击才打开整个日志文件——那里面还
+        混着以前几次运行的记录，排查当下的问题反而费眼。"""
+        import html as _html
+        lines = list(_SESSION_LOG)
+        if not lines:
+            body = f'<p>{_html.escape(L("本次运行暂无日志"))}</p>'
+        else:
+            body = ("<pre style='white-space:pre-wrap; font-size:12px;'>"
+                    + _html.escape("\n".join(lines)) + "</pre>")
+        DocDialog(L("本次运行日志"),
+                  f'<div class="t1">{_html.escape(L("本次运行日志"))}</div>'
+                  f'<p class="date">{_html.escape(L("双击状态栏可打开完整日志文件"))}</p>'
+                  + body, self).exec()
 
     def _do_ruby(self):
         """给译文标注音标或拼音：有选区只标选区，没有就标整段直译。
@@ -9886,6 +9953,8 @@ def main():
     except Exception:
         pass
     win.show()
+    # 控件全部就位后再套自绘滚动条：Win10/Linux 深色下原生滚动条是白的
+    QTimer.singleShot(0, lambda: _safe_fusion(win))
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
     sys.exit(app.exec())
