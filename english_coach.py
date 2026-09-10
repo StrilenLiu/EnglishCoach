@@ -5640,11 +5640,13 @@ def _apply_win_palette(app):
     if hasattr(QPalette.ColorRole, "Accent"):        # Qt 6.6+ 才有
         pal.setColor(QPalette.ColorRole.Accent, QColor("#1e88e5"))
     app.setPalette(pal)
-    # 气球提示不吃 app 调色板：windows11 样式引擎自绘气球，颜色取自 QToolTip
-    # 自己那份。不单独喂给它，深色主题下气球仍是系统的浅色。
+    # 气球提示是独立的顶层窗口，拿不到主窗的样式表，所以那份 QToolTip 规则
+    # 对它根本没作用；Windows 的样式引擎又自绘气球、未必理会调色板。两头
+    # 都堵上：调色板喂给 QToolTip 自己，样式表挂到 app 级（气球会查到这里）。
     try:
         from PyQt6.QtWidgets import QToolTip as _QTT
         _QTT.setPalette(pal)
+        app.setStyleSheet(_tooltip_css())
     except Exception:
         pass
 
@@ -6621,6 +6623,9 @@ class MainWindow(QMainWindow):
 
         swap_btn = QPushButton(Icons.icon("swap"), "")
         swap_btn.setProperty("_icn", "swap")
+        # 这个 objectName 一直漏了，于是它走的是普通 QPushButton 的 6px 圆角，
+        # 而同排其它方钮是 #toolbtn 的 8px —— 看着就它一个偏尖。
+        swap_btn.setObjectName("toolbtn")
         swap_btn.setToolTip(L("交换源文译文内容"))
         # 36x36：与极简钮、文本框下方那排工具钮同尺寸。居中由 top_grid 两侧
         # 列的 stretch 保证，与按钮本身多大无关，改尺寸不会让它偏。
