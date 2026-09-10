@@ -4251,6 +4251,7 @@ class SettingsDialog(QDialog):
         self._custom_edits = {}       # 槽位 -> (名称, 地址, 模型名)
         self._show_keys_btns = []     # 翻译引擎页与自定义引擎页各一个，状态同步
         self._status_rows = []        # (中文原串, 标签, 值控件, 取值函数)
+        self._forms = []              # 五页的表单，用来统一标签列宽
 
         outer = QVBoxLayout(self)
 
@@ -4283,6 +4284,7 @@ class SettingsDialog(QDialog):
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
         self._refresh_status()
+        self._sync_label_columns()
         # 五页一次建齐(不做懒加载)，这一次 findChildren 才盖得住所有页的滚动条
         QTimer.singleShot(0, lambda: _safe_fusion(self))
 
@@ -4308,6 +4310,7 @@ class SettingsDialog(QDialog):
                     _it.setText(_nav_label(_k))
             # 状态行的值带路径和数量，词表里查不到，得用新语言重算一遍
             self._refresh_status()
+            self._sync_label_columns()   # 英文标签长短不同，列宽要重算
             for _b in self._show_keys_btns:
                 _b.setText(L("隐藏密钥") if _b.isChecked() else L("显示密钥"))
             # 保险：语言下拉必须恒为两项(中文/English US)。若因任何原因丢项，自愈重建，
@@ -4354,25 +4357,30 @@ class SettingsDialog(QDialog):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         box.addLayout(form)
         box.addStretch(1)
+        self._forms.append(form)
         return page, form
 
     def _title_row(self, form, text):
         lb = QLabel(L(text))
         lb.setStyleSheet("font-weight:bold; color:#7bbcff;")
-        form.addRow(lb)          # 单参数 addRow 跨两列，标题不缩在字段列里
+        # 放在字段列（左边留空标签），与下面各行的输入框对齐——跨两列顶到最
+        # 左边反而不好看。原设置窗就是这个位置。
+        form.addRow("", lb)
         return lb
 
     def _hint_row(self, form, text):
         lb = QLabel(L(text))
         lb.setWordWrap(True)
         lb.setStyleSheet("color:#8a8a8a; font-size:11px;")
-        form.addRow(lb)          # 说明文字较长，跨两列才不会挤成细长条
+        # 同样放字段列。跨两列时 QFormLayout 不会为自动换行的标签
+        # 预留行高，长说明会压到下一行的输入框上（自定义引擎页那次重叠）。
+        form.addRow("", lb)
         return lb
 
     def _gap_row(self, form, h=10):
         w = QWidget()
         w.setFixedHeight(h)
-        form.addRow(w)
+        form.addRow("", w)
 
     def _sep_row(self, form):
         f = QFrame()
@@ -4380,7 +4388,7 @@ class SettingsDialog(QDialog):
         f.setFrameShadow(QFrame.Shadow.Plain)
         f.setFixedHeight(1)
         f.setStyleSheet("background:#4a4a4a; border:none;")
-        form.addRow(f)           # 分隔线要通到两列，半条线很难看
+        form.addRow("", f)
 
     def _key_row(self, form, key_name, label, placeholder):
         """一行 API Key 输入框，顺手登记进 _key_edits——保存与显隐密钥
@@ -4422,6 +4430,29 @@ class SettingsDialog(QDialog):
         form.addRow(lb, val)
         self._status_rows.append((label_text, lb, val, getter))
         return val
+
+    def _sync_label_columns(self):
+        """把五页的标签列钉成同一个宽度。
+
+        QFormLayout 各算各的：最长标签只有"语言:"的通用页把列压到 71px，
+        有"Kokoro 模型目录:"的朗读页撑到 144px，切页时右边整列跟着左右跳。
+        取最宽的那一页当基准，所有页照它对齐——连带标题和说明文字也就在
+        每一页落到同一个横坐标上（它们放在字段列，见 _title_row）。
+        """
+        from PyQt6.QtWidgets import QFormLayout
+        labels = []
+        for form in getattr(self, "_forms", []):
+            for r in range(form.rowCount()):
+                it = form.itemAt(r, QFormLayout.ItemRole.LabelRole)
+                w = it.widget() if it is not None else None
+                if w is not None:
+                    w.setMinimumWidth(0)      # 先清零：只增不减会越切越宽
+                    labels.append(w)
+        need = max((w.sizeHint().width() for w in labels), default=0)
+        if need <= 0:
+            return
+        for w in labels:
+            w.setMinimumWidth(need)
 
     def _refresh_status(self):
         """重算所有状态行。开窗时调一次，切语言时再调一次。"""
@@ -4624,7 +4655,7 @@ class SettingsDialog(QDialog):
             self._key_row(form, f"custom{_i}", L(f"引擎 {_i} Key") + ":", "sk-...")
             self._custom_edits[_i] = (_n, _u, _m)
 
-        self._gap_row(form)
+        # 不留空行：翻译引擎页的显示密钥就是紧跟着最后一个 Key 的，两页得一样
         self._show_keys_row(form)
         return page
 
@@ -7970,9 +8001,11 @@ class MainWindow(QMainWindow):
             QSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
             QSlider::handle:horizontal {{ background:#ffffff; width:14px; height:14px;
                 margin:-5px 0; border-radius:7px; border:none; }}
-            /* 朗读速度滑杆(rateSlider)：左右滑槽都灰、圆球灰，不要蓝 */
-            QSlider#rateSlider::sub-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
-            QSlider#rateSlider::add-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+            /* 朗读速度滑杆(rateSlider)：左右滑槽同色、不要蓝，一眼与进度条区分。
+               滑槽取 {bd} —— 与上面朗读进度条未播放那段同一个色，之前写死的
+               #8a8a8a 在深色界面上比进度条亮出一截，两条滑杆并排就露馅。 */
+            QSlider#rateSlider::sub-page:horizontal {{ background:{bd}; border-radius:2px; }}
+            QSlider#rateSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
             QSlider#rateSlider::handle:horizontal {{ background:#ffffff;
                 width:14px; height:14px; margin:-5px 0; border-radius:7px; border:none; }}
 
@@ -8066,8 +8099,9 @@ class MainWindow(QMainWindow):
             QSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
             QSlider::handle:horizontal {{ background:#ffffff; width:14px; height:14px;
                 margin:-5px 0; border-radius:7px; border:none; }}
-            QSlider#rateSlider::sub-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
-            QSlider#rateSlider::add-page:horizontal {{ background:#8a8a8a; border-radius:2px; }}
+            /* 速度滑杆的滑槽与上面进度条未播放那段同色，别比它亮 */
+            QSlider#rateSlider::sub-page:horizontal {{ background:{bd}; border-radius:2px; }}
+            QSlider#rateSlider::add-page:horizontal {{ background:{bd}; border-radius:2px; }}
 
             QStatusBar {{ background:#007acc; color:white; }}
             QStatusBar QLabel {{ background:transparent; color:white; }}
@@ -8131,8 +8165,8 @@ class MainWindow(QMainWindow):
             QPushButton#primary:hover { background:#2b95ef; }
             QLabel { color:#cccccc; }
             QSlider { border:none; }
-            QSlider#rateSlider::sub-page:horizontal { background:#8a8a8a; border-radius:2px; }
-            QSlider#rateSlider::add-page:horizontal { background:#8a8a8a; border-radius:2px; }
+            QSlider#rateSlider::sub-page:horizontal { background:#3a3a3a; border-radius:2px; }
+            QSlider#rateSlider::add-page:horizontal { background:#3a3a3a; border-radius:2px; }
             QSlider::groove:horizontal { height:4px; background:#3a3a3a; border-radius:2px;
                 border:none; }
             QSlider::handle:horizontal { background:#4ea1ff; width:14px; height:14px;
