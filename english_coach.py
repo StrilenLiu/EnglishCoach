@@ -5083,6 +5083,7 @@ class DocDialog(QDialog):
         browser.setHtml(html)
         layout.addWidget(browser)
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)      # 与主界面那几排方按钮同一档缝隙，别各走各的
         close_btn = QPushButton(L("关闭"))
         close_btn.setFixedWidth(BTN_W)
         close_btn.setStyleSheet("QPushButton{background:#1e88e5;border:none;border-radius:5px;color:white;}"\
@@ -8300,13 +8301,20 @@ class MainWindow(QMainWindow):
 
     def _show_session_log(self):
         """就地显示本次运行写下的日志。双击看的是整个日志文件——那里面还
-        混着以前几次运行的记录，排查当下的问题反而费眼。"""
+        混着以前几次运行的记录，排查当下的问题反而费眼。
+
+        这里的导出只导出眼前这些行，不是整个文件。一行都没有时按钮干脆
+        不出现——摆一个点了只会说"日志为空"的按钮没有意义。
+        """
+        lines = list(_SESSION_LOG)
+        extra = ([(L("导出日志"), lambda: self._export_log(lines))]
+                 if lines else [])
         DocDialog(L("本次运行日志"),
                   self._log_html(L("本次运行日志"),
                                  L("双击状态栏可查看完整日志"),
-                                 list(_SESSION_LOG),
+                                 lines,
                                  L("本次运行暂无日志")),
-                  self).exec()
+                  self, extra_buttons=extra).exec()
 
     def _show_log_file(self):
         """查看完整日志：弹窗显示，不再甩给系统的记事本。
@@ -8335,21 +8343,30 @@ class MainWindow(QMainWindow):
         DocDialog(L("查看日志"),
                   self._log_html(L("查看日志"), sub, lines, L("日志为空")),
                   self, width=720, height=560,
-                  extra_buttons=[(L("导出日志"), self._export_log)]).exec()
+                  extra_buttons=[(L("导出日志"),
+                                  lambda: self._export_log())]).exec()
 
-    def _export_log(self):
+    def _export_log(self, lines=None):
         """导出日志到用户选择的路径/文件名/格式：.txt / .log / .md / .json。
-        全部用 Python 标准库实现(无第三方依赖)。"""
+        全部用 Python 标准库实现(无第三方依赖)。
+
+        lines 为 None：导出整个日志文件（查看日志窗里的那个钮）。
+        给了 lines：只导出这几行（本次运行日志窗，导出的就是眼前看到的
+        内容）。除内容来源不同外，两条路的格式、命名、提示完全一样。
+        """
         import os, json, datetime
         from PyQt6.QtWidgets import QFileDialog
-        src = _log_path()
-        try:
-            raw = open(src, "r", encoding="utf-8", errors="replace").read() \
-                if os.path.exists(src) else ""
-        except Exception as e:
-            self._themed_msgbox(QMessageBox.Icon.Warning, "导出日志",
-                                f"{L('读取日志失败')}: {e}")
-            return
+        if lines is not None:
+            raw = "\n".join(lines)
+        else:
+            src = _log_path()
+            try:
+                raw = open(src, "r", encoding="utf-8", errors="replace").read() \
+                    if os.path.exists(src) else ""
+            except Exception as e:
+                self._themed_msgbox(QMessageBox.Icon.Warning, "导出日志",
+                                    f"{L('读取日志失败')}: {e}")
+                return
         if not raw.strip():
             self._themed_msgbox(QMessageBox.Icon.Information, "导出日志",
                                 L("日志为空，无内容可导出"))
