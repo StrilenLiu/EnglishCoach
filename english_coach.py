@@ -2836,20 +2836,20 @@ LANG_OPTIONS = ["自动检测", "中文", "English"]
 
 # 翻译引擎标识
 ENGINE_GOOGLE = "Google -线上联网"
-ENGINE_GOOGLE_API = "Google -API-Key联网"
-ENGINE_DEEPL = "DeepL -API-Key联网"
-ENGINE_DEEPSEEK = "DeepSeek -API-Key联网"
+ENGINE_GOOGLE_API = "Google -API Key 联网"
+ENGINE_DEEPL = "DeepL -API Key 联网"
+ENGINE_DEEPSEEK = "DeepSeek -API Key 联网"
 ENGINE_ARGOS = "Argos -离线本地"
-ENGINE_HUNYUAN = "混元 -API-Key联网"
+ENGINE_HUNYUAN = "混元 -API Key 联网"
 # LLM 多风格翻译引擎（均为 OpenAI 兼容 chat 接口）
-ENGINE_OPENAI = "GPT -API-Key联网"
-ENGINE_GEMINI = "Gemini -API-Key联网"
-ENGINE_CLAUDE = "Claude -API-Key联网"
-ENGINE_GLM = "GLM -API-Key联网"
-ENGINE_ERNIE = "文心一言 -API-Key联网"
-ENGINE_DOUBAO = "豆包 -API-Key联网"
-ENGINE_QWEN = "通义千问 -API-Key联网"
-ENGINE_KIMI = "Kimi -API-Key联网"
+ENGINE_OPENAI = "GPT -API Key 联网"
+ENGINE_GEMINI = "Gemini -API Key 联网"
+ENGINE_CLAUDE = "Claude -API Key 联网"
+ENGINE_GLM = "GLM -API Key 联网"
+ENGINE_ERNIE = "文心一言 -API Key 联网"
+ENGINE_DOUBAO = "豆包 -API Key 联网"
+ENGINE_QWEN = "通义千问 -API Key 联网"
+ENGINE_KIMI = "Kimi -API Key 联网"
 
 # 各引擎端点
 GOOGLE_ENDPOINT = "https://translate.googleapis.com/translate_a/single"
@@ -2973,7 +2973,7 @@ LLM_ENGINE_SET = {
 
 # ---- 用户自定义 API 引擎（三组，一律按 OpenAI 兼容的 chat 接口调用）----
 CUSTOM_ENGINE_SLOTS = (1, 2, 3)
-CUSTOM_ENGINE_SUFFIX = " -API-Key联网"
+CUSTOM_ENGINE_SUFFIX = " -API Key 联网"
 
 
 def _custom_engine_configs(settings):
@@ -2991,8 +2991,8 @@ def _custom_engine_configs(settings):
             slots.append((i, name, url, model))
     out = {}
     for i, name, url, model in slots:
-        # 显示成「模型名 -引擎名 -API-Key联网」，末段与内置的
-        # 「DeepSeek -API-Key联网」一字不差同体例。两组用同一个模型时，
+        # 显示成「模型名 -引擎名 -API Key 联网」，末段与内置的
+        # 「DeepSeek -API Key 联网」一字不差同体例。两组用同一个模型时，
         # 引擎名就是唯一的区分依据，所以它始终带着。
         head = f"{model} -{name}"
         if len(head) > 20:
@@ -3025,6 +3025,26 @@ def _engine_has_key(engine, settings):
     if not kn:
         return True
     return bool((settings.value(f"{kn}_key", "") or "").strip())
+
+
+# 历史上用过的引擎名后缀。引擎名本身就是它在 settings 里的标识，后缀一改，
+# 存着的那个就对不上了，用户选好的引擎会悄没声地退回默认。这里把用过的写法
+# 都记下来，启动时迁一次。
+_LEGACY_ENGINE_SUFFIXES = (" -API-Key联网", " -API Key")
+
+
+def _migrate_engine_setting(settings):
+    """把 settings 里存的引擎名迁到当前写法。幂等，可重复调用。"""
+    cur = (settings.value("engine", "") or "").strip()
+    if not cur or cur.endswith(CUSTOM_ENGINE_SUFFIX):
+        return cur
+    for _old in _LEGACY_ENGINE_SUFFIXES:
+        if cur.endswith(_old):
+            new = cur[:-len(_old)] + CUSTOM_ENGINE_SUFFIX
+            settings.setValue("engine", new)
+            _log_error(f"引擎设置已迁移: {cur!r} -> {new!r}")
+            return new
+    return cur
 
 
 def _engine_choices(settings):
@@ -5319,13 +5339,13 @@ def readme_html_zh():
       <li><b>Google -线上联网</b>：网页版非官方接口。<b>免费、无需 Key</b>，即开即用。
           模型为 Google 网页翻译。<b>稳定性：不保证</b>——Google 未公开承诺此接口，
           可能随时变动或失效，大陆还需代理。适合日常随手翻。</li>
-      <li><b>Google -API-Key联网</b>：官方 <b>Cloud Translation Basic (v2)</b>，NMT 神经翻译模型。
+      <li><b>Google -API Key 联网</b>：官方 <b>Cloud Translation Basic (v2)</b>，NMT 神经翻译模型。
           需 Google Cloud 的 API Key 并<b>启用计费</b>。<b>收费：每月前 50 万字符免费</b>，
           超出按字符计费。<b>稳定性：官方保证，稳定可靠</b>。适合追求稳定的场景。</li>
       <li><b>Argos -离线本地</b>：纯本地离线，<b>无需 Key、无需联网</b>，免费。
           模型为 OpenNMT 离线中英模型（首次随程序内置或下载）。
           质量中等，胜在完全离线、隐私好。</li>
-      <li><b>DeepL -API-Key联网</b>：以翻译质量著称。需 DeepL API Key
+      <li><b>DeepL -API Key 联网</b>：以翻译质量著称。需 DeepL API Key
           （免费版 Key 以 :fx 结尾，每月 50 万字符免费；付费版更高额度）。稳定可靠。</li>
     </ul>
     <div class="t3">大模型（LLM）引擎 —— 支持「多风格翻译」</div>
@@ -5426,8 +5446,8 @@ _EN_SUB = [
     # 不上了。
     # 「联网」这两个字在英文里不能丢：-线上联网 译成 -Online，要 Key 的这档
     # 也得让人一眼看出同样是联网的，只是多一把钥匙。
-    (" -API-Key联网", " -Online API Key"),
-    ("-API-Key联网", " -Online API Key"),
+    (" -API Key 联网", " -Online API Key"),
+    ("-API Key 联网", " -Online API Key"),
     (" -线上联网", " -Online"), ("-线上联网", " -Online"),
     (" -纯离线", " -Offline"), ("-纯离线", " -Offline"),
     ("离线本地", "Offline Local"), ("自动检测", "Auto Detect"),
@@ -5791,7 +5811,7 @@ def _combo_fill(combo, items):
     """下拉填充：显示文字走本地化 L()，userData 保存中文原值（逻辑比较不受语言影响）。
 
     顺手给每项挂上气球提示。弹出列表的宽度是按内置项算死的，自定义引擎名
-    一长就被省略成 "MyVeryLong… -API-Key联网"，光看列表根本分不出是哪一个；
+    一长就被省略成 "MyVeryLong… -API Key 联网"，光看列表根本分不出是哪一个；
     悬停能看到全名就不用猜了。短名字的提示与显示文字一样，看着也不突兀。
     """
     from PyQt6.QtCore import Qt as _Qt
@@ -11181,6 +11201,13 @@ def main():
     # windows11 样式之后——_native_scrollbar_platform 要看当前样式表决定
     # 这台机器到底用不用得着它。
     _install_scrollbar_filter(app)
+    # 引擎名的后缀改过写法，把存着的那个迁一次，否则用户选好的引擎会退回默认。
+    # 要赶在 MainWindow 读 settings 之前。
+    try:
+        from PyQt6.QtCore import QSettings as _QS0
+        _migrate_engine_setting(_QS0("Strilen", "EnglishCoach"))
+    except Exception:
+        _log_exc("migrate_engine_setting")
     try:
         _apply_color_scheme(app)
         win = MainWindow()
