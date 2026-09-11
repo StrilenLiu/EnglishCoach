@@ -5072,7 +5072,8 @@ class SettingsDialog(QDialog):
     # ---------- 引擎分组 ----------
 
     def _engine_block(self, form, title, keys=(), ovr_id=None, def_ep="",
-                      def_model="", test=None, on_edit=None, note=None):
+                      def_model="", test=None, on_edit=None, note=None,
+                      extra=()):
         """一个引擎的完整一组：标题 → 密钥 → 可覆盖的端点/模型名 → 按钮行。
 
         端点和模型名原先单开了一页，得来回跳，测试按钮还重复两套。填 Key 和
@@ -5083,6 +5084,8 @@ class SettingsDialog(QDialog):
         ovr_id : 覆盖值用的引擎标识；None = 这个引擎不支持覆盖（端点写死在
                  独立实现里，或者它的地址本来就是一格凭据）
         test   : (kind, ident)，None 表示不给测试钮
+        extra  : 与 keys 同形状，但排在端点/模型名【之后】——那些比端点更
+                 偏门的可选项（如 ElevenLabs 的自选嗓音 id）摆这儿才顺
         """
         self._gap_row(form, 8)    # 与上一组拉开；组内一律按 6px 行距走
         lb = QLabel(L(title))     # 引擎名多半不在词表里，L() 查不到就原样返回
@@ -5103,6 +5106,9 @@ class SettingsDialog(QDialog):
                 md = self._plain_row(form, _ovr_setting(ovr_id, "model"),
                                      L("模型名") + ":", def_model,
                                      on_edit=on_edit)
+        for _set, _lab, _ph, _secret in extra:
+            (self._key_row if _secret else self._plain_row)(
+                form, _set, _lab, _ph, on_edit=on_edit)
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -5324,7 +5330,15 @@ class SettingsDialog(QDialog):
             keys=[("elevenlabs_key", "ElevenLabs Key:", "sk_...", True)],
             ovr_id=f"tts_{ElevenLabsTts.name}", def_ep=ElevenLabsTts.endpoint,
             def_model=ElevenLabsTts.model,
-            test=("tts", ElevenLabsTts.name), on_edit=_oe)
+            extra=[("elevenlabs_voice_id", L("自选嗓音 id") + ":",
+                    L("克隆音色或音色库里另挑的 id，留空就只用内置那几个"),
+                    False)],
+            test=("tts", ElevenLabsTts.name), on_edit=_oe,
+            note="接口地址只填到 /text-to-speech 为止，嗓音 id 由程序接在后面"
+                 "——从跑通的脚本里整条粘过来也行，末尾多出的嗓音 id 和 "
+                 "/stream 会自动去掉。模型名要填合成模型（如 "
+                 "eleven_multilingual_v2）；scribe 那类是识别模型，填了会报 "
+                 "model_not_found。")
         self._engine_block(
             form, BaiduTts.label,
             ovr_id=f"tts_{BaiduTts.name}", def_ep=BaiduTts.endpoint,
@@ -5346,7 +5360,9 @@ class SettingsDialog(QDialog):
                        "接口需兼容 OpenAI 的 /audio/speech 格式，认证走 Bearer。"
                        "接口地址、模型名、Key 三样填齐才会出现在嗓音列表里；"
                        "嗓音名留空按 alloy 算。Key 会原样发往你填写的地址，"
-                       "请只填信得过的服务。")
+                       "请只填信得过的服务。注意：ElevenLabs、Azure、百度、"
+                       "腾讯的接口都不是这个形状（字段名和认证方式都不同），"
+                       "填到这里只会报字段缺失 —— 它们在上面各有专用条目。")
         for _i in CUSTOM_TTS_SLOTS:
             if _i > 1:
                 self._sep_row(form)
@@ -6331,12 +6347,24 @@ _EN["与腾讯识别共用同一套 SecretId / SecretKey，在「语音识别引
     "Shares its SecretId and SecretKey with Tencent recognition; enter them "
     "on the Speech Recognition page. Voices are chosen by VoiceType.")
 _EN["自定义朗读引擎（可选，最多三组）"] = "Custom Speech Engines (optional, up to three)"
-_EN["接口需兼容 OpenAI 的 /audio/speech 格式，认证走 Bearer。接口地址、模型名、Key 三样填齐才会出现在嗓音列表里；嗓音名留空按 alloy 算。Key 会原样发往你填写的地址，请只填信得过的服务。"] = (
+_EN["接口需兼容 OpenAI 的 /audio/speech 格式，认证走 Bearer。接口地址、模型名、Key 三样填齐才会出现在嗓音列表里；嗓音名留空按 alloy 算。Key 会原样发往你填写的地址，请只填信得过的服务。注意：ElevenLabs、Azure、百度、腾讯的接口都不是这个形状（字段名和认证方式都不同），填到这里只会报字段缺失 —— 它们在上面各有专用条目。"] = (
     "The service must speak OpenAI's /audio/speech format with Bearer auth. "
     "The address, model name and key must all be filled in before its voice "
     "appears in the list; leave the voice name blank and alloy is used. The "
     "key is sent as-is to the address you enter, so only enter services you "
-    "trust.")
+    "trust. Note that ElevenLabs, Azure, Baidu and Tencent do not speak this "
+    "format - different field names, different auth - and will only answer "
+    "with a missing-field error. Each of them has its own section above.")
+_EN["接口地址只填到 /text-to-speech 为止，嗓音 id 由程序接在后面——从跑通的脚本里整条粘过来也行，末尾多出的嗓音 id 和 /stream 会自动去掉。模型名要填合成模型（如 eleven_multilingual_v2）；scribe 那类是识别模型，填了会报 model_not_found。"] = (
+    "The address goes as far as /text-to-speech; the voice id is appended "
+    "for you - pasting a whole working URL is fine too, a trailing voice id "
+    "and /stream are stripped. The model name must be a synthesis model "
+    "(eleven_multilingual_v2, say); a scribe model is for recognition and "
+    "answers with model_not_found.")
+_EN["自选嗓音 id"] = "Your own voice id"
+_EN["克隆音色或音色库里另挑的 id，留空就只用内置那几个"] = (
+    "__RAW__a cloned voice, or another id from the library; "
+    "blank uses the built-in ones")
 _EN["嗓音名"] = "Voice name"
 _EN["嗓音名，如 alloy"] = "voice name, e.g. alloy"
 _EN["显示名称，如 MyTTS"] = "display name, e.g. MyTTS"
@@ -8789,23 +8817,72 @@ class OpenAiTts(OnlineTts):
 
 
 class ElevenLabsTts(OnlineTts):
-    """ElevenLabs。多语种，中英文都能读。"""
+    """ElevenLabs。多语种，中英文都能读。
+
+    嗓音 id 是【路径的一部分】，不是请求体里的字段，所以"接口地址"这一格
+    要的是到 /text-to-speech 为止的基址，后面那截由程序按选中的嗓音接。
+    """
 
     name = "elevenlabs"
     label = "ElevenLabs -API Key 联网"
     cred_keys = ("elevenlabs_key",)
     endpoint = "https://api.elevenlabs.io/v1/text-to-speech"
     model = "eleven_multilingual_v2"
-    # 官方公共音色库里的固定 id
-    en_voices = {"Rachel": "21m00Tcm4TlvDq8ikWAM",
-                 "Adam": "pNInz6obpgDQGcFmaJgB",
-                 "Bella": "EXAVITQu4vr4xnSDxMaL"}
-    zh_voices = {"Rachel": "21m00Tcm4TlvDq8ikWAM",
-                 "Adam": "pNInz6obpgDQGcFmaJgB"}
+    # 官方公共音色库里的固定 id。Sarah 排头一个是有讲究的：测试钮用的就是
+    # 表里第一条，而 Rachel / Adam 是早年的默认音色，新账号的音色库里不一定
+    # 还有它们 —— 拿一个可能不存在的嗓音去测，测的就不是连通性了。
+    _PUBLIC = {"Sarah": "EXAVITQu4vr4xnSDxMaL",
+               "Rachel": "21m00Tcm4TlvDq8ikWAM",
+               "Adam": "pNInz6obpgDQGcFmaJgB"}
+
+    # 自选音色在下拉里的名字。刻意【不】过词表：选中的嗓音是按显示名存进
+    # settings 的，名字一跟着界面语言变，切一次语言用户选好的嗓音就丢了。
+    # 内置那几个叫 Rachel、Adam，本来也都是英文名。
+    MY_VOICE = "My Voice"
+
+    def _voices(self):
+        """公共音色 + 用户自己的那一个（克隆音色、或音色库里另挑的）。
+
+        自填的排在最前：它是用户亲手验过的，测试钮该拿它去测。
+        """
+        vid = self._cred("elevenlabs_voice_id")
+        if not vid:
+            return dict(self._PUBLIC)
+        return {self.MY_VOICE: vid, **self._PUBLIC}
+
+    @property
+    def en_voices(self):
+        return self._voices()
+
+    @property
+    def zh_voices(self):
+        return self._voices()
+
+    def _base(self):
+        """把"接口地址"收拢成基址。
+
+        用户多半是从自己跑通的脚本里整条粘过来的 —— 那条 URL 末尾带着嗓音
+        id，还可能带 /stream。照直往后接嗓音 id 会拼出一条根本不存在的路径，
+        服务端回的是路由级的 404（{"detail":"Not Found"}），看着像"地址变了"，
+        其实是多接了一截。这里把多出来的剥掉，粘整条也能用。
+        """
+        ep = (self.eff("endpoint", self.endpoint) or "").strip()
+        ep = ep.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+        low = ep.lower()
+        # /stream、/with-timestamps 这类动作后缀都在嗓音 id 之后
+        for _tail in ("/stream/with-timestamps", "/with-timestamps", "/stream"):
+            if low.endswith(_tail):
+                ep = ep[:-len(_tail)]
+                low = ep.lower()
+        key = "/text-to-speech"
+        i = low.rfind(key)
+        if i >= 0:
+            ep = ep[:i + len(key)]          # 后面若还跟着嗓音 id，一并剥掉
+        return ep.rstrip("/")
 
     def synth(self, text, voice_id, rate):
         import requests
-        url = f"{self.eff('endpoint', self.endpoint)}/{voice_id}"
+        url = f"{self._base()}/{voice_id}"
         r = requests.post(
             url,
             headers={"xi-api-key": self._cred("elevenlabs_key"),
@@ -9031,6 +9108,9 @@ def _all_secret_values():
     st = _QS("Strilen", "EnglishCoach")
     out = []
     for k in st.allKeys():
+        # 嗓音 id 不是秘密，抹掉它只会让"找不到这个嗓音"之类的报错看不懂
+        if k.endswith("_voice_id"):
+            continue
         if k.endswith("_key") or k.endswith("_secret") or k.endswith("_id"):
             out.append(st.value(k, "") or "")
     return out
