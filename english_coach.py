@@ -3283,6 +3283,15 @@ def _annotate(text, target_lang):
     return _phonetic_zh(t) if target_lang == "中文" else _phonetic_en(t)
 
 
+class MissingCredentials(RuntimeError):
+    """密钥/凭据没填齐。
+
+    它和"请求失败"根本不是一回事：没发出去的请求谈不上网络问题，也谈不上
+    端点或模型名不对。单列一个类型，测试按钮才能把它归到"还没填 Key"，
+    而不是落到"未归类的错误"里去 —— 那条提示会把人往错误的方向引。
+    """
+
+
 class TranslateWorker(QThread):
     """多引擎翻译。默认 Google（免费、无需 Key）；DeepL / DeepSeek 需 Key。"""
     finished_ok = pyqtSignal(str)
@@ -4026,7 +4035,7 @@ class TTSWorker(QThread):
             raise RuntimeError(
                 f"{L('未知朗读引擎')}: {self.voice_spec.get('backend')}")
         if not be.available():
-            raise RuntimeError(be.unavailable_reason())
+            raise MissingCredentials(be.unavailable_reason())
         audio, bounds = be.synth(self.text, self.voice_spec["id"], self.rate)
         if self._cancelled:
             return
@@ -4591,6 +4600,10 @@ class SettingsDialog(QDialog):
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setLabelAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        # 4px：主界面那几排方按钮之间就是这个缝隙，日志窗的导出/关闭也是。
+        # 各平台各风格给的默认行距不一样，不钉死的话同一对按钮在两页上就差
+        # 出好几个像素 —— "测试"与"显示密钥"忽远忽近正是这么来的。
+        form.setVerticalSpacing(4)
         box.addLayout(form)
         box.addStretch(1)
         self._forms.append(form)
@@ -5071,6 +5084,7 @@ class SettingsDialog(QDialog):
                  独立实现里，或者它的地址本来就是一格凭据）
         test   : (kind, ident)，None 表示不给测试钮
         """
+        self._gap_row(form, 8)    # 与上一组拉开；组内一律按 6px 行距走
         lb = QLabel(L(title))     # 引擎名多半不在词表里，L() 查不到就原样返回
         lb.setStyleSheet("font-weight:bold; color:#4ea1ff;")
         form.addRow("", lb)
@@ -5118,7 +5132,6 @@ class SettingsDialog(QDialog):
             w = QWidget()
             w.setLayout(row)
             form.addRow("", w)
-        self._gap_row(form, 8)
         return ep, md
 
     def _page_stt(self):
@@ -6220,11 +6233,19 @@ _EN["腾讯 SecretId"] = "Tencent SecretId"
 _EN["腾讯云 SecretId"] = "Tencent Cloud SecretId"
 _EN["腾讯 SecretKey"] = "Tencent SecretKey"
 _EN["腾讯云 SecretKey"] = "Tencent Cloud SecretKey"
-_EN["请先在设置里填写该识别引擎的密钥"] = (
-    "fill in this engine's key in Settings first")
 _EN["没听出内容，检查一下语言设置是否与所说的一致"] = (
     "nothing recognised - check that the pane's language matches what was "
     "spoken")
+
+_EN["「{engine}」还没填密钥 —— 在设置的「{page}」页填"] = (
+    '__RAW__no key for "{engine}" yet - fill it in on the "{page}" page '
+    'in Settings')
+_EN["「{engine}」还没填齐 —— 接口地址、模型名和 Key 都要填"] = (
+    '__RAW__"{engine}" is incomplete - it needs an endpoint, a model name '
+    'and a key')
+_EN["凭据还没填好，请求根本没发出去，与网络和端点都无关"] = (
+    "credentials are not filled in, so no request was ever sent - this is "
+    "neither the network nor the endpoint")
 
 # —— 引擎测试 / 端点覆盖 / 自定义识别引擎（v2.19.0）——
 _EN["测试"] = "Test"
@@ -6320,7 +6341,6 @@ _EN["嗓音名"] = "Voice name"
 _EN["嗓音名，如 alloy"] = "voice name, e.g. alloy"
 _EN["显示名称，如 MyTTS"] = "display name, e.g. MyTTS"
 _EN["模型名，如 tts-1"] = "model name, e.g. tts-1"
-_EN["请先在设置里填写该朗读引擎的密钥"] = "fill in this engine's key in Settings first"
 _EN["未知朗读引擎"] = "Unknown speech engine"
 _EN["没有返回音频"] = "no audio came back"
 _EN["没有可用的嗓音"] = "no voices available"
@@ -7694,6 +7714,22 @@ def _whisper_model_dir():
     return ""
 
 
+def _no_key_msg(page, engine):
+    """"还没填 Key"这句话，识别和朗读用的是同一份。
+
+    要紧的是说清楚去哪儿填：Azure、百度、腾讯的朗读和识别共用一份凭据，
+    OpenAI 的朗读又和翻译共用，只说"去设置里填"会把人指到没有那一格的页上。
+    """
+    return L("「{engine}」还没填密钥 —— 在设置的「{page}」页填").format(
+        page=_nav_label(page), engine=engine)
+
+
+def _incomplete_msg(engine):
+    """自定义槽位缺的往往不只是 Key，地址和模型名同样必填。"""
+    return L("「{engine}」还没填齐 —— 接口地址、模型名和 Key 都要填").format(
+        engine=engine)
+
+
 class SttBackend:
     """语音转文字后端的形状。新后端照这个实现即可。"""
 
@@ -7788,6 +7824,7 @@ class OnlineSttBase(SttBackend):
 
     label = ""
     cred_keys = ()
+    cred_page = "语音识别引擎"        # 凭据填在设置窗的哪一页
     timeout = 30
 
     @staticmethod
@@ -7799,7 +7836,7 @@ class OnlineSttBase(SttBackend):
         return all(self._cred(k) for k in self.cred_keys)
 
     def unavailable_reason(self):
-        return f"{L('请先在设置里填写该识别引擎的密钥')}"
+        return _no_key_msg(self.cred_page, L(self.label))
 
     def eff(self, field, default=""):
         """端点 / 模型名：用户填了覆盖值就用他的，否则用内置默认。
@@ -7811,7 +7848,7 @@ class OnlineSttBase(SttBackend):
 
     def transcribe(self, samples, lang):
         if not self.available():
-            raise RuntimeError(self.unavailable_reason())
+            raise MissingCredentials(self.unavailable_reason())
         return (self._run(_pcm_to_wav(samples), lang) or "").strip()
 
     def _run(self, wav, lang):
@@ -7866,6 +7903,7 @@ class OpenAiStt(OnlineSttBase):
     name = "openai"
     label = "OpenAI -API Key 联网"
     cred_keys = ("openai_key",)
+    cred_page = "翻译引擎"           # Key 与翻译引擎共用，那一格在翻译页
     endpoint = "https://api.openai.com/v1/audio/transcriptions"
     model = "gpt-4o-mini-transcribe"
 
@@ -8112,7 +8150,8 @@ class CustomStt(OnlineSttBase):
         return all(self._field(f) for f in ("endpoint", "model", "key"))
 
     def unavailable_reason(self):
-        return L("请把接口地址、模型名和 Key 都填好")
+        return _incomplete_msg(self._field("name")
+                               or f"{L('自定义')}{self.slot}")
 
     def _run(self, wav, lang):
         import requests
@@ -8633,6 +8672,7 @@ class OnlineTts:
     name = ""
     label = ""
     cred_keys = ()
+    cred_page = "朗读引擎"            # 凭据填在设置窗的哪一页
     endpoint = ""
     model = ""
     timeout = 60
@@ -8657,7 +8697,7 @@ class OnlineTts:
         return all(self._cred(k) for k in self.cred_keys)
 
     def unavailable_reason(self):
-        return L("请先在设置里填写该朗读引擎的密钥")
+        return _no_key_msg(self.cred_page, L(self.label))
 
     def _check(self, resp):
         if resp.status_code >= 400:
@@ -8683,6 +8723,7 @@ class AzureTts(OnlineTts):
     name = "azure"
     label = "Azure -API Key 联网"
     cred_keys = ("azure_stt_key", "azure_stt_endpoint")
+    cred_page = "语音识别引擎"        # 与识别共用一个语音资源
     zh_voices = {"晓晓": "zh-CN-XiaoxiaoNeural", "云希": "zh-CN-YunxiNeural",
                  "晓辰": "zh-CN-XiaochenNeural"}
     en_voices = {"Ava": "en-US-AvaNeural", "Andrew": "en-US-AndrewNeural",
@@ -8726,6 +8767,7 @@ class OpenAiTts(OnlineTts):
     name = "openai"
     label = "OpenAI -API Key 联网"
     cred_keys = ("openai_key",)
+    cred_page = "翻译引擎"           # Key 与翻译引擎共用，那一格在翻译页
     endpoint = "https://api.openai.com/v1/audio/speech"
     model = "gpt-4o-mini-tts"
     zh_voices = {"Nova": "nova", "Alloy": "alloy", "Shimmer": "shimmer"}
@@ -8784,6 +8826,7 @@ class BaiduTts(OnlineTts):
     name = "baidu"
     label = "百度 -API Key 联网"
     cred_keys = ("baidu_stt_key", "baidu_stt_secret")
+    cred_page = "语音识别引擎"        # 与识别共用同一套凭据
     endpoint = "https://tsn.baidu.com/text2audio"
     zh_voices = {"度小美": "0", "度小宇": "1", "度逍遥": "3", "度丫丫": "4"}
     en_voices = {"度小美": "0", "度小宇": "1"}
@@ -8814,6 +8857,7 @@ class TencentTts(OnlineTts):
     name = "tencent"
     label = "腾讯 -API Key 联网"
     cred_keys = ("tencent_stt_id", "tencent_stt_secret")
+    cred_page = "语音识别引擎"        # 与识别共用同一套凭据
     HOST = "tts.tencentcloudapi.com"
     SERVICE = "tts"
     VERSION = "2019-08-23"
@@ -8895,7 +8939,7 @@ class CustomTts(OnlineTts):
         return all(self._field(f) for f in ("endpoint", "model", "key"))
 
     def unavailable_reason(self):
-        return L("请把接口地址、模型名和 Key 都填好")
+        return _incomplete_msg(self.short_name)
 
     def synth(self, text, voice_id, rate):
         import requests
@@ -8997,6 +9041,8 @@ def _diagnose(exc):
 
     用户该拿到的不是一句"失败了"，而是"大概什么坏了、改哪里"。
     """
+    if isinstance(exc, MissingCredentials):
+        return L("凭据还没填好，请求根本没发出去，与网络和端点都无关")
     name = type(exc).__name__
     txt = str(exc)
     low = txt.lower()
@@ -9037,6 +9083,8 @@ class EngineTestWorker(QThread):
                 out = self._test_stt()
             body = _redact(str(out), _all_secret_values())
             self.done.emit(True, L("连通正常"), body[:1000])
+        except MissingCredentials as e:
+            self.done.emit(False, f"{_diagnose(e)}\n\n{e}", "")
         except Exception as e:
             _log_error(f"[引擎测试] {self.kind}/{self.ident} 失败: "
                        f"{type(e).__name__}: {e}")
@@ -9051,6 +9099,8 @@ class EngineTestWorker(QThread):
         """翻一个 hello。走 TranslateWorker 自己的方法，和真实翻译同一条路
         （含用户填的端点/模型名覆盖值）。"""
         st = self._settings()
+        if not _engine_has_key(self.ident, st):
+            raise MissingCredentials(_no_key_msg("翻译引擎", L(self.ident)))
         keys = {kn: (st.value(f"{kn}_key", "") or "").strip()
                 for kn in set(_ENGINE_KEY_NAME.values())}
         keys.update(_custom_engine_keys(st))
@@ -9077,7 +9127,7 @@ class EngineTestWorker(QThread):
         if be is None:
             raise RuntimeError(f"{L('未知朗读引擎')}: {self.ident}")
         if not be.available():
-            raise RuntimeError(be.unavailable_reason())
+            raise MissingCredentials(be.unavailable_reason())
         table = be.en_voices or be.zh_voices
         if not table:
             raise RuntimeError(f"{be.label}: {L('没有可用的嗓音')}")
@@ -9093,7 +9143,7 @@ class EngineTestWorker(QThread):
         import numpy as _np
         be = _stt_make(self.ident)
         if not be.available():
-            raise RuntimeError(be.unavailable_reason())
+            raise MissingCredentials(be.unavailable_reason())
         silence = _np.zeros(int(STT_SAMPLE_RATE * 0.5), dtype=_np.float32)
         txt = be.transcribe(silence, None)
         return txt or L("（接口返回空文本，静音本来就该是空的）")
