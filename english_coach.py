@@ -5276,6 +5276,8 @@ class SettingsDialog(QDialog):
             self._persist_keys()
             self._fill_stt_combo()
             self._refresh_status()
+            # Azure / 百度 / 腾讯的朗读凭据就填在这一页，目录也跟着它们走
+            self._auto_voice_catalog()
         except Exception:
             _log_exc("refresh_stt_engines")
 
@@ -5307,6 +5309,15 @@ class SettingsDialog(QDialog):
             os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or L("未找到")))
         self._asset_row(form, "kokoro")
         self._asset_row(form, "spacy_en")
+        self._status_row(form, "嗓音列表", self._voice_cat_text)
+        self._hint_row(form,
+                       "嗓音名单不是写死的：Kokoro 扫本地模型目录，edge-tts、"
+                       "Azure、ElevenLabs 各自问服务商要（ElevenLabs 回的就是"
+                       "你账号里的音色库，克隆的也在内）。填好 Key 会自动取"
+                       "一次，开机也会补；服务商新加了音色、或你刚克隆完，点"
+                       "下面这个钮重取。取不回来就用内置的那十来个，下拉不会"
+                       "空。嗓音多了之后，下拉展开直接打字就能筛。")
+        self._voice_cat_row(form)
         self._gap_row(form)
 
         self._title_row(form, "在线朗读引擎密钥（可选）")
@@ -5391,8 +5402,99 @@ class SettingsDialog(QDialog):
             if _p is not None and hasattr(_p, "refresh_voice_choices"):
                 _p.refresh_voice_choices()
             self._refresh_status()
+            self._auto_voice_catalog()
         except Exception:
             _log_exc("refresh_tts_voices")
+
+    # ---------- 嗓音目录 ----------
+
+    def _voice_cat_text(self):
+        out = []
+        for src in VOICE_CATALOG_SOURCES:
+            nm = VOICE_SOURCE_LABEL.get(src, src)
+            if _cat_fresh(src):
+                out.append(f"{nm} {_cat_count(src)}")
+            elif not _cat_ready(src):
+                out.append(f"{nm} {L('不可用')}")
+            else:
+                out.append(f"{nm} {L('用内置表')}")
+        return " · ".join(out)
+
+    def _voice_cat_row(self, form):
+        b = QPushButton(L("刷新嗓音列表"))
+        b.setMinimumHeight(b.sizeHint().height())
+        b.clicked.connect(lambda: self._run_voice_catalog(
+            list(VOICE_CATALOG_SOURCES), b))
+        form.addRow("", b)
+        self._voice_cat_btn = b
+        return b
+
+    def _run_voice_catalog(self, sources, btn=None, quiet=False):
+        """取回一批来源的嗓音目录。quiet=True 用于自动触发，不弹窗。"""
+        if _cat_busy():
+            if not quiet:
+                self._themed_msgbox(QMessageBox.Icon.Information, "嗓音列表",
+                                    L("正在取回，请稍候"))
+            return
+        todo = [s for s in sources if _cat_ready(s)]
+        if not todo:
+            if not quiet:
+                self._themed_msgbox(
+                    QMessageBox.Icon.Information, "嗓音列表",
+                    L("没有可取回的来源：本地模型没装，在线引擎也没填 Key"))
+            return
+        self._persist_keys()
+        if btn is not None:
+            btn.setEnabled(False)
+            btn.setText(L("取回中…"))
+        self._cat_lines = []
+        self._cat_btn, self._cat_quiet = btn, quiet
+        # 绑定方法而不是 lambda：窗口销毁时 PyQt 会自动断开绑定方法的连接，
+        # lambda 不会 —— 关了设置窗再收到信号就是一次崩溃
+        _cat_start(todo, self._on_cat_one, self._on_cat_done)
+
+    def _on_cat_one(self, src, n, err):
+        nm = VOICE_SOURCE_LABEL.get(src, src)
+        self._cat_lines.append(f"{nm}: {n} {L('条')}" if not err
+                               else f"{nm}: {err}")
+
+    def _on_cat_done(self, ok, total):
+        btn, quiet = getattr(self, "_cat_btn", None), getattr(
+            self, "_cat_quiet", True)
+        self._cat_btn = None
+        try:
+            if btn is not None:
+                btn.setEnabled(True)
+                btn.setText(L("刷新嗓音列表"))
+        except RuntimeError:
+            pass                      # 按钮可能已经没了
+        _p = self.parent()
+        if _p is not None and hasattr(_p, "refresh_voice_choices"):
+            _p.refresh_voice_choices()
+        self._refresh_status()
+        if quiet:
+            return
+        body = "\n".join(getattr(self, "_cat_lines", []) or [])
+        self._themed_msgbox(
+            QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning,
+            "嗓音列表",
+            f"{L('取回完成')}：{ok}/{total}\n\n{body}")
+
+    def _auto_voice_catalog(self):
+        """凭据一填好就顺手把目录取回来，不用再点一下。
+
+        只取"有条件取、缓存又对不上"的那几家：没填 Key 的不碰，取过且凭据
+        没变的不重取 —— 否则输入框每失焦一次就发一轮请求。本次运行里失败过
+        的也不反复重试，手动点「刷新嗓音列表」才越过。
+        """
+        try:
+            todo = [s for s in VOICE_CATALOG_SOURCES
+                    if _cat_ready(s) and not _cat_fresh(s)
+                    and s not in _CAT_FAILED]
+            if todo:
+                self._run_voice_catalog(todo, None, quiet=True)
+        except Exception:
+            _log_exc("auto_voice_catalog")
 
     # ---------- 状态取值 ----------
 
@@ -5798,6 +5900,18 @@ def readme_html_en():
       VPN. To choose your own mirror, set the HF_ENDPOINT environment variable.</li>
       <li><b>Needs a VPN</b>: Google and DeepL translation, and online text-to-speech
       (Microsoft Edge voices).</li>
+      <li><b>Where do the voices come from?</b> The list is not hard-coded.
+          Kokoro scans the local model folder, while edge-tts, Azure and
+          ElevenLabs each ask the provider (ElevenLabs returns your own
+          voice library, cloned voices included); the remaining services
+          offer no way to list voices, so a built-in handful is used.
+          Filling in a key fetches once, and so does startup; when a
+          provider adds voices, or you have just cloned one, use
+          <b>Settings &rarr; Text to Speech &rarr; Refresh voice list</b>.
+          If a fetch fails the built-in voices are used, so the dropdown is
+          never empty.</li>
+      <li><b>Too many voices to find one?</b> Open a voice dropdown and
+          <b>just type</b> to filter it; Backspace deletes, Esc clears.</li>
     </ul>
     <div class="t2">Quick Start</div>
     <ul>
@@ -5960,6 +6074,14 @@ def readme_html_zh():
           （如 edge-tts、Kokoro）跟得更贴，不给的则按音频总长在词与词之间
           推算，跟得松一些。两种都只是估算，与实际发音会有出入，快语速、
           长句、标点密集时尤其明显。拖动进度条可随时对齐到想听的位置。</li>
+      <li><b>嗓音从哪来？</b> 名单不是写死的。Kokoro 扫本机模型目录，
+          edge-tts、Azure、ElevenLabs 各自向服务商索取（ElevenLabs 回的
+          就是你账号里的音色库，自己克隆的也在内），其余几家服务商没有
+          列举接口，用的是内置那几个。填好 Key 会自动取一次，开机也会补；
+          服务商新加了音色、或你刚克隆完，到<b>设置 → 朗读引擎 → 刷新嗓音
+          列表</b>重取。取不回来就用内置的那十来个，下拉不会空。</li>
+      <li><b>嗓音太多找不着？</b> 把嗓音下拉展开，<b>直接打字</b>就能筛，
+          退格删字、Esc 清空。</li>
       <li><b>Key 存在哪？</b> 保存在本机 (QSettings)，不上传。</li>
     </ul>
     <div class="t2">程序占用的磁盘空间</div>
@@ -6362,6 +6484,31 @@ _EN["接口地址只填到 /text-to-speech 为止，嗓音 id 由程序接在后
     "(eleven_multilingual_v2, say); a scribe model is for recognition and "
     "answers with model_not_found.")
 _EN["自选嗓音 id"] = "Your own voice id"
+
+# —— 嗓音目录（v2.19.0）——
+_EN["嗓音列表"] = "Voice list"
+_EN["刷新嗓音列表"] = "Refresh voice list"
+_EN["取回中…"] = "Fetching…"
+_EN["取回完成"] = "Fetched"
+_EN["正在取回，请稍候"] = "__RAW__Already fetching - hold on"
+_EN["没有可取回的来源：本地模型没装，在线引擎也没填 Key"] = (
+    "__RAW__Nothing to fetch from - the local model is not installed and no "
+    "online engine has a key")
+_EN["用内置表"] = "built-in list"
+_EN["条"] = "voices"
+_EN["没找到 Kokoro 模型目录"] = "Kokoro model folder not found"
+_EN["对方没回任何嗓音"] = "the service returned no voices"
+_EN["展开后直接打字筛选"] = "open it and just type to filter"
+_EN["筛选"] = "Filter"
+_EN["嗓音名单不是写死的：Kokoro 扫本地模型目录，edge-tts、Azure、ElevenLabs 各自问服务商要（ElevenLabs 回的就是你账号里的音色库，克隆的也在内）。填好 Key 会自动取一次，开机也会补；服务商新加了音色、或你刚克隆完，点下面这个钮重取。取不回来就用内置的那十来个，下拉不会空。嗓音多了之后，下拉展开直接打字就能筛。"] = (
+    "The voice list is not hard-coded: Kokoro scans the local model folder, "
+    "while edge-tts, Azure and ElevenLabs each ask the provider (ElevenLabs "
+    "returns your own voice library, cloned voices included). Filling in a "
+    "key fetches once, and so does startup; when a provider adds voices, or "
+    "you have just cloned one, use the button below to fetch again. If a "
+    "fetch fails the built-in dozen are used, so the dropdown is never "
+    "empty. Once the list is long, open a voice dropdown and just type to "
+    "filter it.")
 _EN["克隆音色或音色库里另挑的 id，留空就只用内置那几个"] = (
     "__RAW__a cloned voice, or another id from the library; "
     "blank uses the built-in ones")
@@ -6605,6 +6752,166 @@ def _combo_fill(combo, items):
         combo.addItem(L(it), it)
         combo.setItemData(combo.count() - 1, L(it),
                           _Qt.ItemDataRole.ToolTipRole)
+
+
+def _voice_combo_fill(combo, lang):
+    """嗓音下拉：显示名走 L()，userData 存【稳定 id 键】。
+
+    别的下拉用 _combo_fill，userData 存的就是中文原文；嗓音这边不行 ——
+    名单是动态拉回来的，显示名随时可能变（见 _voice_key）。原文显示名另存
+    在 UserRole+1 里，切界面语言时按它重译。
+    """
+    from PyQt6.QtCore import Qt as _Qt
+    combo.clear()
+    for disp, spec in _all_voices(lang).items():
+        combo.addItem(L(disp), _voice_key(spec))
+        i = combo.count() - 1
+        combo.setItemData(i, L(disp), _Qt.ItemDataRole.ToolTipRole)
+        combo.setItemData(i, disp, _Qt.ItemDataRole.UserRole + 1)
+    return combo
+
+
+def _make_combo_scrollable(combo, max_visible=14):
+    """项数多了就让弹出列表能滚。
+
+    fit_combo_width 为了消掉末尾空行，把可见项数设成了实际项数，还关了滚
+    动条和滚轮 —— 十来个内置嗓音时正合适，换成拉回来的几十个就会长到屏幕
+    外面去，既够不着也滚不动。这里只改滚动行为，一点没碰配色和边框。
+    """
+    try:
+        from PyQt6.QtWidgets import QListView as _LV
+        n = combo.count()
+        lv = combo.view()
+        if n > max_visible:
+            combo.setMaxVisibleItems(max_visible)
+            lv.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            lv.setVerticalScrollMode(_LV.ScrollMode.ScrollPerItem)
+            try:
+                del lv.wheelEvent          # 恢复默认滚轮（fit 时按死过）
+            except AttributeError:
+                pass
+        else:
+            combo.setMaxVisibleItems(max(1, n))
+    except Exception:
+        _log_exc("make_combo_scrollable")
+
+
+class _ComboTypeFilter(QObject):
+    """下拉展开后直接打字筛选。
+
+    刻意【不】把下拉改成可编辑：内嵌的行编辑器会同时命中 QComboBox 和
+    QLineEdit 两套样式规则，深色主题下出过边框错乱（自定义引擎页那次）。
+    这里只在弹出列表上装个事件过滤器，按输入把不匹配的行藏起来，样式表
+    一个字没动。
+    """
+
+    def __init__(self, combo):
+        super().__init__(combo)
+        self.combo = combo
+        self.buf = ""
+        self.hud = None
+
+    def _ensure_hud(self, view):
+        if self.hud is None:
+            from PyQt6.QtWidgets import QLabel as _QL
+            self.hud = _QL(view)
+            self.hud.setStyleSheet(
+                "background:#2b2b2b; color:#4ea1ff;"
+                "border-top:1px solid #4a4a4a; padding:2px 8px;"
+                "font-size:11px;")
+            self.hud.hide()
+        return self.hud
+
+    def _apply(self):
+        view = self.combo.view()
+        q = self.buf.strip().lower()
+        shown = 0
+        for i in range(self.combo.count()):
+            hit = (not q) or q in self.combo.itemText(i).lower()
+            view.setRowHidden(i, not hit)
+            if hit:
+                shown += 1
+        hud = self._ensure_hud(view)
+        if not q:
+            hud.hide()
+            return
+        hud.setText(f"{L('筛选')}: {self.buf}   ({shown})")
+        hud.resize(view.width(), hud.sizeHint().height())
+        hud.move(0, max(0, view.height() - hud.height()))
+        hud.show()
+        hud.raise_()
+        self._shrink(view, shown, hud.height())
+
+    def _shrink(self, view, shown, hud_h):
+        """筛到两条还撑着十四行的高度，看着就像坏了。只收不放 —— 退格回来
+        的时候让 Qt 自己的弹出逻辑去管，免得和它抢。"""
+        try:
+            cont = view.parentWidget()
+            if cont is None or shown <= 0:
+                return
+            ih = view.sizeHintForRow(0)
+            if ih <= 0:
+                return
+            need = min(shown, self.combo.maxVisibleItems()) * ih + hud_h + 4
+            if need < cont.height():
+                cont.resize(cont.width(), need)
+        except Exception:
+            pass
+
+    def _reset(self):
+        self.buf = ""
+        try:
+            view = self.combo.view()
+            for i in range(self.combo.count()):
+                view.setRowHidden(i, False)
+        except Exception:
+            pass
+        if self.hud is not None:
+            self.hud.hide()
+
+    def eventFilter(self, obj, ev):
+        from PyQt6.QtCore import QEvent as _QE, Qt as _Qt
+        try:
+            t = ev.type()
+            if t in (_QE.Type.Show, _QE.Type.Hide):
+                self._reset()
+                return False
+            if t == _QE.Type.Resize and self.buf:
+                self._apply()
+                return False
+            if t == _QE.Type.KeyPress:
+                k = ev.key()
+                if k in (_Qt.Key.Key_Backspace, _Qt.Key.Key_Delete):
+                    self.buf = self.buf[:-1]
+                    self._apply()
+                    return True
+                if k == _Qt.Key.Key_Escape and self.buf:
+                    self._reset()        # 先清筛选，再按一次才关下拉
+                    return True
+                txt = ev.text()
+                if txt and txt.isprintable() and not txt.isspace():
+                    self.buf += txt
+                    self._apply()
+                    return True
+        except Exception:
+            _log_exc("combo_type_filter")
+        return False
+
+
+def _install_combo_filter(combo):
+    """给下拉装上打字筛选。必须在 fit_combo_width 之后调 —— 那个函数会换掉
+    整个 view，装早了过滤器就跟着旧 view 一起没了。"""
+    try:
+        old = getattr(combo, "_type_filter", None)
+        if old is not None:
+            old.setParent(None)          # 每次重建都换新 view，旧的留着白占地
+        f = _ComboTypeFilter(combo)
+        combo.view().installEventFilter(f)
+        combo._type_filter = f           # 持引用，别被回收
+        return f
+    except Exception:
+        _log_exc("install_combo_filter")
+        return None
 
 
 def _combo_select_data(combo, value):
@@ -8701,6 +9008,9 @@ class OnlineTts:
     label = ""
     cred_keys = ()
     cred_page = "朗读引擎"            # 凭据填在设置窗的哪一页
+    # 支持列举嗓音的引擎在这儿写来源名；留空＝这家没有列举接口，
+    # 只能用下面那张内置表（OpenAI、百度、腾讯都是枚举值，没得列）
+    CATALOG = ""
     endpoint = ""
     model = ""
     timeout = 60
@@ -8723,6 +9033,22 @@ class OnlineTts:
 
     def available(self):
         return all(self._cred(k) for k in self.cred_keys)
+
+    def voices(self, lang):
+        """这家在这个语种下的嗓音 {显示名: id}。
+
+        拉回来的目录【替换】内置表，不叠加 —— 同一个 id 出现两次、名字还
+        不一样，用户没法选。拉不到就用内置的，绝不返回空。
+        """
+        tbl = dict((self.zh_voices if lang == "zh" else self.en_voices) or {})
+        if self.CATALOG and _cat_fresh(self.CATALOG):
+            items = (_cat_load(self.CATALOG) or {}).get(lang) or []
+            got = {it["n"]: it["id"]
+                   for it in _cat_sorted(items, list(tbl.values()))
+                   if it.get("n") and it.get("id")}
+            if got:
+                return got
+        return tbl
 
     def unavailable_reason(self):
         return _no_key_msg(self.cred_page, L(self.label))
@@ -8752,6 +9078,7 @@ class AzureTts(OnlineTts):
     label = "Azure -API Key 联网"
     cred_keys = ("azure_stt_key", "azure_stt_endpoint")
     cred_page = "语音识别引擎"        # 与识别共用一个语音资源
+    CATALOG = "azure"
     zh_voices = {"晓晓": "zh-CN-XiaoxiaoNeural", "云希": "zh-CN-YunxiNeural",
                  "晓辰": "zh-CN-XiaochenNeural"}
     en_voices = {"Ava": "en-US-AvaNeural", "Andrew": "en-US-AndrewNeural",
@@ -8826,6 +9153,7 @@ class ElevenLabsTts(OnlineTts):
     name = "elevenlabs"
     label = "ElevenLabs -API Key 联网"
     cred_keys = ("elevenlabs_key",)
+    CATALOG = "elevenlabs"
     endpoint = "https://api.elevenlabs.io/v1/text-to-speech"
     model = "eleven_multilingual_v2"
     # 官方公共音色库里的固定 id。Sarah 排头一个是有讲究的：测试钮用的就是
@@ -8857,6 +9185,14 @@ class ElevenLabsTts(OnlineTts):
     @property
     def zh_voices(self):
         return self._voices()
+
+    def voices(self, lang):
+        # 目录里是账号音色库，未必包含手填的那个（公共库里另挑的就不在）
+        out = super().voices(lang)
+        vid = self._cred("elevenlabs_voice_id")
+        if vid and vid not in out.values():
+            out = {self.MY_VOICE: vid, **out}
+        return out
 
     def _base(self):
         """把"接口地址"收拢成基址。
@@ -9036,11 +9372,318 @@ TTS_ENGINE_CLASSES = (AzureTts, OpenAiTts, ElevenLabsTts, BaiduTts, TencentTts)
 _TTS_BACKENDS = {c.name: c for c in TTS_ENGINE_CLASSES}
 
 
+# ---------------------------------------------------------------------------
+#  嗓音目录：把写死的名单换成各家自己报的
+#
+#  原先六张表全是手挑的十来条，跟用户的账号没有半点关系 —— ElevenLabs 里自己
+#  克隆的音色、Azure 开通的那几十个，一条都看不见。能列举的就去列举；列不出
+#  来的（OpenAI、百度、腾讯给的是枚举值，没有列举接口）仍用内置表。
+#
+#  拉回来的【替换】该来源的内置项，不是叠加 —— 否则 Aria 会出现两次（内置
+#  一条、拉回来一条），id 相同名字不同，用户根本分不清该选哪个。
+#
+#  底线：下拉绝不会空。没缓存、拉失败、断网、Key 删了，一律退回内置那张表。
+# ---------------------------------------------------------------------------
+
+# 只收这几个地区。Azure 的中英嗓音加起来上百个、edge-tts 全量五百多，
+# 一股脑塞进下拉就没法用了。
+VOICE_LOCALES = {"zh": ("zh-CN",), "en": ("en-US", "en-GB", "en-AU")}
+
+VOICE_CATALOG_SOURCES = ("kokoro", "edge", "azure", "elevenlabs")
+
+# 来源在界面上的名字，状态行和弹窗都用它
+VOICE_SOURCE_LABEL = {"kokoro": "Kokoro", "edge": "edge-tts",
+                      "azure": "Azure", "elevenlabs": "ElevenLabs"}
+
+_GENDER_ZH = {"Female": "女", "Male": "男"}
+
+# Kokoro 音色文件名的头两个字母：地区 + 性别（af_heart = 美音·女）
+_KOKORO_REGION = {"a": "美音", "b": "英音", "z": "普通话"}
+# 中文音色的文件名是拼音，直接 title() 出来是 "Xiaobei"，不像话。
+# 认得的给中文名，认不得的就用拼音 —— 宁可名字朴素，也不把它藏起来。
+_KOKORO_ZH_NAME = {"zf_xiaobei": "晓贝", "zm_yunjian": "云健"}
+
+# 本次运行里拉失败过的来源。断网时每次开机重试一遍没意义，
+# 但手动点「刷新」要能越过它。
+_CAT_FAILED = set()
+
+
+def _voice_settings():
+    from PyQt6.QtCore import QSettings as _QS
+    return _QS("Strilen", "EnglishCoach")
+
+
+def _cat_key(src):
+    return f"voices_{src}"
+
+
+def _cat_sig_key(src):
+    return f"voices_{src}_sig"
+
+
+def _cat_sig(src):
+    """凭据/目录的指纹。换了 Key、换了资源、换了模型目录，缓存就该作废。
+
+    存的是哈希不是原值 —— 缓存的元数据没必要再带一份密钥出来。
+    """
+    import hashlib
+    st = _voice_settings()
+    if src == "kokoro":
+        parts = [os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or ""]
+    elif src == "azure":
+        parts = [st.value("azure_stt_key", "") or "",
+                 st.value("azure_stt_endpoint", "") or ""]
+    elif src == "elevenlabs":
+        parts = [st.value("elevenlabs_key", "") or "",
+                 _ovr_get("tts_elevenlabs", "endpoint") or ""]
+    else:
+        parts = [src]
+    return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+def _cat_load(src):
+    import json
+    raw = _voice_settings().value(_cat_key(src), "") or ""
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+    except Exception:
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def _cat_save(src, data):
+    import json
+    st = _voice_settings()
+    st.setValue(_cat_key(src), json.dumps(data, ensure_ascii=False))
+    st.setValue(_cat_sig_key(src), _cat_sig(src))
+
+
+def _cat_fresh(src):
+    """缓存还算不算数：拉到过，且当初拉它的那份凭据至今没变。"""
+    st = _voice_settings()
+    return (_cat_load(src) is not None
+            and (st.value(_cat_sig_key(src), "") or "") == _cat_sig(src))
+
+
+def _cat_count(src):
+    d = _cat_load(src) or {}
+    return sum(len(d.get(k) or []) for k in ("zh", "en"))
+
+
+def _fetch_kokoro_voices():
+    """扫模型目录下的 voices/*.pt。本地的事，不要网络也不要 Key。"""
+    import glob
+    d = (os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or "").strip()
+    vd = os.path.join(d, "voices") if d else ""
+    if not vd or not os.path.isdir(vd):
+        raise RuntimeError(L("没找到 Kokoro 模型目录"))
+    out = {"zh": [], "en": []}
+    for f in sorted(glob.glob(os.path.join(vd, "*.pt"))):
+        vid = os.path.splitext(os.path.basename(f))[0]
+        if len(vid) < 4 or vid[2] != "_":
+            continue
+        region, gender = vid[0], vid[1]
+        lang = "zh" if region == "z" else ("en" if region in ("a", "b") else "")
+        if not lang:
+            continue      # 模型里还带着日语法语，这个程序用不上
+        name = _KOKORO_ZH_NAME.get(vid) or vid[3:].replace("_", " ").title()
+        out[lang].append({
+            "n": (f"{name} ({_KOKORO_REGION.get(region, region)}·"
+                  f"{'女' if gender == 'f' else '男'}) -离线本地"),
+            "id": vid, "lang": region})
+    return out
+
+
+def _fetch_edge_voices():
+    import asyncio
+    import edge_tts
+    try:
+        vs = asyncio.run(edge_tts.list_voices())
+    except RuntimeError:
+        # 已经有事件循环在跑（理论上不会，后台线程里是干净的）
+        loop = asyncio.new_event_loop()
+        try:
+            vs = loop.run_until_complete(edge_tts.list_voices())
+        finally:
+            loop.close()
+    out = {"zh": [], "en": []}
+    for v in vs or []:
+        loc = v.get("Locale", "")
+        sn = v.get("ShortName", "")
+        if not sn:
+            continue
+        for lang, locs in VOICE_LOCALES.items():
+            if loc in locs:
+                nm = sn.split("-")[-1].replace("Neural", "") or sn
+                g = _GENDER_ZH.get(v.get("Gender", ""), "")
+                out[lang].append({"n": f"{nm} ({loc}·{g}) -线上联网", "id": sn})
+    return out
+
+
+def _fetch_azure_voices():
+    import requests
+    be = AzureTts()
+    if not be.available():
+        raise MissingCredentials(be.unavailable_reason())
+    r = requests.get(
+        be._base() + "/tts/cognitiveservices/voices/list",
+        headers={"Ocp-Apim-Subscription-Key": be._cred("azure_stt_key")},
+        timeout=30)
+    be._check(r)
+    out = {"zh": [], "en": []}
+    for v in r.json() or []:
+        loc = v.get("Locale", "")
+        sn = v.get("ShortName", "")
+        if not sn:
+            continue
+        for lang, locs in VOICE_LOCALES.items():
+            if loc in locs:
+                nm = (v.get("LocalName") or v.get("DisplayName") or sn)
+                g = _GENDER_ZH.get(v.get("Gender", ""), "")
+                out[lang].append({"n": f"{nm} ({loc}·{g})", "id": sn})
+    return out
+
+
+def _fetch_elevenlabs_voices():
+    import requests
+    be = ElevenLabsTts()
+    if not be.available():
+        raise MissingCredentials(be.unavailable_reason())
+    # _base() 收到的是 .../v1/text-to-speech，列举接口在同一台主机的 /v1/voices
+    host = be._base().split("/v1/")[0].rstrip("/")
+    r = requests.get(host + "/v1/voices",
+                     headers={"xi-api-key": be._cred("elevenlabs_key")},
+                     timeout=30)
+    be._check(r)
+    items = []
+    for v in (r.json() or {}).get("voices", []):
+        vid = (v.get("voice_id") or "").strip()
+        if not vid:
+            continue
+        items.append({"n": (v.get("name") or vid).strip(), "id": vid})
+    # 多语种模型中英通吃，两边都给同一份
+    return {"zh": [dict(i) for i in items], "en": [dict(i) for i in items]}
+
+
+_VOICE_FETCH = {"kokoro": _fetch_kokoro_voices, "edge": _fetch_edge_voices,
+                "azure": _fetch_azure_voices,
+                "elevenlabs": _fetch_elevenlabs_voices}
+
+
+def _cat_ready(src):
+    """这个来源现在有没有条件去拉。"""
+    try:
+        if src == "kokoro":
+            d = (os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or "").strip()
+            return bool(d) and os.path.isdir(os.path.join(d, "voices"))
+        if src == "edge":
+            return _module_present("edge_tts")
+        be = _tts_make(src)
+        return be is not None and be.available()
+    except Exception:
+        return False
+
+
+def _cat_refresh(src):
+    """拉一次并存盘。返回拉到几条；拉不到就抛，调用方负责退回内置表。"""
+    data = _VOICE_FETCH[src]()
+    if not (data.get("zh") or data.get("en")):
+        raise RuntimeError(L("对方没回任何嗓音"))
+    _cat_save(src, data)
+    _CAT_FAILED.discard(src)
+    return sum(len(data.get(k) or []) for k in ("zh", "en"))
+
+
+def _cat_sorted(items, preferred):
+    """内置手挑的那几条排前面（按内置的先后），其余按名字排。
+
+    默认嗓音是整个列表的第一条，不能因为改成动态拉取就换了人。
+    """
+    order = {vid: i for i, vid in enumerate(preferred)}
+    return sorted(items, key=lambda it: (order.get(it.get("id"), len(order)),
+                                         it.get("n") or ""))
+
+
+def _builtin_voices(lang, engine):
+    base = ZH_VOICES if lang == "zh" else EN_VOICES
+    return {k: v for k, v in base.items() if v.get("engine") == engine}
+
+
+def _local_source_voices(lang, src):
+    """edge / kokoro 这两个来源的嗓音表。拉过用拉回来的，没拉过用内置的。"""
+    builtin = _builtin_voices(lang, src)
+    if not _cat_fresh(src):
+        return builtin
+    items = (_cat_load(src) or {}).get(lang) or []
+    if not items:
+        return builtin
+    out = {}
+    for it in _cat_sorted(items, [v["id"] for v in builtin.values()]):
+        if not (it.get("n") and it.get("id")):
+            continue
+        spec = {"id": it["id"], "engine": src}
+        if src == "kokoro":
+            spec["lang"] = it.get("lang", "a")
+        out[it["n"]] = spec
+    return out or builtin
+
+
 def _all_voices(lang):
-    """内置嗓音 + 填好 Key 的在线嗓音。内置的排前面，与引擎列表同一个体例。"""
-    out = dict(ZH_VOICES if lang == "zh" else EN_VOICES)
+    """本机能用的全部嗓音。edge / Kokoro 在前，填好 Key 的在线引擎在后。"""
+    out = {}
+    for _src in ("edge", "kokoro"):
+        out.update(_local_source_voices(lang, _src))
     out.update(_online_tts_voices(lang))
     return out
+
+
+def _voice_key(spec):
+    """嗓音的稳定身份：引擎 + 后端 + id。
+
+    settings 里原先存的是【显示名】。名单一从写死改成动态拉取，或者服务商
+    给音色改个名，存着的那条就对不上，用户挑好的嗓音会悄没声地退回默认 ——
+    "昨天好好的今天自己变了"。存 id 才稳。
+    """
+    return "|".join((spec.get("engine", ""), spec.get("backend", ""),
+                     str(spec.get("id", ""))))
+
+
+def _resolve_voice(lang, saved):
+    """settings 里存的那条 -> (显示名, spec)。
+
+    兼容 2.19 以前存的显示名；对不上就退回默认嗓音，绝不返回空。
+    """
+    table = _all_voices(lang)
+    if not table:      # 理论上不会：内置表兜着底
+        return "", {"id": "", "engine": "edge"}
+    if saved:
+        for disp, spec in table.items():
+            if _voice_key(spec) == saved:
+                return disp, spec
+        for disp, spec in table.items():
+            if disp == saved or L(disp) == saved:
+                return disp, spec
+    disp = _first_local_voice(table)
+    return disp, table.get(disp) or next(iter(table.values()))
+
+
+def _voice_shortname(disp, spec=None):
+    """存音频文件时用的短名。内置那批查表，拉回来的现推。"""
+    import re as _re
+    s = VOICE_SHORTNAME.get(disp)
+    if s:
+        return s
+    head = (disp or "").split(" (")[0].split(" -")[0].strip()
+    head = _re.sub(r"[^0-9A-Za-z_-]+", "", head)
+    if head:
+        return head
+    vid = str((spec or {}).get("id", ""))
+    # zh-CN-XiaochenNeural -> Xiaochen；zf_xiaobei -> Xiaobei
+    tail = vid.split("-")[-1].split("_")[-1].replace("Neural", "")
+    tail = _re.sub(r"[^0-9A-Za-z]+", "", tail)
+    return tail.title() or "Voice"
 
 
 def _tts_make(name):
@@ -9068,7 +9711,7 @@ def _online_tts_voices(lang):
     for be in _tts_all_backends():
         if not be.available():
             continue          # 与翻译/识别同一条规矩：没填 Key 就不出现
-        table = be.zh_voices if lang == "zh" else be.en_voices
+        table = be.voices(lang)
         short = be.short_name
         for disp, vid in (table or {}).items():
             out[f"{disp} ({short}){CUSTOM_ENGINE_SUFFIX}"] = {
@@ -9208,7 +9851,7 @@ class EngineTestWorker(QThread):
             raise RuntimeError(f"{L('未知朗读引擎')}: {self.ident}")
         if not be.available():
             raise MissingCredentials(be.unavailable_reason())
-        table = be.en_voices or be.zh_voices
+        table = be.voices("en") or be.voices("zh")
         if not table:
             raise RuntimeError(f"{be.label}: {L('没有可用的嗓音')}")
         vid = next(iter(table.values()))
@@ -9239,6 +9882,70 @@ def _open_log_file():
         except Exception:
             pass
     QDesktopServices.openUrl(QUrl.fromLocalFile(p))
+
+
+class VoiceCatalogWorker(QThread):
+    """后台把各家的嗓音目录拉回来。
+
+    必须放后台：Azure 那一趟能走两三秒，卡在主线程上界面就僵了。
+    一家失败不拖累另一家 —— 每家各报各的，成功的照样落盘。
+    """
+
+    one = pyqtSignal(str, int, str)      # 来源, 拉到几条, 出错时的一句话
+    done = pyqtSignal(int, int)          # 成了几家, 一共几家
+
+    def __init__(self, sources, parent=None):
+        super().__init__(parent)
+        self.sources = list(sources)
+
+    def run(self):
+        ok = 0
+        for src in self.sources:
+            try:
+                n = _cat_refresh(src)
+                ok += 1
+                self.one.emit(src, n, "")
+            except Exception as e:
+                _CAT_FAILED.add(src)
+                _log_error(f"[嗓音目录] {src} 取回失败: "
+                           f"{type(e).__name__}: {e}")
+                msg = _redact(f"{type(e).__name__}: {e}",
+                              _all_secret_values())
+                self.one.emit(src, 0, msg[:200])
+        self.done.emit(ok, len(self.sources))
+
+
+# 在跑的目录取回线程。刻意【不】认父对象：设置窗随时会被关掉，而这一趟最
+# 长要跑几十秒，QThread 跟着父对象一起析构就是一次闪退。挂在这儿，跑完自
+# 己摘掉，退出前统一等。
+_CAT_WORKERS = []
+
+
+def _cat_start(sources, on_one=None, on_done=None):
+    w = VoiceCatalogWorker(sources)
+    if on_one is not None:
+        w.one.connect(on_one)
+    if on_done is not None:
+        w.done.connect(on_done)
+    w.finished.connect(lambda: _CAT_WORKERS.remove(w)
+                       if w in _CAT_WORKERS else None)
+    _CAT_WORKERS.append(w)
+    w.start()
+    return w
+
+
+def _cat_busy():
+    return any(w.isRunning() for w in _CAT_WORKERS)
+
+
+def _cat_wait_all(ms=4000):
+    """退出前等一等，别让还在跑的线程被解释器拆掉。"""
+    for w in list(_CAT_WORKERS):
+        try:
+            if w.isRunning():
+                w.wait(ms)
+        except Exception:
+            pass
 
 
 class _StatusClickFilter(QObject):
@@ -9347,6 +10054,9 @@ class MainWindow(QMainWindow):
         self._build_statusbar()
         self._apply_style()
         self._install_bundled_argos_models()
+        # 嗓音目录后台补一次。延后两秒：开窗那几百毫秒不跟它抢，
+        # 补上了会自动重建下拉，补不上界面照旧用内置表。
+        QTimer.singleShot(2000, self._startup_voice_catalog)
 
     def _load_app_icon(self):
         """优先加载随包的应用图标 PNG；找不到则回退内置 SVG 图标。"""
@@ -9688,21 +10398,19 @@ class MainWindow(QMainWindow):
         tts_bar.setContentsMargins(0, 0, 0, 0)
         tts_bar.setSpacing(6)
         self.zh_voice_combo = QComboBox()
-        _combo_fill(self.zh_voice_combo, _all_voices("zh").keys())
-        fit_combo_width(self.zh_voice_combo)
-        _combo_select_data(self.zh_voice_combo, 
-            self.settings.value("zh_voice", _first_local_voice(_all_voices("zh"))))
-        self.zh_voice_combo.currentTextChanged.connect(self._on_zh_voice_changed)
-        self.zh_voice_combo.setToolTip(L("中文嗓音"))
+        self._build_voice_combo(self.zh_voice_combo, "zh")
+        self.zh_voice_combo.currentIndexChanged.connect(
+            self._on_zh_voice_changed)
+        self.zh_voice_combo.setToolTip(
+            f"{L('中文嗓音')} — {L('展开后直接打字筛选')}")
         tts_bar.addWidget(self.zh_voice_combo)
 
         self.en_voice_combo = QComboBox()
-        _combo_fill(self.en_voice_combo, _all_voices("en").keys())
-        fit_combo_width(self.en_voice_combo)
-        _combo_select_data(self.en_voice_combo, 
-            self.settings.value("en_voice", _first_local_voice(_all_voices("en"))))
-        self.en_voice_combo.currentTextChanged.connect(self._on_en_voice_changed)
-        self.en_voice_combo.setToolTip(L("英文嗓音"))
+        self._build_voice_combo(self.en_voice_combo, "en")
+        self.en_voice_combo.currentIndexChanged.connect(
+            self._on_en_voice_changed)
+        self.en_voice_combo.setToolTip(
+            f"{L('英文嗓音')} — {L('展开后直接打字筛选')}")
         tts_bar.addWidget(self.en_voice_combo)
         tts_bar.addSpacing(12)
 
@@ -9753,7 +10461,9 @@ class MainWindow(QMainWindow):
                     continue
                 cb.blockSignals(True)
                 for i in range(cb.count()):
-                    d = cb.itemData(i)
+                    # 嗓音下拉的 userData 是 id 键，重译要按另存的原文显示名
+                    d = (cb.itemData(i, Qt.ItemDataRole.UserRole + 1)
+                         or cb.itemData(i))
                     if d:
                         cb.setItemText(i, L(d))
                 cb.blockSignals(False)
@@ -11495,16 +12205,15 @@ class MainWindow(QMainWindow):
         self._pending_seek_ratio = from_pos_ratio
         # 按文本语种选嗓音
         if _text_is_chinese(text):
-            voice_name = self.zh_voice_combo.currentData()
-            _vt = _all_voices("zh")
-            voice_spec = _vt.get(voice_name, next(iter(_vt.values())))
+            _disp, voice_spec = _resolve_voice(
+                "zh", self.zh_voice_combo.currentData())
             self._last_lang = "ZH"
         else:
-            voice_name = self.en_voice_combo.currentData()
-            _vt = _all_voices("en")
-            voice_spec = _vt.get(voice_name, next(iter(_vt.values())))
+            _disp, voice_spec = _resolve_voice(
+                "en", self.en_voice_combo.currentData())
             self._last_lang = "EN"
-        self._last_voice_name = voice_name
+        self._last_voice_name = _disp
+        self._last_voice_spec = voice_spec
         rate = self.rate_slider.value()
         self._speak_rate = rate
         is_kokoro = voice_spec.get("engine") == "kokoro"
@@ -11714,7 +12423,7 @@ class MainWindow(QMainWindow):
                 save_dir = os.path.expanduser("~")
         lang = getattr(self, "_last_lang", "EN")
         vname = getattr(self, "_last_voice_name", "")
-        short = VOICE_SHORTNAME.get(vname, "Voice")
+        short = _voice_shortname(vname, getattr(self, "_last_voice_spec", None))
         data = getattr(self, "_last_audio", b"")
         # 默认扩展名优先用上次选择的格式，否则按源音频类型
         last_fmt = self.settings.value("last_audio_fmt", "")
@@ -12419,8 +13128,8 @@ class MainWindow(QMainWindow):
             if self._speak_boundaries:
                 self._update_karaoke(dur * ratio)
 
-    def _on_en_voice_changed(self, name):
-        self.settings.setValue("en_voice", name)
+    def _on_en_voice_changed(self, _i=0):
+        self.settings.setValue("en_voice", self.en_voice_combo.currentData())
         self._on_voice_or_rate_changed(changed_lang="EN")
 
     def _on_engine_changed(self, engine):
@@ -12429,8 +13138,8 @@ class MainWindow(QMainWindow):
         if self.input_edit.toPlainText().strip():
             self._start_translate(auto=True)
 
-    def _on_zh_voice_changed(self, name):
-        self.settings.setValue("zh_voice", name)
+    def _on_zh_voice_changed(self, _i=0):
+        self.settings.setValue("zh_voice", self.zh_voice_combo.currentData())
         self._on_voice_or_rate_changed(changed_lang="ZH")
 
     def _on_voice_or_rate_changed(self, changed_lang=None):
@@ -12839,28 +13548,61 @@ class MainWindow(QMainWindow):
         if not clear_only:
             self.status.showMessage(L("已停止"), 2000)
 
+    def _build_voice_combo(self, cb, lang, keep=None):
+        """（重）填一个嗓音下拉。建窗和重建走同一条路，不留两套。
+
+        宽度按【内置那批】算死：嗓音目录一拉回来名字能长出一大截，任由它
+        撑，主界面就变形了，而且宽度只增不减，缩不回来。弹出列表另算，长
+        名字在那儿看得全。
+        """
+        want = keep if keep is not None else self.settings.value(
+            f"{lang}_voice", "")
+        cb.blockSignals(True)
+        try:
+            _voice_combo_fill(cb, lang)
+            _anchor = list((ZH_VOICES if lang == "zh" else EN_VOICES).keys())
+            fit_combo_width(cb, width_items=_anchor)
+            _make_combo_scrollable(cb)
+            _install_combo_filter(cb)
+            _disp, _spec = _resolve_voice(lang, want)
+            _combo_select_data(cb, _voice_key(_spec))
+            if cb.currentIndex() < 0:
+                cb.setCurrentIndex(0)
+        finally:
+            cb.blockSignals(False)
+        if cb.currentData():
+            self.settings.setValue(f"{lang}_voice", cb.currentData())
+        return cb
+
     def refresh_voice_choices(self):
-        """在线朗读引擎的凭据改了之后重建两个嗓音下拉，尽量保住原来选中的。"""
-        for _cb, _lang, _key in ((getattr(self, "zh_voice_combo", None), "zh",
-                                  "zh_voice"),
-                                 (getattr(self, "en_voice_combo", None), "en",
-                                  "en_voice")):
+        """嗓音目录或在线引擎凭据变了之后重建两个下拉，保住原来选中的那个。"""
+        for _cb, _lang in ((getattr(self, "zh_voice_combo", None), "zh"),
+                           (getattr(self, "en_voice_combo", None), "en")):
             if _cb is None:
                 continue
             try:
-                cur = _cb.currentData()
-                _cb.blockSignals(True)
-                try:
-                    _cb.clear()
-                    _combo_fill(_cb, _all_voices(_lang).keys())
-                    _combo_select_data(_cb, cur)
-                    if _cb.currentIndex() < 0:
-                        _cb.setCurrentIndex(0)
-                finally:
-                    _cb.blockSignals(False)
-                self.settings.setValue(_key, _cb.currentData())
+                self._build_voice_combo(_cb, _lang, keep=_cb.currentData())
             except Exception:
                 _log_exc("refresh_voice_choices")
+
+    def _startup_voice_catalog(self):
+        """开机在后台补一次嗓音目录。
+
+        只补"能补、还没补过"的：Kokoro 是扫本地目录，edge-tts 一个轻量
+        GET，在线引擎得先有 Key。全失败也不影响使用 —— 下拉退回内置表。
+        """
+        try:
+            todo = [x for x in VOICE_CATALOG_SOURCES
+                    if _cat_ready(x) and not _cat_fresh(x)
+                    and x not in _CAT_FAILED]
+            if not todo:
+                return
+            _cat_start(todo, None, self._on_startup_catalog)
+        except Exception:
+            _log_exc("startup_voice_catalog")
+
+    def _on_startup_catalog(self, _ok=0, _n=0):
+        self.refresh_voice_choices()
 
     def refresh_engine_choices(self):
         """自定义引擎改动后重建引擎下拉，尽量保住当前选中的引擎。"""
@@ -12997,6 +13739,7 @@ class MainWindow(QMainWindow):
                 aw.cancel()               # 下到一半退出：.part 文件会留下，
                 aw.quit()                 # 下次重来会覆盖，不会当成完整文件
                 aw.wait(2000)
+            _cat_wait_all()
         except Exception:
             pass
 
