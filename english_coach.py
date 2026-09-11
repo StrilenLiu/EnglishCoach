@@ -3008,9 +3008,34 @@ def _custom_engine_configs(settings):
     return out
 
 
+# 每个内置引擎要哪一份 Key。Google(免费) 与 Argos(离线) 不在表里，
+# 就是不需要 Key 的意思 —— 有它们兜着，下拉永远不会空。
+_ENGINE_KEY_NAME = {ENGINE_GOOGLE_API: "google_api", ENGINE_DEEPL: "deepl"}
+# isinstance 这道关不是多余的：LLM_ENGINES 这个字面量里除了引擎配置，还混着
+# 约 40 条 '中文': 'English' 的翻译词条（历史遗留，按引擎名查表时碰不到它们，
+# 所以一直没露馅）。遍历它就会撞上，这里把非字典的值一律跳过。
+_ENGINE_KEY_NAME.update(
+    {_e: _c["key_name"] for _e, _c in LLM_ENGINES.items()
+     if isinstance(_c, dict) and _c.get("key_name")})
+
+
+def _engine_has_key(engine, settings):
+    """这个引擎现在能不能用：不要 Key 的永远能用，要 Key 的得真填了。"""
+    kn = _ENGINE_KEY_NAME.get(engine)
+    if not kn:
+        return True
+    return bool((settings.value(f"{kn}_key", "") or "").strip())
+
+
 def _engine_choices(settings):
-    """引擎下拉的内容：内置引擎在前，用户自定义的排在后面。"""
-    return ALL_ENGINES + list(_custom_engine_configs(settings).keys())
+    """引擎下拉的内容：内置引擎在前，用户自定义的排在后面。
+
+    要 Key 却没填 Key 的不列出来 —— 和自定义引擎同一条规矩：选了也只会
+    报一句"缺少 Key"，与其让它在列表里等着挨骂，不如根本不出现。填了 Key
+    立刻就回来（关设置窗时会重建下拉）。
+    """
+    return ([e for e in ALL_ENGINES if _engine_has_key(e, settings)]
+            + list(_custom_engine_configs(settings).keys()))
 
 
 def _custom_engine_keys(settings):
@@ -4323,12 +4348,12 @@ class SettingsDialog(QDialog):
 
         # 页名登记中文原串：导航项是 QListWidgetItem 不是 widget，
         # retranslate_widget_tree 遍历不到，切语言时得照这份原串自己重设。
-        self._nav_keys = ["通用", "翻译引擎", "自定义翻译引擎",
+        self._nav_keys = ["通用", "翻译引擎", "自定义翻译引擎", "注音",
                           "语音识别引擎", "朗读引擎"]
         for _k, _build in zip(self._nav_keys,
                               (self._page_general, self._page_engines,
-                               self._page_custom, self._page_stt,
-                               self._page_tts)):
+                               self._page_custom, self._page_ruby,
+                               self._page_stt, self._page_tts)):
             self.stack.addWidget(self._wrap_scroll(_build()))
             QListWidgetItem(_nav_label(_k), self.nav)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -4646,30 +4671,35 @@ class SettingsDialog(QDialog):
 
         self._gap_row(form)
 
+        # 只留「查看日志」一个钮：导出已经搬进日志弹窗里，挨着关闭钮——
+        # 看着日志正想留一份的时候它就在手边，搁这儿反而离现场最远。
         log_btn = QPushButton(L("查看日志"))
         log_btn.setFixedWidth(BTN_W)
+        log_btn.setMinimumHeight(log_btn.sizeHint().height())
         log_btn.clicked.connect(self._open_log)
-        exp_log_btn = QPushButton(L("导出日志"))
-        exp_log_btn.setFixedWidth(BTN_W)          # 与查看日志等宽同风格
-        exp_log_btn.clicked.connect(self._export_log)
-        _logrow = QHBoxLayout()
-        _logrow.setContentsMargins(0, 0, 0, 0)
-        _logrow.setSpacing(8)
-        _logrow.addWidget(log_btn)
-        _logrow.addWidget(exp_log_btn)
-        _logrow.addStretch(1)
-        _logw = QWidget()
-        _logw.setLayout(_logrow)
-        form.addRow("", _logw)
+        form.addRow("", log_btn)
         return page
 
     def _page_engines(self):
         page, form = self._new_page()
         # 翻译引擎本身只在主界面那个下拉里选，选完即存（见主窗 engine_combo 的
         # currentIndexChanged）。设置里再放一份只会和它抢，改了哪边生效说不清。
+        self._title_row(form, "本地翻译引擎")
+        self._hint_row(form,
+                       "Argos 纯离线，不联网也不要 Key。Google 免费版同样不用 "
+                       "Key，两者始终可选，所以引擎列表不会空。")
+        self._status_row(form, "当前引擎", lambda: L("Argos（离线本地）"))
+        self._status_row(form, "状态", self._argos_state_text)
+        self._status_row(form, "翻译组件",
+                         lambda: self._pkg_text("argostranslate"))
+        self._status_row(form, "模型目录", self._argos_dir_text)
+        self._asset_row(form, "argos")
+        self._gap_row(form)
+
         self._title_row(form, "备选引擎 API Key（可选）")
         self._hint_row(form, "Key 只写进本机的系统设置，不随程序上传到任何地方。"
-                             "留空即不启用该引擎。")
+                             "留空即不启用该引擎——没填 Key 的引擎不会出现在"
+                             "主界面的引擎列表里。")
 
         self.deepl_edit = self._key_row(
             form, "deepl", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
@@ -4737,6 +4767,36 @@ class SettingsDialog(QDialog):
         self._show_keys_row(form)
         return page
 
+    def _page_ruby(self):
+        page, form = self._new_page()
+        self._title_row(form, "注音")
+        self._hint_row(form,
+                       "英文标国际音标，中文标带声调拼音。音标用的是 Kokoro "
+                       "朗读的同一套 G2P，所以标出来的和读出来的一致；词典里"
+                       "查不到的名字也能按规则推断。注音行排在译文下面，不朗读"
+                       "、不参与选区联动。")
+
+        self.auto_ruby_chk = QCheckBox(L("翻译单词或单字时自动注音"))
+        self.auto_ruby_chk.setChecked(
+            self.settings.value("auto_ruby", "true") == "true")
+        self.auto_ruby_chk.toggled.connect(
+            lambda v: self.settings.setValue("auto_ruby",
+                                             "true" if v else "false"))
+        form.addRow("", self.auto_ruby_chk)
+        self._hint_row(form,
+                       "关掉之后仍可随时按工具栏上的注音钮手动标注；长句本来"
+                       "就只能手动。")
+        self._gap_row(form)
+
+        self._status_row(form, "英文注音组件",
+                         lambda: self._pkg_text("misaki"))
+        self._status_row(form, "英文分词组件",
+                         lambda: self._pkg_text("en_core_web_sm"))
+        self._status_row(form, "中文注音组件",
+                         lambda: self._pkg_text("pypinyin"))
+        self._asset_row(form, "spacy_en")
+        return page
+
     def _page_stt(self):
         page, form = self._new_page()
         self._title_row(form, "语音识别引擎")
@@ -4784,6 +4844,16 @@ class SettingsDialog(QDialog):
             return f"{L('不可用')} — {L('语音识别组件缺失')}"
         return L("可用")
 
+    def _argos_state_text(self):
+        if not _module_present("argostranslate"):
+            return f"{L('不可用')} — {L('缺失')} argostranslate"
+        return L("可用") if _asset_ready("argos") else (
+            f"{L('不可用')} — {L('未找到模型')}")
+
+    def _argos_dir_text(self):
+        d = os.path.expanduser("~/EnglishCoach Models/Argos")
+        return d if os.path.isdir(d) else L("未找到")
+
     def _mic_state_text(self):
         try:
             ok = VoiceRecorder.input_available()
@@ -4825,67 +4895,13 @@ class SettingsDialog(QDialog):
         for e in self._key_edits.values():
             e.setEchoMode(mode)
 
-    def _export_log(self):
-        """导出日志到用户选择的路径/文件名/格式：.txt / .log / .md / .json。
-        全部用 Python 标准库实现(无第三方依赖)。"""
-        import os, json, datetime
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        src = _log_path()
-        try:
-            raw = open(src, "r", encoding="utf-8", errors="replace").read() \
-                if os.path.exists(src) else ""
-        except Exception as e:
-            QMessageBox.warning(self, L("导出日志"), f"{L('读取日志失败')}: {e}")
-            return
-        if not raw.strip():
-            QMessageBox.information(self, L("导出日志"), L("日志为空，无内容可导出"))
-            return
-        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
-        default = os.path.join(os.path.expanduser("~"), f"EC LT {stamp}.txt")
-        filt = ("Text (*.txt);;Log (*.log);;Markdown (*.md);;JSON (*.json);;"
-                "All Files (*)")
-        path, chosen = QFileDialog.getSaveFileName(
-            self, L("导出日志"), default, filt)
-        if not path:
-            return
-        ext = os.path.splitext(path)[1].lower()
-        if not ext:   # 用户没打后缀：按所选过滤器补
-            ext = (".log" if "Log" in (chosen or "") else
-                   ".md" if "Markdown" in (chosen or "") else
-                   ".json" if "JSON" in (chosen or "") else ".txt")
-            path += ext
-        try:
-            lines = raw.splitlines()
-            if ext == ".json":
-                data = {
-                    "app": "English Coach",
-                    "version": APP_VERSION,
-                    "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
-                    "line_count": len(lines),
-                    "lines": lines,
-                }
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
-            elif ext == ".md":
-                head = (f"# English Coach {L('运行日志')}\n\n"
-                        f"- **{L('版本')}**: v{APP_VERSION}\n"
-                        f"- **{L('导出时间')}**: "
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                        "```log\n")
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(head + raw.rstrip("\n") + "\n```\n")
-            else:   # .txt / .log / 其它：原样文本
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(raw)
-        except Exception as e:
-            QMessageBox.warning(self, L("导出日志"), f"{L('导出失败')}: {e}")
-            return
-        QMessageBox.information(
-            self, L("导出日志"), f"{L('日志已导出到')}:\n{path}")
-
     def _open_log(self):
-        """用系统默认程序打开日志文件。"""
-        _open_log_file()
+        """查看日志：弹窗显示，与状态栏双击是同一个窗。"""
+        _p = self.parent()
+        if _p is not None and hasattr(_p, "_show_log_file"):
+            _p._show_log_file()
+        else:                       # 理论上到不了，留个不至于没反应的退路
+            _open_log_file()
 
     def _retheme(self):
         """主题热切换时被主窗 apply_theme 调用：按新深浅重建本窗自绘样式
@@ -4970,23 +4986,22 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(_base_css)
 
     def _persist_custom_engines(self):
-        """保存三组自定义引擎的名称 / 地址 / 模型名，并让主窗重建引擎下拉。
+        """保存三组自定义引擎的名称 / 地址 / 模型名。
 
         Key 不在这里——它挂在 _key_edits 上，跟内置引擎的 Key 一起存。
+        重建引擎下拉的事交给 _persist_keys 收尾统一做：内置引擎现在也要看
+        Key 填没填才决定列不列，在这儿刷就刷早了，读到的还是旧 Key。
         """
         try:
             for i, (n, u, m) in getattr(self, "_custom_edits", {}).items():
                 self.settings.setValue(f"custom{i}_name", n.text().strip())
                 self.settings.setValue(f"custom{i}_endpoint", u.text().strip())
                 self.settings.setValue(f"custom{i}_model", m.text().strip())
-            _p = self.parent()
-            if _p is not None and hasattr(_p, "refresh_engine_choices"):
-                _p.refresh_engine_choices()
         except Exception:
             _log_exc("persist_custom_engines")
 
     def _persist_keys(self):
-        """保存所有 API Key 与多风格开关(关闭设置窗时调用)。
+        """保存所有 API Key 与多风格开关(关闭设置窗时调用)，最后刷一次引擎下拉。
 
         DeepL 与 Google 现在也登记在 _key_edits 里，下面那个循环已经覆盖到，
         单写的两行是留着的保险——真要有人把它们从登记表里挪走，Key 也不会
@@ -5001,9 +5016,19 @@ class SettingsDialog(QDialog):
             self.settings.setValue(
                 "multi_style", "true" if self.multi_style_chk.isChecked() else "false")
         except Exception:
-            pass
+            _log_exc("persist_keys")
+        # 全部写完再刷：刚填上 Key 的引擎这时才会出现在下拉里，刚清空的
+        # 才会消失。
+        try:
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "refresh_engine_choices"):
+                _p.refresh_engine_choices()
+        except Exception:
+            _log_exc("refresh_after_keys")
 
     def save(self):
+        # 注：眼下没有任何地方调用它（设置改为即时保存后就废了），保留是为了
+        # 万一有旧调用点。行为与 _persist_keys 对齐即可。
         self._persist_custom_engines()
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
@@ -5036,8 +5061,13 @@ class SettingsDialog(QDialog):
 
 
 class DocDialog(QDialog):
-    """通用文档展示对话框 (关于 / 更新 / 帮助 / 开发者)。"""
-    def __init__(self, title, html, parent=None, width=560, height=480):
+    """通用文档展示对话框 (关于 / 更新 / 帮助 / 开发者 / 日志)。
+
+    extra_buttons: [(按钮文字, 回调), ...]，挂在「关闭」左边。查看日志用它
+    把「导出日志」放到看得见日志的地方——那才是想导出的时刻。
+    """
+    def __init__(self, title, html, parent=None, width=560, height=480,
+                 extra_buttons=()):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.resize(width, height)
@@ -5059,6 +5089,11 @@ class DocDialog(QDialog):
             "QPushButton:hover{background:#2b95ef;}")
         close_btn.clicked.connect(self.accept)
         btn_row.addStretch()
+        for _txt, _cb in (extra_buttons or ()):
+            _b = QPushButton(_txt)
+            _b.setFixedWidth(BTN_W)
+            _b.clicked.connect(_cb)
+            btn_row.addWidget(_b)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
 
@@ -5560,6 +5595,38 @@ _EN["模型已下载但未能装入 Argos"] = "downloaded, but Argos would not i
 _EN["下载"] = "Download"
 _EN["下载到的不是有效的 whl 文件"] = "what came back is not a valid wheel"
 
+# —— 引擎筛选 / 日志弹窗 / 注音页（v2.19.0）——
+_EN["本地翻译引擎"] = "Local Engine"
+_EN["Argos 纯离线，不联网也不要 Key。Google 免费版同样不用 Key，两者始终可选，所以引擎列表不会空。"] = (
+    "Argos runs entirely offline, with no network and no key, and the free "
+    "Google engine needs no key either. Both are always available, so the "
+    "engine list is never empty.")
+_EN["Key 只写进本机的系统设置，不随程序上传到任何地方。留空即不启用该引擎——没填 Key 的引擎不会出现在主界面的引擎列表里。"] = (
+    "Keys are written to this machine's own settings and are never uploaded "
+    "anywhere by the app. Leave one blank to keep that engine switched off — "
+    "an engine with no key does not appear in the main window's engine list.")
+_EN["Argos（离线本地）"] = "Argos, running locally"
+_EN["翻译组件"] = "Component"
+_EN["注音"] = "Ruby"
+_EN["英文标国际音标，中文标带声调拼音。音标用的是 Kokoro 朗读的同一套 G2P，所以标出来的和读出来的一致；词典里查不到的名字也能按规则推断。注音行排在译文下面，不朗读、不参与选区联动。"] = (
+    "English gets IPA, Chinese gets pinyin with tone marks. The phonetics "
+    "come from the same G2P that Kokoro speaks with, so what is written "
+    "matches what you hear, and a name no dictionary carries is still worked "
+    "out from the rules. The line sits under the translation; it is never "
+    "read aloud and takes no part in selection linking.")
+_EN["翻译单词或单字时自动注音"] = "Annotate single words automatically"
+_EN["关掉之后仍可随时按工具栏上的注音钮手动标注；长句本来就只能手动。"] = (
+    "With this off the Ruby button still works at any time; long sentences "
+    "are manual either way.")
+_EN["英文注音组件"] = "English phonetics"
+_EN["中文注音组件"] = "Chinese phonetics"
+_EN["查看日志"] = "View Log"
+_EN["点击查看运行日志"] = "Click for this run's log, double-click for the whole file"
+_EN["双击状态栏可查看完整日志"] = "Double-click the status bar for the whole log"
+_EN["日志为空"] = "The log is empty"
+_EN["行"] = "lines"
+_EN["仅显示最后 2000 行，导出可得全部"] = "showing the last 2000 lines; export for all of them"
+
 
 def L(s):
     """界面文案本地化：English US 时查词表；查不到按子串规则翻译后缀。"""
@@ -5654,12 +5721,16 @@ def retranslate_widget_tree(root, to_lang):
                 if w.property("no_retranslate"):
                     continue          # 身份值下拉(如语言选择)不参与重译
                 _changed = False
+                from PyQt6.QtCore import Qt as _Qt
                 for i in range(w.count()):
                     it = w.itemText(i)
                     nit = _translate_text(it, to_lang)
                     if nit != it:
                         w.setItemText(i, nit)
                         _changed = True
+                    # 气球提示跟着一起换，否则切了语言悬停还是旧语言的全名
+                    if w.itemData(i, _Qt.ItemDataRole.ToolTipRole) is not None:
+                        w.setItemData(i, nit, _Qt.ItemDataRole.ToolTipRole)
                 if _changed:
                     # 译后文字长度变了，闭合框与弹出列表都要按新文字重算宽度，
                     # 否则中英切换后会变窄、弹出项显示成 "-On…"（v2.14.3 修复）
@@ -5699,9 +5770,17 @@ def _first_local_voice(voices):
 
 
 def _combo_fill(combo, items):
-    """下拉填充：显示文字走本地化 L()，userData 保存中文原值（逻辑比较不受语言影响）。"""
+    """下拉填充：显示文字走本地化 L()，userData 保存中文原值（逻辑比较不受语言影响）。
+
+    顺手给每项挂上气球提示。弹出列表的宽度是按内置项算死的，自定义引擎名
+    一长就被省略成 "MyVeryLong… -API-Key联网"，光看列表根本分不出是哪一个；
+    悬停能看到全名就不用猜了。短名字的提示与显示文字一样，看着也不突兀。
+    """
+    from PyQt6.QtCore import Qt as _Qt
     for it in items:
         combo.addItem(L(it), it)
+        combo.setItemData(combo.count() - 1, L(it),
+                          _Qt.ItemDataRole.ToolTipRole)
 
 
 def _combo_select_data(combo, value):
@@ -7313,7 +7392,7 @@ class _StatusClickFilter(QObject):
                 return False                      # 右半留给进度条
             if t == QEvent.Type.MouseButtonDblClick:
                 self._timer.stop()
-                _open_log_file()
+                self._win._show_log_file()   # 与设置窗的「查看日志」同一个窗
             else:
                 self._timer.start(QApplication.doubleClickInterval())
             return True
@@ -8207,20 +8286,117 @@ class MainWindow(QMainWindow):
         box.addWidget(paste_btn)
         return box
 
-    def _show_session_log(self):
-        """就地显示本次运行写下的日志。双击才打开整个日志文件——那里面还
-        混着以前几次运行的记录，排查当下的问题反而费眼。"""
+    @staticmethod
+    def _log_html(title, subtitle, lines, empty_text):
+        """把若干行日志排成文档窗用的 HTML。两个日志窗共用一套排版。"""
         import html as _html
-        lines = list(_SESSION_LOG)
         if not lines:
-            body = f'<p>{_html.escape(L("本次运行暂无日志"))}</p>'
+            body = f'<p>{_html.escape(empty_text)}</p>'
         else:
             body = ("<pre style='white-space:pre-wrap; font-size:12px;'>"
                     + _html.escape("\n".join(lines)) + "</pre>")
+        return (f'<div class="t1">{_html.escape(title)}</div>'
+                f'<p class="date">{_html.escape(subtitle)}</p>' + body)
+
+    def _show_session_log(self):
+        """就地显示本次运行写下的日志。双击看的是整个日志文件——那里面还
+        混着以前几次运行的记录，排查当下的问题反而费眼。"""
         DocDialog(L("本次运行日志"),
-                  f'<div class="t1">{_html.escape(L("本次运行日志"))}</div>'
-                  f'<p class="date">{_html.escape(L("双击状态栏可打开完整日志文件"))}</p>'
-                  + body, self).exec()
+                  self._log_html(L("本次运行日志"),
+                                 L("双击状态栏可查看完整日志"),
+                                 list(_SESSION_LOG),
+                                 L("本次运行暂无日志")),
+                  self).exec()
+
+    def _show_log_file(self):
+        """查看完整日志：弹窗显示，不再甩给系统的记事本。
+
+        导出按钮就放在这个窗里、关闭钮左边 —— 看着日志正想留一份的时候，
+        它就在手边；搁在设置窗里反而离现场最远。
+        """
+        import os as _os
+        path = _log_path()
+        try:
+            raw = (open(path, "r", encoding="utf-8", errors="replace").read()
+                   if _os.path.exists(path) else "")
+        except Exception as e:
+            _log_exc("read_log_file")
+            raw = f"{L('读取日志失败')}: {e}"
+        lines = raw.splitlines()
+        # 太长的日志只显示末尾：QTextBrowser 渲染上万行会卡住，而排查问题
+        # 看的总是最近发生的事。要全部内容就导出。
+        cap = 2000
+        clipped = len(lines) > cap
+        if clipped:
+            lines = lines[-cap:]
+        sub = f"{path}　·　{len(raw.splitlines())} {L('行')}"
+        if clipped:
+            sub += f"　·　{L('仅显示最后 2000 行，导出可得全部')}"
+        DocDialog(L("查看日志"),
+                  self._log_html(L("查看日志"), sub, lines, L("日志为空")),
+                  self, width=720, height=560,
+                  extra_buttons=[(L("导出日志"), self._export_log)]).exec()
+
+    def _export_log(self):
+        """导出日志到用户选择的路径/文件名/格式：.txt / .log / .md / .json。
+        全部用 Python 标准库实现(无第三方依赖)。"""
+        import os, json, datetime
+        from PyQt6.QtWidgets import QFileDialog
+        src = _log_path()
+        try:
+            raw = open(src, "r", encoding="utf-8", errors="replace").read() \
+                if os.path.exists(src) else ""
+        except Exception as e:
+            self._themed_msgbox(QMessageBox.Icon.Warning, "导出日志",
+                                f"{L('读取日志失败')}: {e}")
+            return
+        if not raw.strip():
+            self._themed_msgbox(QMessageBox.Icon.Information, "导出日志",
+                                L("日志为空，无内容可导出"))
+            return
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H%M%S")
+        default = os.path.join(os.path.expanduser("~"), f"EC LT {stamp}.txt")
+        filt = ("Text (*.txt);;Log (*.log);;Markdown (*.md);;JSON (*.json);;"
+                "All Files (*)")
+        path, chosen = QFileDialog.getSaveFileName(
+            self, L("导出日志"), default, filt)
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if not ext:   # 用户没打后缀：按所选过滤器补
+            ext = (".log" if "Log" in (chosen or "") else
+                   ".md" if "Markdown" in (chosen or "") else
+                   ".json" if "JSON" in (chosen or "") else ".txt")
+            path += ext
+        try:
+            lines = raw.splitlines()
+            if ext == ".json":
+                data = {
+                    "app": "English Coach",
+                    "version": APP_VERSION,
+                    "exported_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                    "line_count": len(lines),
+                    "lines": lines,
+                }
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            elif ext == ".md":
+                head = (f"# English Coach {L('运行日志')}\n\n"
+                        f"- **{L('版本')}**: v{APP_VERSION}\n"
+                        f"- **{L('导出时间')}**: "
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                        "```log\n")
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(head + raw.rstrip("\n") + "\n```\n")
+            else:   # .txt / .log / 其它：原样文本
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(raw)
+        except Exception as e:
+            self._themed_msgbox(QMessageBox.Icon.Warning, "导出日志",
+                                f"{L('导出失败')}: {e}")
+            return
+        self._themed_msgbox(QMessageBox.Icon.Information, "导出日志",
+                            f"{L('日志已导出到')}:\n{path}")
 
     def _do_ruby(self):
         """给译文标注音标或拼音：有选区只标选区，没有就标整段直译。
@@ -8457,7 +8633,7 @@ class MainWindow(QMainWindow):
         self._status_click = _StatusClickFilter(self)
         self.status.installEventFilter(self._status_click)
         self.status.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.status.setToolTip(L("点击打开运行日志"))
+        self.status.setToolTip(L("点击查看运行日志"))
         self.status.showMessage(L("就绪"))
 
     # ---------- 样式 ----------
@@ -9106,7 +9282,8 @@ class MainWindow(QMainWindow):
         # 带过去。out 本身保持不含注音，翻译历史里存的才是干净的译文。
         _shown = out
         _src_raw = self.input_edit.toPlainText()
-        if _should_annotate(_src_raw):
+        if (_should_annotate(_src_raw)
+                and self.settings.value("auto_ruby", "true") == "true"):
             if self._lit_end is not None:
                 _lit = out[:self._lit_end]
             elif _multi:
