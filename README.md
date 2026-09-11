@@ -34,11 +34,15 @@ Grab the latest build from the **[Releases page](https://github.com/StrilenLiu/E
 
 English Coach 是一款桌面语言工具，三件事做透：**翻译**让你看懂意思，**朗读**让你听清读法，**注音**让你知道怎么念。
 
-具体包括：14 个翻译引擎（含 10 个大模型引擎，另可自定义三组）、双语音合成后端（在线 edge-tts / 离线 Kokoro）、本地 Whisper 语音录入（说话转文字，不联网）、译文自动或手动标注音标与拼音、逐词卡拉OK字幕、原文译文选区联动、翻译历史与文件导入导出。界面支持中英双语与深浅主题。
+具体包括：14 个翻译引擎（含 10 个大模型引擎，另可自定义三组）、7 个朗读引擎（离线 Kokoro、免 Key 的 edge-tts，以及 Azure / OpenAI / ElevenLabs / 百度 / 腾讯，另可自定义三组）、6 个语音识别引擎（本地 Whisper，以及 Groq / OpenAI / Azure / 百度 / 腾讯，另可自定义三组）、译文自动或手动标注音标与拼音、逐词卡拉OK字幕、原文译文选区联动、翻译历史与文件导入导出。界面支持中英双语与深浅主题。
+
+**离线也能用完整一套**：Argos 翻译、Kokoro 朗读、Whisper 识别都跑在本机，不要网络也不要 Key。在线引擎是可选的加项，填了谁的 Key 谁才出现。
 
 English Coach is a desktop language tool built around three things: **translation** for meaning, **speech** for sound, and **ruby** for how to say it.
 
-It bundles 14 translation engines — 10 of them powered by large language models, plus three slots for your own — two text-to-speech backends (online edge-tts and offline Kokoro), local Whisper voice input (speech to text, offline), IPA and pinyin annotation of the translation either automatically or on demand, word-by-word karaoke subtitles driven by real timestamps, two-way selection linking between the source and target panes, a searchable translation history, and file import/export. The interface is fully bilingual (Chinese/English) and follows light or dark themes.
+It bundles 14 translation engines — 10 of them powered by large language models, plus three slots for your own — seven speech engines (offline Kokoro, key-free edge-tts, and Azure, OpenAI, ElevenLabs, Baidu and Tencent, plus three custom slots), six voice-input engines (local Whisper, and Groq, OpenAI, Azure, Baidu and Tencent, plus three custom slots), IPA and pinyin annotation of the translation either automatically or on demand, word-by-word karaoke subtitles, two-way selection linking between the source and target panes, a searchable translation history, and file import/export. The interface is fully bilingual (Chinese/English) and follows light or dark themes.
+
+**A complete offline set is included**: Argos translation, Kokoro speech and Whisper recognition all run on your machine, needing neither a network nor a key. The online engines are optional extras that appear only once you enter a key for them.
 
 ---
 
@@ -178,8 +182,9 @@ This app is not code-signed — Apple's Developer ID requires a paid yearly memb
 |---|---|
 | **已打包，立即可用**<br>Bundled, works immediately | 程序本体与全部依赖库<br>The program itself and every bundled library |
 | **首次使用下载一次**<br>Downloaded once on first use | Kokoro 离线朗读模型（约 330MB）、Argos 离线语言包；下载后完全离线<br>The Kokoro offline speech model (~330MB) and Argos language packs; fully offline afterwards |
-| **始终需要联网**<br>Always needs a network | 在线翻译引擎、在线朗读<br>Online translation engines and online text-to-speech |
-| **需自备 API Key**<br>Requires your own API key | LLM 引擎在云端运行，本地不打包任何大模型<br>LLM engines run in the cloud; no language model is bundled locally |
+| **始终需要联网**<br>Always needs a network | 在线翻译引擎、在线朗读、在线语音识别<br>Online translation, speech and recognition engines |
+| **需自备 API Key**<br>Requires your own API key | LLM 翻译引擎，以及 Azure / OpenAI / ElevenLabs / 百度 / 腾讯 / Groq 的朗读与识别。它们都在云端运行，本地不打包任何大模型；不填 Key 就不出现在列表里<br>The LLM translation engines, plus the Azure, OpenAI, ElevenLabs, Baidu, Tencent and Groq speech and recognition engines. All run in the cloud — no model is bundled locally — and none appears in its list until you enter a key |
+| **完全离线可用**<br>Fully offline | Argos 翻译、Kokoro 朗读、Whisper 语音识别、注音<br>Argos translation, Kokoro speech, Whisper voice input and ruby annotation |
 
 ### 中国大陆用户须知 / Notes for Users in Mainland China
 
@@ -187,8 +192,8 @@ This app is not code-signed — Apple's Developer ID requires a paid yearly memb
   **Works without a VPN**: the Chinese LLM engines (DeepSeek, ERNIE, Doubao, Qwen, Hunyuan and GLM) and the Argos offline language packs are all reachable directly.
 - **Kokoro 朗读模型**：托管在 Hugging Face，大陆无法直连。程序会按系统区域自动改用 `hf-mirror.com` 公益镜像，通常无需 VPN 即可完成首次下载；如需指定其它镜像，设置环境变量 `HF_ENDPOINT` 即可覆盖。
   **The Kokoro speech model** is hosted on Hugging Face, which is not directly reachable from mainland China. The app detects the system region and automatically falls back to the `hf-mirror.com` community mirror, so the one-time download normally succeeds without a VPN. Set the `HF_ENDPOINT` environment variable to point at a different mirror.
-- **需要 VPN**：Google 翻译、DeepL 翻译，以及在线朗读（微软 Edge 嗓音）。
-  **Needs a VPN**: Google Translate, DeepL, and online text-to-speech (Microsoft Edge voices).
+- **需要 VPN**：Google 翻译、DeepL 翻译，在线朗读（微软 Edge 嗓音），以及 OpenAI、Groq、ElevenLabs、Azure 这几家的朗读与识别。百度、腾讯的朗读与识别在国内可直连。
+  **Needs a VPN**: Google Translate, DeepL, online text-to-speech (Microsoft Edge voices), and the OpenAI, Groq, ElevenLabs and Azure speech and recognition engines. The Baidu and Tencent ones are reachable directly from mainland China.
 
 ---
 
@@ -369,12 +374,21 @@ Check the runtime log, which records uncaught exceptions:
 - **多风格翻译 / Multi-style translation**
   LLM 引擎下同时给出书面、口语、俚语、美式英式等多种译法。
   With an LLM engine selected, one request returns several renderings at once — formal, conversational, idiomatic, and American versus British — so you can compare register rather than settle for a single output.
-- **双语音后端 / Dual TTS backends**
-  edge-tts（在线，多语言嗓音）与 Kokoro（离线，本地推理）。
-  edge-tts provides a wide range of online voices across languages, while Kokoro runs entirely on your machine after its first download — useful offline, and free of any per-character quota.
+- **7 个朗读引擎 / 7 speech engines**
+  edge-tts（在线，免 Key）与 Kokoro（离线，本地推理）开箱即用；填上 Key 还可用 Azure、OpenAI、ElevenLabs、百度、腾讯，另有三个自定义槽位接任何兼容 OpenAI `/audio/speech` 的服务。
+  edge-tts (online, no key) and Kokoro (offline, on your machine) work out of the box; entering a key adds Azure, OpenAI, ElevenLabs, Baidu and Tencent, and three custom slots take any OpenAI-compatible `/audio/speech` service.
+- **嗓音名单向服务商索取 / Voice lists come from the providers**
+  Kokoro 扫本机模型目录，edge-tts、Azure、ElevenLabs 各自问服务商要——ElevenLabs 回的就是你账号里的音色库，自己克隆的也在内。填好 Key 自动取一次，也可手动刷新；嗓音多了，下拉展开直接打字就能筛。
+  Kokoro scans the local model folder while edge-tts, Azure and ElevenLabs each ask the provider — ElevenLabs returns your own voice library, cloned voices included. A key fetches the list once, and a button refetches it; when the list gets long, open the dropdown and just type to filter.
+- **6 个语音识别引擎 / 6 voice-input engines**
+  本地 Whisper 不联网、不要 Key，录音不出本机；填上 Key 还可用 Groq、OpenAI、Azure、百度、腾讯，另有三个自定义槽位接任何兼容 OpenAI `/audio/transcriptions` 的服务。
+  Local Whisper needs no network and no key, and the recording never leaves the machine; entering a key adds Groq, OpenAI, Azure, Baidu and Tencent, with three custom slots for any OpenAI-compatible `/audio/transcriptions` service.
+- **每个引擎都能测 / A test button on every engine**
+  点一下发一次真实的最小调用，走的就是真正功能那条路。失败会归类到网络、Key、端点、模型名或没填凭据，并指明该改哪一格；服务商的原文回显一并贴出，形似密钥的串已抹掉。
+  One click sends a real minimal call down the same code path the feature uses. Failures are classified — network, key, endpoint, model name, or credentials missing — and each names the field to change; the service's own reply is shown with anything resembling a key redacted.
 - **卡拉OK字幕 / Karaoke subtitles**
-  按真实词级时间戳逐词高亮，支持选区朗读与进度条拖动定位。
-  Words highlight one by one against real word-level timestamps rather than an estimated pace. You can read aloud just a selection, and dragging the progress slider re-renders the highlight at the matching word.
+  逐词高亮，支持选区朗读与进度条拖动定位。跟得紧不紧取决于引擎给不给逐词时间信息，两种都是估算，不承诺与发音严格对齐。
+  Words highlight one by one, you can read aloud just a selection, and dragging the progress slider re-renders the highlight at the matching word. How closely it tracks depends on whether the engine reports per-word timings; both kinds are estimates, with no promise of exact alignment.
 - **选区联动 / Selection linking**
   选中一侧文字，另一侧自动高亮对应内容。
   Selecting text in one pane highlights the corresponding span in the other, which makes it easy to check how a particular phrase was rendered.

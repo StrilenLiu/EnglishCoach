@@ -216,7 +216,7 @@ from PyQt6.QtWidgets import (
 # =============================================================================
 
 APP_NAME = "EnglishCoach"
-APP_VERSION = "2.18.0"
+APP_VERSION = "2.19.0"
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -449,6 +449,60 @@ def _add_history(src_text, tgt_text, engine):
 
 # 版本更新说明 —— 以后每版在最前面追加一条记录即可
 CHANGELOG = [
+    {
+        "version": "2.19.0",
+        "date": "2026-09-11",
+        "title": "十个联网引擎 · 嗓音名单改成各家自己报的 · 每个引擎都能测",
+        "notes": [
+            "新增五个在线语音识别引擎：Groq、OpenAI、Azure、百度、腾讯。它们与本地 Whisper 实现同一套接口，调用侧一行没改；录音在内存里打包成 16kHz 单声道 WAV 再上传，不落盘、不引入新依赖。本地引擎不要 Key，所以识别引擎列表永远不会空",
+            "新增五个在线朗读引擎：Azure、OpenAI、ElevenLabs、百度、腾讯，各自的中英文嗓音会并进主界面的嗓音下拉。另有三个自定义槽位，接任何兼容 OpenAI /audio/speech 的服务。Azure、百度、腾讯的朗读与识别共用同一份凭据，不用填两遍；腾讯合成沿用已与官方 SDK 对过的 TC3 签名",
+            "填好 Key 就出现在下拉里，和翻译引擎同一条规矩——测试是确认，不是门槛。清空 Key 则该引擎连同它的嗓音一起消失，选中的会退回一个还在的，不会留下一个解析不了的名字",
+            "嗓音名单不再写死：Kokoro 扫本机模型目录，edge-tts、Azure、ElevenLabs 各自向服务商索取（ElevenLabs 回的就是你账号里的音色库，自己克隆的也在内）。OpenAI、百度、腾讯没有列举接口，仍用内置表",
+            "取回的名单【替换】该来源的内置项而不是叠加，免得同一个嗓音以两个名字出现；内置手挑的那几条仍排在最前，默认嗓音不变。只收 zh-CN 与 en-US / en-GB / en-AU——edge-tts 全量五百多个，全塞进下拉就没法用了",
+            "填好 Key 会自动取一次，开机也补一次；服务商加了音色、或你刚克隆完，到设置 → 朗读引擎点「刷新嗓音列表」重取。缓存带凭据指纹，换 Key 或换模型目录自动作废。取不回来就用内置的那十来个，下拉不会空",
+            "嗓音下拉展开后直接打字即可筛选，退格删字、Esc 清空，右下角显示筛选词与剩余条数；超过 14 条时弹出列表可滚动（此前可见项数等于实际条数，几十条会长到屏幕外面，够不着也滚不动）",
+            "每个引擎后面都有「测试」钮：发一次真实的最小调用——翻一个 hello、识别半秒静音、合成一个词——走的就是真正功能那条代码路径。失败会归类：网络或代理、Key 被拒、端点改版、被限流、模型名停用、凭据没填，每一类都指明该改哪一格。服务商的原文回显会一并贴出，其中形似密钥的串已抹掉",
+            "十个 LLM 引擎与在线识别、朗读引擎的「接口地址」「模型名」都可以改，留空即用内置值（占位符里就写着），所以「恢复默认」就是清空。这两格与各自的 Key 摆在同一组里，不用来回跳页",
+            "新增三个自定义识别引擎槽位，接任何兼容 OpenAI /audio/transcriptions 的服务——硅基流动、DeepInfra，或自己在局域网里跑的 whisper 服务端",
+            "设置窗重做成左侧竖排导航的多页窗口：通用、翻译引擎、自定义翻译引擎、注音、语音识别引擎、朗读引擎",
+            "新增注音页；查看日志改为弹窗显示，导出日志按钮移进该窗；点击底部状态栏左侧也能弹出日志，有内容时才显示导出钮",
+            "缺组件、缺模型时能自己装：点注音、点麦克风、点设置里的下载钮走的是同一条路——问一次、后台下、状态栏出进度、失败写日志并给出手动命令。优先官方源，确属网络问题才改用国内镜像。另提供 Setup Dev 脚本，源码运行时一次装齐",
+            "运行日志设上限 5MB，写满后转存一份备份、重开新的，最多约占 10MB；翻译历史上限从 500 条提到 2000 条。两者都是覆盖最旧的内容，想长期留档请用导出功能。使用说明新增「程序占用的磁盘空间」一节",
+            "修复退出时的偶发闪退：给滚动条设置样式并不转移 QStyle 的所有权，共用的 Fusion 样式在解释器退出时被销毁，而控件还指着它。实测老版本在真实退出路径上 12 次崩 12 次，改后 12 次全过",
+            "修复引擎测试按钮无论成败都报同一个错：请求本身是好的，出错的是显示结果那一步（弹窗辅助函数只定义在主窗上，设置窗调不到）",
+            "修复在线识别引擎的「接口地址」「模型名」填了等于没填——后端仍在读类属性",
+            "修复 ElevenLabs 填整条接口地址就 404：那一格要的是基址，程序会自己接嗓音 id，粘贴脚本里的完整 URL 会多接一截。现在末尾的嗓音 id 与 /stream 会自动剥掉。另加一格「自选嗓音 id」，可填克隆音色",
+            "修复没填 Key 时测试报「未归类的错误」，且提示指向没有那一格的页面——Azure、百度、腾讯的朗读凭据在识别页，OpenAI 的在翻译页，提示现在直接说去哪页填",
+            "设置窗里所有「测试」与「显示密钥」按钮的间距统一为 4px，与主界面方按钮、日志窗的导出/关闭同一档",
+            "英文界面下所有需要 Key 的引擎统一显示为「-Online API Key」；中文下统一为「-API Key 联网」。存过的旧引擎名会自动迁移，不会悄悄退回默认引擎",
+            "使用说明补充：卡拉OK字幕跟得准不准取决于引擎给不给逐词时间信息，两种都是估算，不承诺与发音严格对齐；以及嗓音从哪来、太多了怎么筛",
+        ],
+        "title_en": "Ten keyed online engines, voice lists straight from the providers, and a test button on each",
+        "notes_en": [
+            "Five online recognition engines beside the local one: Groq, OpenAI, Azure, Baidu and Tencent. They implement the same backend interface local Whisper does, so nothing on the calling side changed; the recording is packed into a 16kHz mono WAV in memory before upload, with no file on disk and no new dependency. The local engine needs no key, so the list is never empty",
+            "Five online speech engines: Azure, OpenAI, ElevenLabs, Baidu and Tencent, each contributing Chinese and English voices to the main window's voice lists, plus three custom slots for any OpenAI-compatible /audio/speech service. Azure, Baidu and Tencent reuse the credentials already entered for their recognition counterparts rather than asking twice, and Tencent's synthesis signs with the same TC3 implementation already checked against their SDK",
+            "An engine appears once its key is filled in - the same rule the translation engines follow, with the test as confirmation rather than a gate. Clearing a key removes the engine and its voices and moves the selection to one that still exists, rather than leaving a name that no longer resolves",
+            "Voice lists are no longer hard-coded: Kokoro scans the local model folder, while edge-tts, Azure and ElevenLabs each ask the provider (ElevenLabs returns your own voice library, cloned voices included). OpenAI, Baidu and Tencent offer no way to list voices, so a built-in set is kept for them",
+            "A fetched list replaces that source's built-in entries rather than adding to them, so one voice never appears twice under two names; the hand-picked entries still sort first and the default voice is unchanged. Only zh-CN and en-US / en-GB / en-AU are kept - edge-tts alone offers over five hundred, which no dropdown survives",
+            "Filling in a key fetches once, and so does startup; when a provider adds voices, or you have just cloned one, Settings > Text to Speech > Refresh voice list fetches again. The cache carries a fingerprint of the credentials it was fetched with, so changing a key or a model folder invalidates it. If a fetch fails the built-in voices are used and the dropdown is never empty",
+            "Open a voice dropdown and just type to filter it; Backspace deletes, Esc clears, and the corner shows the filter and how many match. Past fourteen entries the popup scrolls - previously the visible count equalled the item count, so a few dozen voices ran off the screen with no way to reach them",
+            "Every engine has a Test button that sends one real minimal call - translate hello, transcribe half a second of silence, synthesise a word - through exactly the code path the feature uses. Failures are classified rather than reported as \"it failed\": network or proxy, key rejected, endpoint moved, rate limited, model name retired, credentials missing, each naming the field to change. The service's own reply is shown, with anything resembling a key redacted",
+            "The address and model name of the ten LLM engines and of the online recognition and speech engines can all be edited. Empty means the built-in value, shown as the placeholder, so Reset is simply clearing the box. Both fields sit in the same block as the key they belong to, with no page to jump to",
+            "Three custom recognition slots take any OpenAI-compatible /audio/transcriptions service: SiliconFlow, DeepInfra, or a whisper server on your own network",
+            "The settings window is now a multi-page window with a vertical nav: General, Translation Engines, Custom Translation Engines, Ruby, Speech Recognition and Text to Speech",
+            "A Ruby page; the log now opens in a window of its own with the export button in it, and clicking the left of the status bar opens the same window, its export button shown only when there is something to export",
+            "Missing components and models install themselves: the Ruby button, the microphone button and the download buttons in settings all take one path - ask once, fetch in the background, show progress in the status bar, and on failure write the log and print the manual command. The official source is tried first and a domestic mirror only when the failure really is the network. A Setup Dev script installs everything at once for running from source",
+            "The run log is capped at 5MB, rolling over into a single backup for about 10MB at most, and the translation history is raised from 500 entries to 2000. Both overwrite their oldest content, so export anything worth keeping. The help has a new section on disk usage",
+            "Fixed an intermittent crash on exit: styling a scrollbar does not transfer ownership of the QStyle, so the shared Fusion style was destroyed at interpreter shutdown while widgets still pointed at it. On the real exit path the previous version crashed 12 times out of 12; afterwards, 0 out of 12",
+            "Fixed every engine test reporting the same error whether it succeeded or failed: the request was fine, displaying the result was not - the dialog helpers existed on the main window only and the settings window could not reach them",
+            "Fixed the address and model name of the online recognition engines doing nothing when filled in - the backends were still reading class attributes",
+            "Fixed ElevenLabs answering 404 when the address field held a whole URL: that field wants a base address and the voice id is appended for you, so pasting a working URL from a script appended it twice. A trailing voice id and /stream are now stripped. A field for your own voice id was added alongside, for cloned voices",
+            "Fixed a test with no key reporting an unclassified error, and pointing at a page that has no such field - the speech credentials for Azure, Baidu and Tencent live on the recognition page and OpenAI's on the translation page. The message now names the page",
+            "Every Test and Show keys button in settings is now 4px apart, matching the square buttons in the main window and the log window's export and close",
+            "In English every keyed engine now reads \"-Online API Key\", and in Chinese \"-API Key 联网\". A previously saved engine name is migrated rather than silently falling back to the default engine",
+            "The help now explains that how closely the karaoke tracks depends on whether the engine reports per-word timings, that both kinds are estimates with no promise of exact alignment, and where the voice lists come from and how to filter them",
+        ],
+    },
     {
         "version": "2.18.0",
         "date": "2026-09-10",
