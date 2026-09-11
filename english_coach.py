@@ -4421,6 +4421,30 @@ def _module_present(name):
         return False
 
 
+def _style_msgbox_on(widget, box):
+    """让弹窗跟随主题。QMessageBox 是独立的顶层窗口，不继承调用方的样式表，
+    非 mac 平台不显式喂给它，深色主题下就会弹出一片白。
+    mac 不设：那边深浅由 AppKit 原生外观驱动，自涂颜色反而打架。
+
+    写成模块级函数、再挂到两个窗类上：这两句原先只长在 MainWindow 身上，
+    设置窗里照着写 self._themed_msgbox(...) 就是 AttributeError —— 引擎
+    测试每次都死在"显示结果"这一步，请求其实是成功的。
+    """
+    if sys.platform != "darwin":
+        box.setStyleSheet(getattr(widget, "_base_ss", "") or widget.styleSheet())
+    return box
+
+
+def _themed_msgbox_on(widget, icon, title, text):
+    """跟随主题的提示弹窗。"""
+    box = QMessageBox(widget)
+    box.setIcon(icon)
+    box.setWindowTitle(L(title))
+    box.setText(text)
+    _style_msgbox_on(widget, box)
+    return box.exec()
+
+
 class SettingsDialog(QDialog):
     def __init__(self, settings: QSettings, parent=None):
         super().__init__(parent)
@@ -5320,6 +5344,9 @@ class SettingsDialog(QDialog):
             self.update()
         except Exception:
             _log_exc("settings_retheme")
+
+    _style_msgbox = _style_msgbox_on
+    _themed_msgbox = _themed_msgbox_on
 
     def _nav_css(self):
         """左侧导航栏配色，按当前深浅。取色与 _win_hybrid_qss 同一套，
@@ -10524,22 +10551,8 @@ class MainWindow(QMainWindow):
             ta, tb = tgt_segs[min(j, m - 1)]
             self._align.append((sa, sb, ta, tb))
 
-    def _style_msgbox(self, box):
-        """让弹窗跟随主题。QMessageBox 是独立的顶层窗口，不继承主窗样式表，
-        非 mac 平台不显式喂给它，深色主题下就会弹出一片白。
-        mac 不设：那边深浅由 AppKit 原生外观驱动，自涂颜色反而打架。"""
-        if sys.platform != "darwin":
-            box.setStyleSheet(getattr(self, "_base_ss", "") or self.styleSheet())
-        return box
-
-    def _themed_msgbox(self, icon, title, text):
-        """跟随主题的提示弹窗。"""
-        box = QMessageBox(self)
-        box.setIcon(icon)
-        box.setWindowTitle(L(title))
-        box.setText(text)
-        self._style_msgbox(box)
-        return box.exec()
+    _style_msgbox = _style_msgbox_on
+    _themed_msgbox = _themed_msgbox_on
 
     def on_translate_fail(self, msg):
         self._reset_translate_btn()
