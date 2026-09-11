@@ -5273,6 +5273,13 @@ def readme_html_en():
       <li>Select text first to read only the selection; otherwise the whole text is read.</li>
       <li>Karaoke highlighting follows the reading; drag the progress bar to seek.</li>
       <li><b>edge-tts</b> needs network; <b>Kokoro</b> runs offline.</li>
+      <li><b>How closely the highlighting tracks</b> depends on whether the engine
+          reports per-word timings. Engines that do (edge-tts, Kokoro) track more
+          tightly; engines that do not have their timings worked out from the total
+          length of the audio, which tracks more loosely. Both are estimates and
+          will drift from the actual speech, most noticeably at high speed, in long
+          sentences, and around dense punctuation. Drag the progress bar to move to
+          whatever you want to hear.</li>
     </ul>
     <div class="t2">Import / Export</div>
     <ul>
@@ -5372,6 +5379,8 @@ def readme_html_zh():
       <li><b>-离线本地（Kokoro）</b>：本地离线神经语音，<b>无需联网、CPU 即可</b>，
           英文质量好、原生时间戳让卡拉OK更准；中文为其支持语言但非强项。
           需随程序安装 Kokoro 及模型。</li>
+      <li><b>关于字幕精度</b>：不提供逐词时间信息的引擎，字幕靠音频总长推算，
+          比提供时间信息的引擎跟得松。两种都是估算，不保证与发音严格对齐。</li>
     </ul>
     <div class="t2">选区联动</div>
     <p>在原文或译文一侧选中一段文字，程序会临时翻译该段并在另一侧用<b>灰色</b>自动高亮
@@ -5381,6 +5390,10 @@ def readme_html_zh():
       <li><b>翻译/朗读报错？</b> 多为网络或 Key 问题；若使用了网络代理请确认其正在运行，
           或改用离线引擎（Argos 翻译 / Kokoro 朗读）。</li>
       <li><b>卡拉OK字幕？</b> 朗读时逐词高亮青蓝绿，跟随进度。</li>
+      <li><b>字幕跟得准不准？</b> 取决于朗读引擎给不给逐词的时间信息。给的
+          （如 edge-tts、Kokoro）跟得更贴，不给的则按音频总长在词与词之间
+          推算，跟得松一些。两种都只是估算，与实际发音会有出入，快语速、
+          长句、标点密集时尤其明显。拖动进度条可随时对齐到想听的位置。</li>
       <li><b>Key 存在哪？</b> 保存在本机 (QSettings)，不上传。</li>
     </ul>
     """
