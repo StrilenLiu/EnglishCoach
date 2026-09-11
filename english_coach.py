@@ -3038,6 +3038,58 @@ def _custom_engine_configs(settings):
     return out
 
 
+# ---------------------------------------------------------------------------
+#  内置引擎的端点 / 模型名可被用户覆盖
+#
+#  服务商改端点、停用模型名是常事——DeepSeek 的 deepseek-chat 就在 2026-07
+#  停过一次，LLM_ENGINES 里那条注释就是那次留下的。写死在程序里，再遇上只能
+#  等发版；让用户自己改一行，当场就能接着用。
+#
+#  留空＝用内置默认值，所以"恢复默认"就是把那一格清空，没有第二套状态。
+#  能改的只有这两个参数。认证方式、请求体结构这些是代码，不是参数，改不了
+#  ——设置页上也如实这么写，免得用户以为填个地址就能接一家新服务商。
+# ---------------------------------------------------------------------------
+
+_OVR_FIELDS = ("endpoint", "model")
+
+
+def _ovr_get(engine_id, field, settings=None):
+    """取用户填的覆盖值；没填返回空串。"""
+    from PyQt6.QtCore import QSettings as _QS
+    st = settings if settings is not None else _QS("Strilen", "EnglishCoach")
+    return (st.value(f"ovr_{field}_{engine_id}", "") or "").strip()
+
+
+def _ovr_setting(engine_id, field):
+    return f"ovr_{field}_{engine_id}"
+
+
+def _apply_overrides(engine_id, cfg, settings=None):
+    """返回叠加了覆盖值的配置副本，不动原表。"""
+    out = dict(cfg)
+    for f in _OVR_FIELDS:
+        v = _ovr_get(engine_id, f, settings)
+        if v:
+            out[f] = v
+    return out
+
+
+def _llm_engine_rows():
+    """可覆盖的翻译引擎：(引擎标识, 显示名, 默认端点, 默认模型)。
+
+    只有这 10 个 LLM。Google 免费 / Google 云 / DeepL / Argos 各有独立实现，
+    端点不是一个可替换的参数（DeepL 还要按 Key 后缀在免费版和付费版之间选
+    端点），列进来只会误导。
+    """
+    rows = []
+    for _e, _c in LLM_ENGINES.items():
+        if not isinstance(_c, dict) or not _c.get("key_name"):
+            continue
+        rows.append((_c["key_name"], _c.get("label", _e),
+                     _c.get("endpoint", ""), _c.get("model", "")))
+    return rows
+
+
 # 每个内置引擎要哪一份 Key。Google(免费) 与 Argos(离线) 不在表里，
 # 就是不需要 Key 的意思 —— 有它们兜着，下拉永远不会空。
 _ENGINE_KEY_NAME = {ENGINE_GOOGLE_API: "google_api", ENGINE_DEEPL: "deepl"}
@@ -3272,7 +3324,13 @@ class TranslateWorker(QThread):
         self.multi_style = multi_style   # LLM 引擎下是否输出多风格翻译
         # 内置 LLM 引擎表，叠上本次用户自定义的那几组。自定义引擎走同一条
         # OpenAI 兼容路径，所以多风格翻译、单词模式对它们一样有效。
-        self.llm_engines = dict(LLM_ENGINES)
+        # 叠上用户的端点/模型名覆盖值。isinstance 那道关是必须的：
+        # LLM_ENGINES 这个字面量里混着约 40 条翻译词条（历史遗留），
+        # 按引擎名查表碰不到，遍历就会撞上。
+        self.llm_engines = {
+            _e: _apply_overrides(_c["key_name"], _c)
+            for _e, _c in LLM_ENGINES.items()
+            if isinstance(_c, dict) and _c.get("key_name")}
         self.llm_engines.update(custom_engines or {})
         self._cancelled = False
 
@@ -4383,6 +4441,7 @@ class SettingsDialog(QDialog):
         self._status_rows = []        # (中文原串, 标签, 值控件, 取值函数)
         self._forms = []              # 五页的表单，用来统一标签列宽
         self._asset_btns = []         # (资产 id, 下载钮)，缺了才现身
+        self._test_worker = None      # 同一时刻只跑一个连通性测试
 
         outer = QVBoxLayout(self)
 
@@ -4405,11 +4464,12 @@ class SettingsDialog(QDialog):
         # 页名登记中文原串：导航项是 QListWidgetItem 不是 widget，
         # retranslate_widget_tree 遍历不到，切语言时得照这份原串自己重设。
         self._nav_keys = ["通用", "翻译引擎", "自定义翻译引擎", "注音",
-                          "语音识别引擎", "朗读引擎"]
+                          "语音识别引擎", "朗读引擎", "引擎端点"]
         for _k, _build in zip(self._nav_keys,
                               (self._page_general, self._page_engines,
                                self._page_custom, self._page_ruby,
-                               self._page_stt, self._page_tts)):
+                               self._page_stt, self._page_tts,
+                               self._page_advanced)):
             self.stack.addWidget(self._wrap_scroll(_build()))
             QListWidgetItem(_nav_label(_k), self.nav)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -4778,11 +4838,14 @@ class SettingsDialog(QDialog):
 
         self.deepl_edit = self._key_row(
             form, "deepl_key", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
+        self._test_row(form, "tr", ENGINE_DEEPL)
         self.google_api_edit = self._key_row(
             form, "google_api_key", L("Google 云翻译 Key") + ":",
             L("Google 云翻译 Key (AIza...)"))
+        self._test_row(form, "tr", ENGINE_GOOGLE_API)
 
         # 各 LLM 引擎的 Key 输入框（动态生成）
+        _key2engine = {v: k for k, v in _ENGINE_KEY_NAME.items()}
         for kn, label, ph in (
                 ("deepseek", "DeepSeek Key:", "sk-..."),
                 ("openai", "GPT Key:", "sk-..."),
@@ -4796,6 +4859,9 @@ class SettingsDialog(QDialog):
                 ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
         ):
             self._key_row(form, f"{kn}_key", label, ph)
+            # 每个引擎后面跟一个测试钮：填完当场就能知道这把 Key 行不行，
+            # 不用退出去真翻一句
+            self._test_row(form, "tr", _key2engine.get(kn))
         # 兼容旧引用
         self.deepseek_edit = self._key_edits["deepseek_key"]
         self.hunyuan_edit = self._key_edits["hunyuan_key"]
@@ -4838,6 +4904,9 @@ class SettingsDialog(QDialog):
             self._key_row(form, f"custom{_i}_key", L(f"引擎 {_i} Key") + ":",
                           "sk-...")
             self._custom_edits[_i] = (_n, _u, _m)
+            # 测试要按引擎名找配置，而名字是从这三格现算出来的，所以用一个
+            # 惰性求值的 lambda，而不是建页面时就把名字定死。
+            self._test_custom_row(form, _i)
 
         # 不留空行：翻译引擎页的显示密钥就是紧跟着最后一个 Key 的，两页得一样
         self._show_keys_row(form)
@@ -4871,6 +4940,145 @@ class SettingsDialog(QDialog):
         self._status_row(form, "中文注音组件",
                          lambda: self._pkg_text("pypinyin"))
         self._asset_row(form, "spacy_en")
+        return page
+
+    # ---------- 引擎测试 ----------
+
+    def _test_row(self, form, kind, ident):
+        """给某个引擎加一个「测试」钮。发一次真实的最小调用，结果弹窗给看。"""
+        b = QPushButton(L("测试"))
+        b.setFixedWidth(BTN_W)
+        b.setMinimumHeight(b.sizeHint().height())
+        b.clicked.connect(lambda _=False, k=kind, i=ident, w=b:
+                          self._run_engine_test(k, i, w))
+        form.addRow("", b)
+        return b
+
+    def _test_custom_row(self, form, slot):
+        """自定义翻译引擎第 slot 组的测试钮。
+
+        它的引擎标识是「模型名 -名称 -API Key 联网」，由三个输入框现算出来，
+        建页面时还不存在，所以点下去那一刻才去算。
+        """
+        b = QPushButton(L("测试"))
+        b.setFixedWidth(BTN_W)
+        b.setMinimumHeight(b.sizeHint().height())
+
+        def _go():
+            self._persist_keys()      # 先落盘，_custom_engine_configs 照 settings 算
+            cfgs = _custom_engine_configs(self.settings)
+            want = f"custom{slot}"
+            ident = next((k for k, c in cfgs.items()
+                          if c.get("key_name") == want), None)
+            if ident is None:
+                self._themed_msgbox(
+                    QMessageBox.Icon.Information, "引擎测试",
+                    L("这一组还没填全（名称、接口地址、模型名缺一不可）"))
+                return
+            self._run_engine_test("tr", ident, b)
+        b.clicked.connect(_go)
+        form.addRow("", b)
+        return b
+
+    def _run_engine_test(self, kind, ident, btn):
+        if getattr(self, "_test_worker", None) is not None:
+            self._themed_msgbox(QMessageBox.Icon.Information, "引擎测试",
+                                L("已有一个测试在跑，请稍候"))
+            return
+        # 用刚填进输入框的值去测，而不是上次存下的
+        self._persist_keys()
+        btn.setEnabled(False)
+        btn.setText(L("测试中…"))
+        w = EngineTestWorker(kind, ident, self)
+        w.done.connect(lambda ok, head, body, b=btn:
+                       self._on_test_done(ok, head, body, b))
+        self._test_worker = w
+        w.start()
+
+    def _on_test_done(self, ok, head, body, btn):
+        self._test_worker = None
+        try:
+            btn.setEnabled(True)
+            btn.setText(L("测试"))
+        except RuntimeError:
+            pass                      # 窗口可能已经关了
+        tail = f"\n\n{L('接口返回')}：\n{body}" if body else ""
+        self._themed_msgbox(
+            QMessageBox.Icon.Information if ok else QMessageBox.Icon.Warning,
+            "引擎测试", f"{head}{tail}")
+        self._refresh_status()
+
+    # ---------- 端点 / 模型名覆盖 ----------
+
+    def _ovr_rows(self, form, engine_id, title, def_ep, def_model,
+                  test_kind=None, test_ident=None):
+        """一个引擎的两行覆盖输入框 + 恢复默认 + 测试。
+
+        留空＝用内置默认值，所以「恢复默认」就是把两格清空，没有第二套状态
+        要维护。默认值直接写在 placeholder 里，一眼能看出改没改、原来是什么。
+        """
+        lb = QLabel(L(title))     # 引擎名多半不在词表里，L() 查不到就原样返回
+        lb.setStyleSheet("font-weight:bold; color:#4ea1ff;")
+        form.addRow("", lb)
+        ep = self._plain_row(form, _ovr_setting(engine_id, "endpoint"),
+                             L("接口地址") + ":", def_ep)
+        md = self._plain_row(form, _ovr_setting(engine_id, "model"),
+                             L("模型名") + ":", def_model)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        rb = QPushButton(L("恢复默认"))
+        rb.setFixedWidth(BTN_W)
+        rb.setMinimumHeight(rb.sizeHint().height())
+
+        def _reset():
+            ep.clear()
+            md.clear()
+            self._persist_keys()      # 立刻落盘，别等关窗
+        rb.clicked.connect(_reset)
+        row.addWidget(rb)
+        if test_kind:
+            tb = QPushButton(L("测试"))
+            tb.setFixedWidth(BTN_W)
+            tb.setMinimumHeight(tb.sizeHint().height())
+            tb.clicked.connect(lambda _=False, k=test_kind, i=test_ident:
+                               self._run_engine_test(k, i, tb))
+            row.addWidget(tb)
+        row.addStretch(1)
+        w = QWidget()
+        w.setLayout(row)
+        form.addRow("", w)
+        self._gap_row(form, 6)
+        return ep, md
+
+    def _page_advanced(self):
+        page, form = self._new_page()
+        self._title_row(form, "引擎端点与模型名")
+        self._hint_row(form,
+                       "这些都留空就好——留空即使用程序内置的默认值，下面每格的"
+                       "灰字就是那个默认值。只有当服务商改了端点、或停用了某个"
+                       "模型名、而新版还没发布时，才需要自己填一个新的顶上，"
+                       "「恢复默认」把它清空即可。")
+        self._hint_row(form,
+                       "能改的只有这两项。认证方式、请求体结构是代码不是参数，"
+                       "填一个别家的地址接不上新服务商——那种情况请用「自定义"
+                       "翻译引擎」或「自定义识别引擎」。另外请注意：改了地址之后，"
+                       "你的 Key 就会发往这个新地址，只填信得过的。")
+        self._gap_row(form)
+
+        _key2engine = {v: k for k, v in _ENGINE_KEY_NAME.items()}
+        for _eid, _label, _ep, _model in _llm_engine_rows():
+            self._ovr_rows(form, _eid, _label, _ep, _model,
+                           test_kind="tr", test_ident=_key2engine.get(_eid))
+
+        self._title_row(form, "在线识别引擎")
+        for _c in STT_ENGINE_CLASSES:
+            if not issubclass(_c, OnlineSttBase):
+                continue
+            self._ovr_rows(form, f"stt_{_c.name}", _c.label,
+                           getattr(_c, "endpoint", L("该引擎的地址在上一页填")),
+                           getattr(_c, "model", L("该引擎没有模型名这一项")),
+                           test_kind="stt", test_ident=_c.name)
         return page
 
     def _page_stt(self):
@@ -4908,21 +5116,53 @@ class SettingsDialog(QDialog):
                        "系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。")
         self._key_row(form, "groq_key", "Groq Key:", "gsk_...",
                       on_edit=self._refresh_stt_engines)
+        self._test_row(form, "stt", GroqStt.name)
         self._hint_row(form, "OpenAI 与翻译引擎共用同一份 Key，在「翻译引擎」页填写。")
+        self._test_row(form, "stt", OpenAiStt.name)
         self._key_row(form, "azure_stt_key", L("Azure 语音 Key") + ":",
                       L("Azure 语音服务密钥"), on_edit=self._refresh_stt_engines)
         self._plain_row(form, "azure_stt_endpoint", L("Azure 端点") + ":",
                         "https://<资源名>.cognitiveservices.azure.com",
                         on_edit=self._refresh_stt_engines)
+        self._test_row(form, "stt", AzureStt.name)
         self._key_row(form, "baidu_stt_key", L("百度 API Key") + ":",
                       L("百度智能云 API Key"), on_edit=self._refresh_stt_engines)
         self._key_row(form, "baidu_stt_secret", L("百度 Secret Key") + ":",
                       L("百度智能云 Secret Key"),
                       on_edit=self._refresh_stt_engines)
+        self._test_row(form, "stt", BaiduStt.name)
         self._key_row(form, "tencent_stt_id", L("腾讯 SecretId") + ":",
                       L("腾讯云 SecretId"), on_edit=self._refresh_stt_engines)
         self._key_row(form, "tencent_stt_secret", L("腾讯 SecretKey") + ":",
                       L("腾讯云 SecretKey"), on_edit=self._refresh_stt_engines)
+        self._test_row(form, "stt", TencentStt.name)
+        self._show_keys_row(form)
+        self._gap_row(form)
+
+        self._title_row(form, "自定义识别引擎（可选，最多三组）")
+        self._hint_row(form,
+                       "接口需兼容 OpenAI 的 /audio/transcriptions 格式，认证走 "
+                       "Bearer —— 硅基流动、DeepInfra，或你自己在局域网里跑的 "
+                       "whisper 服务端都是这个形状。接口地址、模型名、Key 三样"
+                       "填齐才会出现在上面的引擎列表里；名称不填就叫「自定义N」。"
+                       "Key 会原样发往你填写的地址，请只填信得过的服务。")
+        for _i in CUSTOM_STT_SLOTS:
+            if _i > 1:
+                self._sep_row(form)
+            self._plain_row(form, f"custom_stt{_i}_name",
+                            L(f"识别 {_i} 名称") + ":", L("显示名称，如 MyWhisper"),
+                            on_edit=self._refresh_stt_engines)
+            self._plain_row(form, f"custom_stt{_i}_endpoint",
+                            L("接口地址") + ":",
+                            "https://api.example.com/v1/audio/transcriptions",
+                            on_edit=self._refresh_stt_engines)
+            self._plain_row(form, f"custom_stt{_i}_model", L("模型名") + ":",
+                            L("模型名，如 whisper-large-v3"),
+                            on_edit=self._refresh_stt_engines)
+            self._key_row(form, f"custom_stt{_i}_key",
+                          L(f"识别 {_i} Key") + ":", "sk-...",
+                          on_edit=self._refresh_stt_engines)
+            self._test_row(form, "stt", f"custom_stt{_i}")
         self._show_keys_row(form)
         return page
 
@@ -5001,7 +5241,7 @@ class SettingsDialog(QDialog):
 
     def _stt_state_text(self):
         """当前【选中的】那个引擎能不能用，不是笼统说本地能不能用。"""
-        be = _selected_stt_class()()
+        be = _selected_stt()
         try:
             if be.available():
                 return L("可用")
@@ -5849,6 +6089,74 @@ _EN["没听出内容，检查一下语言设置是否与所说的一致"] = (
     "nothing recognised - check that the pane's language matches what was "
     "spoken")
 
+# —— 引擎测试 / 端点覆盖 / 自定义识别引擎（v2.19.0）——
+_EN["测试"] = "Test"
+_EN["测试中…"] = "Testing…"
+_EN["引擎测试"] = "Engine Test"
+_EN["连通正常"] = "It works"
+_EN["接口返回"] = "The service replied"
+_EN["已有一个测试在跑，请稍候"] = "A test is already running, please wait"
+_EN["恢复默认"] = "Reset"
+_EN["引擎端点"] = "Endpoints"
+_EN["引擎端点与模型名"] = "Endpoints and Model Names"
+_EN["这些都留空就好——留空即使用程序内置的默认值，下面每格的灰字就是那个默认值。只有当服务商改了端点、或停用了某个模型名、而新版还没发布时，才需要自己填一个新的顶上，「恢复默认」把它清空即可。"] = (
+    "Leave all of these empty. Empty means the value built into the app is "
+    "used, and the grey text in each box is that value. You only need to fill "
+    "one in when a provider has moved an endpoint or retired a model name and "
+    "no new release has caught up yet; Reset clears it again.")
+_EN["能改的只有这两项。认证方式、请求体结构是代码不是参数，填一个别家的地址接不上新服务商——那种情况请用「自定义翻译引擎」或「自定义识别引擎」。另外请注意：改了地址之后，你的 Key 就会发往这个新地址，只填信得过的。"] = (
+    "These two are all that can be changed. How a request is authenticated "
+    "and shaped is code, not a parameter, so pointing one of these at another "
+    "provider will not reach it — use a custom translation or recognition "
+    "engine for that. Note also that once you change an address, your key is "
+    "sent to that address; only enter services you trust.")
+_EN["在线识别引擎"] = "Online Recognition Engines"
+_EN["该引擎的地址在上一页填"] = "this engine's address is on the previous page"
+_EN["该引擎没有模型名这一项"] = "this engine has no model name"
+_EN["自定义识别引擎（可选，最多三组）"] = "Custom Recognition Engines (optional, up to three)"
+_EN["接口需兼容 OpenAI 的 /audio/transcriptions 格式，认证走 Bearer —— 硅基流动、DeepInfra，或你自己在局域网里跑的 whisper 服务端都是这个形状。接口地址、模型名、Key 三样填齐才会出现在上面的引擎列表里；名称不填就叫「自定义N」。Key 会原样发往你填写的地址，请只填信得过的服务。"] = (
+    "The service must speak OpenAI's /audio/transcriptions format with Bearer "
+    "auth — SiliconFlow, DeepInfra or a whisper server on your own network all "
+    "have that shape. The address, model name and key must all be filled in "
+    "before the engine appears in the list above; leave the name blank and it "
+    "is called Custom N. The key is sent as-is to the address you enter, so "
+    "only enter services you trust.")
+_EN["显示名称，如 MyWhisper"] = "display name, e.g. MyWhisper"
+_EN["模型名，如 whisper-large-v3"] = "model name, e.g. whisper-large-v3"
+_EN["自定义"] = "Custom"
+_EN["请把接口地址、模型名和 Key 都填好"] = "fill in the address, model name and key"
+_EN["这一组还没填全（名称、接口地址、模型名缺一不可）"] = (
+    "this slot is incomplete - name, address and model name are all required")
+_EN["未知翻译引擎"] = "Unknown translation engine"
+_EN["（接口返回空文本，静音本来就该是空的）"] = (
+    "(the service returned empty text, which is what silence should give)")
+_EN["看着像网络或代理的问题，与端点设置无关"] = (
+    "This looks like a network or proxy problem, not an endpoint setting.")
+_EN["Key 可能不对、已过期，或这个账号没开通该服务"] = (
+    "The key may be wrong or expired, or this account may not have the "
+    "service enabled.")
+_EN["端点地址可能变了，改「接口地址」后重测"] = (
+    "The endpoint may have moved. Change the address and test again.")
+_EN["被限流或余额不足，过一会儿再试"] = (
+    "Rate-limited or out of credit. Try again shortly.")
+_EN["多半是模型名的问题（已停用或拼错），改「模型名」后重测"] = (
+    "Most likely the model name - retired or mistyped. Change it and test "
+    "again.")
+_EN["请求被拒，通常是模型名或参数不对，改「模型名」后重测"] = (
+    "The request was rejected, usually the model name or a parameter. Change "
+    "the model name and test again.")
+_EN["未归类的错误，看下面的原文，详情也已写入日志"] = (
+    "Unclassified error - see the reply below; the details are in the log too.")
+_EN["识别 1 名称"] = "Engine 1 name"
+_EN["识别 1 Key"] = "Engine 1 key"
+_EN["自定义1"] = "Custom 1"
+_EN["识别 2 名称"] = "Engine 2 name"
+_EN["识别 2 Key"] = "Engine 2 key"
+_EN["自定义2"] = "Custom 2"
+_EN["识别 3 名称"] = "Engine 3 name"
+_EN["识别 3 Key"] = "Engine 3 key"
+_EN["自定义3"] = "Custom 3"
+
 # —— 引擎筛选 / 日志弹窗 / 注音页（v2.19.0）——
 _EN["本地翻译引擎"] = "Local Engine"
 _EN["Argos 纯离线，不联网也不要 Key。Google 免费版同样不用 Key，两者始终可选，所以引擎列表不会空。"] = (
@@ -6304,12 +6612,23 @@ _FUSION_STYLE = None
 
 
 def _fusion_style():
-    """Fusion 样式的单例。QStyle 的所有权不随 setStyle 转移，必须由模块自己
-    留住引用，否则一被回收滚动条就弹回原生样子。"""
+    """Fusion 样式的单例。
+
+    QStyle 的所有权不随 setStyle 转移，光有模块级引用还不够：解释器退出时
+    先清模块全局、QStyle 被销毁，Qt 随后再拆控件，而控件里还存着那个已经
+    死掉的指针 —— 退出时段错误，概率随套了样式的滚动条数量上升（实测七页
+    设置窗 10 次崩 7 次，六页时 12 次一次没碰上）。
+
+    把它挂到 QApplication 名下，所有权就交给了 C++：Qt 会在控件之后才销毁
+    它，PyQt 也不会再在 Python 这边回收它。
+    """
     global _FUSION_STYLE
     if _FUSION_STYLE is None:
-        from PyQt6.QtWidgets import QStyleFactory
+        from PyQt6.QtWidgets import QStyleFactory, QApplication as _QA
         _FUSION_STYLE = QStyleFactory.create("Fusion")
+        _app = _QA.instance()
+        if _FUSION_STYLE is not None and _app is not None:
+            _FUSION_STYLE.setParent(_app)
     return _FUSION_STYLE
 
 
@@ -6390,6 +6709,33 @@ def _force_fusion_scrollbars(widget):
             _style_one_scrollbar(sb)
     except Exception:
         _log_exc("dark_scrollbars")
+
+
+def _release_scrollbar_style():
+    """退出前把所有滚动条的自绘样式摘掉，再丢掉那个单例。
+
+    setStyle 不转移所有权，控件里存的是裸指针。光把 QStyle 挂到 app 名下
+    还不够稳（实测只是把退出段错误的概率压下来，没消掉）——Qt 与 Python 两
+    边的销毁顺序在解释器退出时本来就不完全可控，何况 app 级样式表还会给每
+    个控件套一层 QStyleSheetStyle 代理。
+
+    与其跟销毁顺序赌，不如在 aboutToQuit（事件循环退出、控件还都活着）时
+    主动把引用摘干净：之后谁先死都无所谓。
+    """
+    global _FUSION_STYLE
+    try:
+        from PyQt6.QtWidgets import QApplication as _QA, QScrollBar
+        _app = _QA.instance()
+        if _app is not None:
+            for w in _app.topLevelWidgets():
+                for sb in w.findChildren(QScrollBar):
+                    try:
+                        sb.setStyle(None)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    _FUSION_STYLE = None
 
 
 def _restyle_all_scrollbars():
@@ -7505,29 +7851,100 @@ _STT_BACKENDS = {c.name: c for c in STT_ENGINE_CLASSES}
 _stt_instance = None
 
 
+CUSTOM_STT_SLOTS = (1, 2, 3)
+
+
+class CustomStt(OnlineSttBase):
+    """用户自填的 OpenAI 兼容识别服务。
+
+    Groq 之外还有一大批同形状的服务（硅基流动、DeepInfra、自己在局域网里跑
+    的 whisper 服务端…），都是 POST 一个 multipart 到 /audio/transcriptions。
+    与其一家家内置，不如给三个空位让用户自己填。
+
+    认证方式固定为 Bearer —— 这是这条路上的通例。要别的认证方式就不是填
+    参数能解决的了。
+    """
+
+    def __init__(self, slot):
+        self.slot = int(slot)
+        self.name = f"custom_stt{self.slot}"
+        self.cred_keys = (f"custom_stt{self.slot}_key",)
+
+    def _field(self, f):
+        return self._cred(f"custom_stt{self.slot}_{f}")
+
+    @property
+    def label(self):
+        n = self._field("name") or f"{L('自定义')}{self.slot}"
+        m = self._field("model")
+        head = f"{m} -{n}" if m else n
+        # 上限比自定义翻译引擎那边宽（那边是 20）：翻译引擎的下拉在主界面，
+        # 宽度按内置引擎钉死，长了只会被二次省略；识别引擎的下拉只出现在
+        # 设置窗里，宽度随窗口走，没有那个约束。
+        if len(head) > 40:
+            head = head[:40] + "…"
+        return head + CUSTOM_ENGINE_SUFFIX
+
+    def available(self):
+        # 名称可以不填（缺了用"自定义N"），地址、模型名、Key 三样缺一不可
+        return all(self._field(f) for f in ("endpoint", "model", "key"))
+
+    def unavailable_reason(self):
+        return L("请把接口地址、模型名和 Key 都填好")
+
+    def _run(self, wav, lang):
+        import requests
+        headers = {"Authorization": f"Bearer {self._field('key')}"}
+        data = {"model": self._field("model"), "response_format": "json"}
+        if lang:
+            data["language"] = lang
+        r = requests.post(self._field("endpoint"), headers=headers, data=data,
+                          files={"file": ("audio.wav", wav, "audio/wav")},
+                          timeout=self.timeout)
+        self._check(r)
+        return (r.json() or {}).get("text", "")
+
+
+def _stt_make(name):
+    """按名字造一个后端实例。认不出的名字退回本地 Whisper。"""
+    for i in CUSTOM_STT_SLOTS:
+        if name == f"custom_stt{i}":
+            return CustomStt(i)
+    return _STT_BACKENDS.get(name, WhisperLocalStt)()
+
+
+def _stt_all_backends():
+    """内置的 + 三个自定义槽位，按下拉里的先后顺序。"""
+    return ([c() for c in STT_ENGINE_CLASSES]
+            + [CustomStt(i) for i in CUSTOM_STT_SLOTS])
+
+
 def _stt_engine_choices():
     """能用的识别引擎（名字, 显示文字）。凭据没填全的不列出来 —— 与翻译
     引擎同一条规矩。本地 Whisper 始终在列，所以下拉不会空。"""
     out = []
-    for c in STT_ENGINE_CLASSES:
-        if issubclass(c, OnlineSttBase) and not c().available():
+    for be in _stt_all_backends():
+        if isinstance(be, OnlineSttBase) and not be.available():
             continue
-        out.append((c.name, getattr(c, "label", c.name)))
+        out.append((be.name, getattr(be, "label", be.name)))
     return out
 
 
-def _selected_stt_class():
-    """settings 里选中的那个引擎类。认不出的名字退回本地 Whisper。"""
+def _selected_stt_name():
     from PyQt6.QtCore import QSettings as _QS
-    _n = _QS("Strilen", "EnglishCoach").value("stt_engine",
-                                              WhisperLocalStt.name)
-    return _STT_BACKENDS.get(_n, WhisperLocalStt)
+    return _QS("Strilen", "EnglishCoach").value("stt_engine",
+                                                WhisperLocalStt.name)
+
+
+def _selected_stt():
+    """settings 里选中的那个引擎的实例。认不出的名字退回本地 Whisper。"""
+    return _stt_make(_selected_stt_name())
 
 
 def _stt_wants_local_model():
     """选的是本地引擎、而模型还没下 —— 只有这种情况才该去提示下载。
     选了在线引擎却弹"要不要下 145MB 模型"是莫名其妙的。"""
-    return (_selected_stt_class() is WhisperLocalStt
+    return (_selected_stt_name() == WhisperLocalStt.name
             and not _asset_ready("whisper"))
 
 
@@ -7542,9 +7959,9 @@ def _stt_backend():
     global _stt_instance
     if _stt_instance is None:
         from PyQt6.QtCore import QSettings as _QS
-        _n = _QS("Strilen", "EnglishCoach").value(
-            "stt_engine", WhisperLocalStt.name)
-        _stt_instance = _STT_BACKENDS.get(_n, WhisperLocalStt)()
+        _stt_instance = _stt_make(
+            _QS("Strilen", "EnglishCoach").value("stt_engine",
+                                                 WhisperLocalStt.name))
     return _stt_instance
 
 
@@ -7968,6 +8385,128 @@ class AssetWorker(QThread):
                             min(attempt, len(ASSET_BACKOFF) - 1)])
         _log_error(f"[资产] {self.aid} 全部来源均失败: {last}")
         self.failed.emit(self.aid, last, a.get("manual", ""))
+
+
+# ---------------------------------------------------------------------------
+#  引擎连通性测试
+#
+#  刻意【不】另起炉灶去 curl 或探活：那样测的是另一条路。curl 在打包版里不
+#  一定有，代理、证书、超时也和程序自己的不是一套，测通了功能仍可能不通。
+#  这里发的是一次真实的最小调用，走的就是真正翻译/识别那条代码路径 ——
+#  翻一个 hello、识别半秒静音。几厘钱换一个靠得住的结论。
+#
+#  探活（GET /v1/models 之类）也不行：它证明不了最要紧的那件事 —— 模型名
+#  是不是被停用了、端点是不是改版了。那只有真打一次业务接口才暴露得出来。
+# ---------------------------------------------------------------------------
+
+def _redact(text, secrets):
+    """把回显里形似密钥的串抹掉。
+
+    有些服务商会在错误信息里把 Key 原样回显，而这段文本要贴进弹窗、还可能
+    被用户截图发出来求助。八位以上才替换，免得把 "sk" 这种短串也打码。
+    """
+    out = text or ""
+    for sv in secrets:
+        sv = (sv or "").strip()
+        if len(sv) >= 8:
+            out = out.replace(sv, "****")
+    return out
+
+
+def _all_secret_values():
+    """settings 里所有像密钥的值，供回显脱敏用。"""
+    from PyQt6.QtCore import QSettings as _QS
+    st = _QS("Strilen", "EnglishCoach")
+    out = []
+    for k in st.allKeys():
+        if k.endswith("_key") or k.endswith("_secret") or k.endswith("_id"):
+            out.append(st.value(k, "") or "")
+    return out
+
+
+def _diagnose(exc):
+    """把失败归类，指出该往哪儿改。
+
+    用户该拿到的不是一句"失败了"，而是"大概什么坏了、改哪里"。
+    """
+    name = type(exc).__name__
+    txt = str(exc)
+    low = txt.lower()
+    if (any(k in name for k in ("Timeout", "Connection", "SSL", "Proxy"))
+            or any(k in low for k in ("timed out", "unreachable", "resolve",
+                                      "handshake", "connection"))):
+        return L("看着像网络或代理的问题，与端点设置无关")
+    if ("401" in txt or "403" in txt or "unauthor" in low
+            or "forbidden" in low or "invalid api key" in low):
+        return L("Key 可能不对、已过期，或这个账号没开通该服务")
+    if "404" in txt:
+        return L("端点地址可能变了，改「接口地址」后重测")
+    if "429" in txt or "rate limit" in low or "quota" in low:
+        return L("被限流或余额不足，过一会儿再试")
+    if "model" in low:
+        return L("多半是模型名的问题（已停用或拼错），改「模型名」后重测")
+    if "400" in txt:
+        return L("请求被拒，通常是模型名或参数不对，改「模型名」后重测")
+    return L("未归类的错误，看下面的原文，详情也已写入日志")
+
+
+class EngineTestWorker(QThread):
+    """后台跑一次真实的最小调用。30 秒超时卡在主线程界面就僵了。"""
+
+    done = pyqtSignal(bool, str, str)      # 成功?, 一句话结论, 详情原文
+
+    def __init__(self, kind, ident, parent=None):
+        super().__init__(parent)
+        self.kind, self.ident = kind, ident
+
+    def run(self):
+        try:
+            out = self._test_tr() if self.kind == "tr" else self._test_stt()
+            body = _redact(str(out), _all_secret_values())
+            self.done.emit(True, L("连通正常"), body[:1000])
+        except Exception as e:
+            _log_error(f"[引擎测试] {self.kind}/{self.ident} 失败: "
+                       f"{type(e).__name__}: {e}")
+            raw = _redact(f"{type(e).__name__}: {e}", _all_secret_values())
+            self.done.emit(False, _diagnose(e), raw[:1000])
+
+    def _settings(self):
+        from PyQt6.QtCore import QSettings as _QS
+        return _QS("Strilen", "EnglishCoach")
+
+    def _test_tr(self):
+        """翻一个 hello。走 TranslateWorker 自己的方法，和真实翻译同一条路
+        （含用户填的端点/模型名覆盖值）。"""
+        st = self._settings()
+        keys = {kn: (st.value(f"{kn}_key", "") or "").strip()
+                for kn in set(_ENGINE_KEY_NAME.values())}
+        keys.update(_custom_engine_keys(st))
+        w = TranslateWorker("hello", "自动检测", "English", self.ident, keys,
+                            multi_style=False,
+                            custom_engines=_custom_engine_configs(st))
+        if self.ident == ENGINE_GOOGLE:
+            return w._run_google()
+        if self.ident == ENGINE_GOOGLE_API:
+            return w._run_google_api()
+        if self.ident == ENGINE_DEEPL:
+            return w._run_deepl()
+        if self.ident == ENGINE_ARGOS:
+            return w._run_argos()
+        cfg = w.llm_engines.get(self.ident)
+        if cfg is None:
+            raise RuntimeError(f"{L('未知翻译引擎')}: {self.ident}")
+        return w._run_llm(cfg)
+
+    def _test_stt(self):
+        """识别半秒静音。返回空文本是正常的——静音本来就没内容，
+        能走完一整趟就说明端点、密钥、模型名都对。"""
+        import numpy as _np
+        be = _stt_make(self.ident)
+        if not be.available():
+            raise RuntimeError(be.unavailable_reason())
+        silence = _np.zeros(int(STT_SAMPLE_RATE * 0.5), dtype=_np.float32)
+        txt = be.transcribe(silence, None)
+        return txt or L("（接口返回空文本，静音本来就该是空的）")
 
 
 def _open_log_file():
@@ -11779,6 +12318,8 @@ def main():
     # windows11 样式之后——_native_scrollbar_platform 要看当前样式表决定
     # 这台机器到底用不用得着它。
     _install_scrollbar_filter(app)
+    # 退出时先摘样式再拆控件，避免退出瞬间的段错误（见 _release_scrollbar_style）
+    app.aboutToQuit.connect(_release_scrollbar_style)
     # 引擎名的后缀改过写法，把存着的那个迁一次，否则用户选好的引擎会退回默认。
     # 要赶在 MainWindow 读 settings 之前。
     try:
