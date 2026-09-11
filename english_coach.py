@@ -331,6 +331,35 @@ def _network_hint(err):
 _SESSION_LOG = []        # 本次运行写过的日志，供状态栏单击就地查看
 
 
+# 两份会随使用增长的文档，各自的上限。定得足够大，正常用几年也到不了；
+# 到顶后滚动覆盖最旧的内容，不会无限占盘。想长期留档就用「导出日志」和
+# 「下载历史文档」自己存一份——这两个功能都在。
+LOG_MAX_BYTES = 5 * 1024 * 1024      # 单个日志文件 5MB，另留一份上一轮的备份
+HISTORY_MAX_ITEMS = 2000             # 翻译历史保留最近 2000 条
+
+
+def _rotate_log_if_big():
+    """日志超过上限就滚一轮：当前的改名成 .1，重新开一个空的。
+
+    只留一份备份，所以占盘封顶在 2×LOG_MAX_BYTES。纯追加不设上限的话，
+    碰上反复报错的情况（在线引擎连不上之类，按一次麦克风写一条）会一直涨。
+    """
+    import os as _os
+    p = _log_path()
+    try:
+        if _os.path.getsize(p) < LOG_MAX_BYTES:
+            return
+    except OSError:
+        return                      # 文件还不存在，没什么好滚的
+    bak = p + ".1"
+    try:
+        if _os.path.exists(bak):
+            _os.remove(bak)
+        _os.replace(p, bak)
+    except Exception:
+        pass                        # 滚不动就继续往原文件写，总比丢日志强
+
+
 def _log_error(msg):
     """把出错记录追加到日志文件（带时间戳）。"""
     import datetime
@@ -344,6 +373,7 @@ def _log_error(msg):
     except Exception:
         pass
     try:
+        _rotate_log_if_big()
         with open(_log_path(), "a", encoding="utf-8") as f:
             f.write(f"[{ts}] {msg}\n")
     except Exception:
@@ -389,7 +419,7 @@ def _load_history():
 
 def _save_history(items):
     blocks = []
-    for it in items[-500:]:
+    for it in items[-HISTORY_MAX_ITEMS:]:
         blocks.append(
             f"## {it.get('ts','')} · {it.get('engine','')}\n\n"
             f"【原文】{it.get('src','')}\n\n"
@@ -5402,6 +5432,25 @@ def readme_html_en():
       <li>Language (Chinese / English US) and Theme (Dark / Light / Follow System) take effect immediately.</li>
       <li>API keys are stored locally only and hidden by default.</li>
     </ul>
+    <div class="t2">Disk Usage</div>
+    <ul>
+      <li><b>Audio never touches the disk.</b> Recordings, the audio sent for
+          recognition and the audio produced for playback all live in memory
+          and are discarded after use. A file is written only when you press
+          Download audio, to a location you choose.</li>
+      <li><b>The run log</b> (Settings &rarr; General &rarr; View Log) is capped
+          at <b>5MB</b>. When it fills up it is renamed to a backup and a new
+          one starts; only one backup is kept, so roughly 10MB at most.
+          <b>Anything older is overwritten.</b></li>
+      <li><b>Translation history</b> keeps the most recent <b>2000 entries</b>;
+          older ones are dropped.</li>
+      <li><b>Export anything you want to keep.</b> Export Log in the log window,
+          Download history in the history window. Exported files are yours and
+          the app never touches them.</li>
+      <li><b>Models</b> live in <code>~/EnglishCoach Models</code> and stop
+          growing once downloaded. Delete a subfolder for a feature you do not
+          use and you will simply be asked again next time it is needed.</li>
+    </ul>
     """
 
 
@@ -5506,6 +5555,19 @@ def readme_html_zh():
           推算，跟得松一些。两种都只是估算，与实际发音会有出入，快语速、
           长句、标点密集时尤其明显。拖动进度条可随时对齐到想听的位置。</li>
       <li><b>Key 存在哪？</b> 保存在本机 (QSettings)，不上传。</li>
+    </ul>
+    <div class="t2">程序占用的磁盘空间</div>
+    <ul>
+      <li><b>音频不落盘</b>：录音、识别用的音频、朗读生成的音频全程只在内存里，
+          用完即弃。只有你主动点「下载音频」时才会写文件，位置你自己选。</li>
+      <li><b>运行日志</b>（设置 → 通用 → 查看日志）：单个文件上限
+          <b>5MB</b>，写满后自动改名成备份、重开一个新的，只保留一份备份，
+          所以最多占约 10MB。<b>再旧的内容会被覆盖。</b></li>
+      <li><b>翻译历史</b>：只保留最近 <b>2000 条</b>，超出后最旧的条目被丢弃。</li>
+      <li><b>想长期留档就自己导出。</b>日志在查看日志窗里点「导出日志」，
+          历史在历史窗里点「下载历史文档」，导出的文件归你管，程序不会动它。</li>
+      <li><b>模型文件</b>在 <code>~/EnglishCoach Models</code>，装完就不再变大；
+          不用某个功能时可以直接删掉对应的子目录，下次用到会再问你要不要下。</li>
     </ul>
     """
 
@@ -7644,20 +7706,28 @@ def _download_file(url, target, report):
     import requests as _rq
     _os.makedirs(_os.path.dirname(target) or ".", exist_ok=True)
     tmp = target + ".part"
-    with _rq.get(url, stream=True, timeout=30) as r:
-        r.raise_for_status()
-        total = int(r.headers.get("content-length") or 0)
-        done = 0
-        with open(tmp, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1 << 16):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                done += len(chunk)
-                report(int(done * 100 / total) if total else -1, "")
-    if _os.path.getsize(tmp) <= 0:
-        _os.remove(tmp)
-        raise AssetError(L("下载到的文件是空的"))
+    try:
+        with _rq.get(url, stream=True, timeout=30) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("content-length") or 0)
+            done = 0
+            with open(tmp, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1 << 16):
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    done += len(chunk)
+                    report(int(done * 100 / total) if total else -1, "")
+        if _os.path.getsize(tmp) <= 0:
+            raise AssetError(L("下载到的文件是空的"))
+    except BaseException:
+        # 断了就把半截文件删掉，别在模型目录里留一堆看不懂的 .part 残片。
+        # 用 BaseException 是为了连用户中断退出那一下也收拾干净。
+        try:
+            _os.remove(tmp)
+        except OSError:
+            pass
+        raise
     _os.replace(tmp, target)
     return target
 
@@ -7717,28 +7787,36 @@ def _get_spacy_en(endpoint, report):
     没有进度可言。自己下、自己验是不是真的 zip，再把本地文件交给 pip，出事
     的时候说得清是哪一步、收到了多少字节。
     """
+    import shutil
     import tempfile
     import zipfile
     if getattr(sys, "frozen", False):
         raise AssetError(L("打包版不能自行安装组件"))
-    if endpoint == HF_OFFICIAL:
-        whl = os.path.join(tempfile.mkdtemp(prefix="ec_spacy_"),
-                           os.path.basename(SPACY_EN_WHL))
-        _download_file(SPACY_EN_WHL, whl, report)
-    else:
-        os.environ["HF_ENDPOINT"] = endpoint
-        os.environ.pop("HF_HUB_OFFLINE", None)
-        from huggingface_hub import list_repo_files, hf_hub_download
-        report(-1, L("正在连接…"))
-        names = [f for f in list_repo_files("spacy/en_core_web_sm")
-                 if f.endswith(".whl")]
-        if not names:
-            raise AssetError(L("镜像仓库里没有可安装的 whl"))
-        whl = hf_hub_download("spacy/en_core_web_sm", sorted(names)[-1])
-    if not zipfile.is_zipfile(whl):
-        sz = os.path.getsize(whl) if os.path.isfile(whl) else 0
-        raise AssetError(f"{L('下载到的不是有效的 whl 文件')}（{sz} bytes）")
-    _pip_install([whl], report)
+    # whl 只是安装用的中转，装完就没用了。整个过程关在一个临时目录里，
+    # finally 一并删掉 —— 包括走镜像时 hf_hub_download 的缓存：不指定
+    # cache_dir 的话它会落在 ~/.cache/huggingface 里，12MB 长期没人清。
+    work = tempfile.mkdtemp(prefix="ec_spacy_")
+    try:
+        if endpoint == HF_OFFICIAL:
+            whl = os.path.join(work, os.path.basename(SPACY_EN_WHL))
+            _download_file(SPACY_EN_WHL, whl, report)
+        else:
+            os.environ["HF_ENDPOINT"] = endpoint
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            from huggingface_hub import list_repo_files, hf_hub_download
+            report(-1, L("正在连接…"))
+            names = [f for f in list_repo_files("spacy/en_core_web_sm")
+                     if f.endswith(".whl")]
+            if not names:
+                raise AssetError(L("镜像仓库里没有可安装的 whl"))
+            whl = hf_hub_download("spacy/en_core_web_sm", sorted(names)[-1],
+                                  cache_dir=work)
+        if not zipfile.is_zipfile(whl):
+            sz = os.path.getsize(whl) if os.path.isfile(whl) else 0
+            raise AssetError(f"{L('下载到的不是有效的 whl 文件')}（{sz} bytes）")
+        _pip_install([whl], report)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     return "en_core_web_sm"
 
 
