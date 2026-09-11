@@ -4006,11 +4006,33 @@ class TTSWorker(QThread):
             engine = self.voice_spec.get("engine", "edge")
             if engine == "kokoro":
                 self._run_kokoro()
+            elif engine == "online":
+                self._run_online()
             else:
                 self._run_edge()
         except Exception as e:
             if not self._cancelled:
                 self.failed.emit(f"朗读失败：{e}")
+
+    # ---- 需 Key 的在线引擎 ----
+    def _run_online(self):
+        """Azure / OpenAI / ElevenLabs / 百度 / 腾讯 与三个自定义槽位。
+
+        它们都不回逐词时间戳，所以词边界发空列表 —— 卡拉OK会自动改用按音频
+        总长推算的那套（_build_fallback_boundaries），界面上没有任何区别。
+        """
+        be = _tts_make(self.voice_spec.get("backend", ""))
+        if be is None:
+            raise RuntimeError(
+                f"{L('未知朗读引擎')}: {self.voice_spec.get('backend')}")
+        if not be.available():
+            raise RuntimeError(be.unavailable_reason())
+        audio, bounds = be.synth(self.text, self.voice_spec["id"], self.rate)
+        if self._cancelled:
+            return
+        if not audio:
+            raise RuntimeError(f"{be.label}: {L('没有返回音频')}")
+        self.finished_ok.emit(bytes(audio), bounds or [])
 
     # ---- edge-tts（线上联网，音质最好）----
     def _run_edge(self):
@@ -4488,12 +4510,11 @@ class SettingsDialog(QDialog):
         # 页名登记中文原串：导航项是 QListWidgetItem 不是 widget，
         # retranslate_widget_tree 遍历不到，切语言时得照这份原串自己重设。
         self._nav_keys = ["通用", "翻译引擎", "自定义翻译引擎", "注音",
-                          "语音识别引擎", "朗读引擎", "引擎端点"]
+                          "语音识别引擎", "朗读引擎"]
         for _k, _build in zip(self._nav_keys,
                               (self._page_general, self._page_engines,
                                self._page_custom, self._page_ruby,
-                               self._page_stt, self._page_tts,
-                               self._page_advanced)):
+                               self._page_stt, self._page_tts)):
             self.stack.addWidget(self._wrap_scroll(_build()))
             QListWidgetItem(_nav_label(_k), self.nav)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -4859,38 +4880,44 @@ class SettingsDialog(QDialog):
         self._hint_row(form, "Key 只写进本机的系统设置，不随程序上传到任何地方。"
                              "留空即不启用该引擎——没填 Key 的引擎不会出现在"
                              "主界面的引擎列表里。")
+        self._hint_row(form,
+                       "「接口地址」和「模型名」留空就好：留空即使用内置默认值，"
+                       "灰字就是那个默认值。只有服务商改了端点、停用了模型名而新版"
+                       "还没发布时才需要自己填，「恢复默认」把它清空即可。能改的只有"
+                       "这两项——认证方式和请求体结构是代码不是参数。")
 
-        self.deepl_edit = self._key_row(
-            form, "deepl_key", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
-        self._test_row(form, "tr", ENGINE_DEEPL)
-        self.google_api_edit = self._key_row(
-            form, "google_api_key", L("Google 云翻译 Key") + ":",
-            L("Google 云翻译 Key (AIza...)"))
-        self._test_row(form, "tr", ENGINE_GOOGLE_API)
+        self._engine_block(
+            form, "DeepL",
+            keys=[("deepl_key", "DeepL Key:", L("免费版 Key 以 :fx 结尾"), True)],
+            test=("tr", ENGINE_DEEPL),
+            note="DeepL 按 Key 后缀在免费版和付费版端点之间自动切换，"
+                 "所以这一个不提供端点覆盖。")
+        self._engine_block(
+            form, "Google 云翻译",
+            keys=[("google_api_key", L("Google 云翻译 Key") + ":",
+                   L("Google 云翻译 Key (AIza...)"), True)],
+            test=("tr", ENGINE_GOOGLE_API))
+        # 兼容旧引用（_persist_keys / save 还按名字找这两个）
+        self.deepl_edit = self._key_edits["deepl_key"]
+        self.google_api_edit = self._key_edits["google_api_key"]
 
-        # 各 LLM 引擎的 Key 输入框（动态生成）
+        # 各 LLM 引擎：Key + 可覆盖的端点/模型名 + 测试，一个引擎一组
         _key2engine = {v: k for k, v in _ENGINE_KEY_NAME.items()}
-        for kn, label, ph in (
-                ("deepseek", "DeepSeek Key:", "sk-..."),
-                ("openai", "GPT Key:", "sk-..."),
-                ("gemini", "Gemini Key:", "AIza..."),
-                ("claude", "Claude Key:", "sk-ant-..."),
-                ("glm", "GLM Key:", "xxxxxxxx.xxxxxxxx"),
-                ("ernie", L("文心一言 Key:"), L("百度千帆 Key")),
-                ("doubao", L("豆包 Key:"), L("火山引擎 Key")),
-                ("qwen", L("通义千问 Key:"), L("阿里百炼 sk-...")),
-                ("kimi", "Kimi Key:", "sk-..."),
-                ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
-        ):
-            self._key_row(form, f"{kn}_key", label, ph)
-            # 每个引擎后面跟一个测试钮：填完当场就能知道这把 Key 行不行，
-            # 不用退出去真翻一句
-            self._test_row(form, "tr", _key2engine.get(kn))
+        _ph = {"deepseek": "sk-...", "openai": "sk-...", "gemini": "AIza...",
+               "claude": "sk-ant-...", "glm": "xxxxxxxx.xxxxxxxx",
+               "ernie": L("百度千帆 Key"), "doubao": L("火山引擎 Key"),
+               "qwen": L("阿里百炼 sk-..."), "kimi": "sk-...",
+               "hunyuan": L("腾讯云混元 sk-...")}
+        for _eid, _label, _ep, _model in _llm_engine_rows():
+            self._engine_block(
+                form, _label,
+                keys=[(f"{_eid}_key", f"{_label} Key:",
+                       _ph.get(_eid, "sk-..."), True)],
+                ovr_id=_eid, def_ep=_ep, def_model=_model,
+                test=("tr", _key2engine.get(_eid)))
         # 兼容旧引用
         self.deepseek_edit = self._key_edits["deepseek_key"]
         self.hunyuan_edit = self._key_edits["hunyuan_key"]
-
-        # 显示API-Key（与输入框左对齐；按下=显示且青色，弹起=隐藏灰色）
         self.show_keys_btn = self._show_keys_row(form)
         return page
 
@@ -4909,25 +4936,22 @@ class SettingsDialog(QDialog):
         for _i in CUSTOM_ENGINE_SLOTS:
             if _i > 1:                       # 三组之间拉一条横线分隔
                 self._sep_row(form)
-            _n = QLineEdit(self.settings.value(f"custom{_i}_name", ""))
-            _n.setPlaceholderText(L("显示名称，如 MyGPT"))
-            _u = QLineEdit(self.settings.value(f"custom{_i}_endpoint", ""))
-            _u.setPlaceholderText("https://api.example.com/v1/chat/completions")
-            _m = QLineEdit(self.settings.value(f"custom{_i}_model", ""))
-            _m.setPlaceholderText(L("模型名，如 gpt-4o-mini"))
-            for _e in (_n, _u, _m):
-                _e.setSizePolicy(QSizePolicy.Policy.Expanding,
-                                 QSizePolicy.Policy.Fixed)
-                _e.setMinimumWidth(220)
             # 用整串做词条：界面重译走的是整串查表（见 _translate_text），
             # 拼出来的标签查不到就会留在中文。
-            form.addRow(L(f"引擎 {_i} 名称") + ":", _n)
-            form.addRow(L("接口地址") + ":", _u)
-            form.addRow(L("模型名") + ":", _m)
-            # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
-            self._key_row(form, f"custom{_i}_key", L(f"引擎 {_i} Key") + ":",
-                          "sk-...")
-            self._custom_edits[_i] = (_n, _u, _m)
+            self._engine_block(
+                form, f"{L('自定义')}{_i}",
+                keys=[(f"custom{_i}_name", L(f"引擎 {_i} 名称") + ":",
+                       L("显示名称，如 MyGPT"), False),
+                      (f"custom{_i}_endpoint", L("接口地址") + ":",
+                       "https://api.example.com/v1/chat/completions", False),
+                      (f"custom{_i}_model", L("模型名") + ":",
+                       L("模型名，如 gpt-4o-mini"), False),
+                      # Key 交给 _key_edits 统一管：显隐密钥与保存都自动覆盖到
+                      (f"custom{_i}_key", L(f"引擎 {_i} Key") + ":",
+                       "sk-...", True)])
+            self._custom_edits[_i] = tuple(
+                self._key_edits[f"custom{_i}_{f}"]
+                for f in ("name", "endpoint", "model"))
             # 测试要按引擎名找配置，而名字是从这三格现算出来的，所以用一个
             # 惰性求值的 lambda，而不是建页面时就把名字定死。
             self._test_custom_row(form, _i)
@@ -5032,78 +5056,70 @@ class SettingsDialog(QDialog):
             "引擎测试", f"{head}{tail}")
         self._refresh_status()
 
-    # ---------- 端点 / 模型名覆盖 ----------
+    # ---------- 引擎分组 ----------
 
-    def _ovr_rows(self, form, engine_id, title, def_ep, def_model,
-                  test_kind=None, test_ident=None):
-        """一个引擎的两行覆盖输入框 + 恢复默认 + 测试。
+    def _engine_block(self, form, title, keys=(), ovr_id=None, def_ep="",
+                      def_model="", test=None, on_edit=None, note=None):
+        """一个引擎的完整一组：标题 → 密钥 → 可覆盖的端点/模型名 → 按钮行。
 
-        留空＝用内置默认值，所以「恢复默认」就是把两格清空，没有第二套状态
-        要维护。默认值直接写在 placeholder 里，一眼能看出改没改、原来是什么。
+        端点和模型名原先单开了一页，得来回跳，测试按钮还重复两套。填 Key 和
+        改端点本就是同一件事的两面，摆在一起才顺手 —— 页面长一点无妨，都在
+        滚动区里。
+
+        keys   : [(settings 键名, 标签, 占位符, 是不是密钥), ...]
+        ovr_id : 覆盖值用的引擎标识；None = 这个引擎不支持覆盖（端点写死在
+                 独立实现里，或者它的地址本来就是一格凭据）
+        test   : (kind, ident)，None 表示不给测试钮
         """
         lb = QLabel(L(title))     # 引擎名多半不在词表里，L() 查不到就原样返回
         lb.setStyleSheet("font-weight:bold; color:#4ea1ff;")
         form.addRow("", lb)
-        ep = self._plain_row(form, _ovr_setting(engine_id, "endpoint"),
-                             L("接口地址") + ":", def_ep)
-        md = self._plain_row(form, _ovr_setting(engine_id, "model"),
-                             L("模型名") + ":", def_model)
+        if note:
+            self._hint_row(form, note)
+        for _set, _lab, _ph, _secret in keys:
+            (self._key_row if _secret else self._plain_row)(
+                form, _set, _lab, _ph, on_edit=on_edit)
+        ep = md = None
+        if ovr_id:
+            if def_ep is not None:
+                ep = self._plain_row(form, _ovr_setting(ovr_id, "endpoint"),
+                                     L("接口地址") + ":", def_ep,
+                                     on_edit=on_edit)
+            if def_model is not None:
+                md = self._plain_row(form, _ovr_setting(ovr_id, "model"),
+                                     L("模型名") + ":", def_model,
+                                     on_edit=on_edit)
+
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
-        rb = QPushButton(L("恢复默认"))
-        rb.setFixedWidth(BTN_W)
-        rb.setMinimumHeight(rb.sizeHint().height())
+        if ep is not None or md is not None:
+            rb = QPushButton(L("恢复默认"))
+            rb.setFixedWidth(BTN_W)
+            rb.setMinimumHeight(rb.sizeHint().height())
 
-        def _reset():
-            ep.clear()
-            md.clear()
-            self._persist_keys()      # 立刻落盘，别等关窗
-        rb.clicked.connect(_reset)
-        row.addWidget(rb)
-        if test_kind:
+            def _reset(_=False, _ep=ep, _md=md):
+                # 留空＝用内置默认值，所以"恢复默认"就是清空，没有第二套状态
+                for _w in (_ep, _md):
+                    if _w is not None:
+                        _w.clear()
+                self._persist_keys()
+            rb.clicked.connect(_reset)
+            row.addWidget(rb)
+        if test:
             tb = QPushButton(L("测试"))
             tb.setFixedWidth(BTN_W)
             tb.setMinimumHeight(tb.sizeHint().height())
-            tb.clicked.connect(lambda _=False, k=test_kind, i=test_ident:
+            tb.clicked.connect(lambda _=False, k=test[0], i=test[1]:
                                self._run_engine_test(k, i, tb))
             row.addWidget(tb)
-        row.addStretch(1)
-        w = QWidget()
-        w.setLayout(row)
-        form.addRow("", w)
-        self._gap_row(form, 6)
+        if row.count():
+            row.addStretch(1)
+            w = QWidget()
+            w.setLayout(row)
+            form.addRow("", w)
+        self._gap_row(form, 8)
         return ep, md
-
-    def _page_advanced(self):
-        page, form = self._new_page()
-        self._title_row(form, "引擎端点与模型名")
-        self._hint_row(form,
-                       "这些都留空就好——留空即使用程序内置的默认值，下面每格的"
-                       "灰字就是那个默认值。只有当服务商改了端点、或停用了某个"
-                       "模型名、而新版还没发布时，才需要自己填一个新的顶上，"
-                       "「恢复默认」把它清空即可。")
-        self._hint_row(form,
-                       "能改的只有这两项。认证方式、请求体结构是代码不是参数，"
-                       "填一个别家的地址接不上新服务商——那种情况请用「自定义"
-                       "翻译引擎」或「自定义识别引擎」。另外请注意：改了地址之后，"
-                       "你的 Key 就会发往这个新地址，只填信得过的。")
-        self._gap_row(form)
-
-        _key2engine = {v: k for k, v in _ENGINE_KEY_NAME.items()}
-        for _eid, _label, _ep, _model in _llm_engine_rows():
-            self._ovr_rows(form, _eid, _label, _ep, _model,
-                           test_kind="tr", test_ident=_key2engine.get(_eid))
-
-        self._title_row(form, "在线识别引擎")
-        for _c in STT_ENGINE_CLASSES:
-            if not issubclass(_c, OnlineSttBase):
-                continue
-            self._ovr_rows(form, f"stt_{_c.name}", _c.label,
-                           getattr(_c, "endpoint", L("该引擎的地址在上一页填")),
-                           getattr(_c, "model", L("该引擎没有模型名这一项")),
-                           test_kind="stt", test_ident=_c.name)
-        return page
 
     def _page_stt(self):
         page, form = self._new_page()
@@ -5137,29 +5153,48 @@ class SettingsDialog(QDialog):
         self._title_row(form, "在线识别引擎密钥（可选）")
         self._hint_row(form,
                        "填好谁就多出谁，一个都不填也不影响本地识别。密钥只写进本机的"
-                       "系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。")
-        self._key_row(form, "groq_key", "Groq Key:", "gsk_...",
-                      on_edit=self._refresh_stt_engines)
-        self._test_row(form, "stt", GroqStt.name)
-        self._hint_row(form, "OpenAI 与翻译引擎共用同一份 Key，在「翻译引擎」页填写。")
-        self._test_row(form, "stt", OpenAiStt.name)
-        self._key_row(form, "azure_stt_key", L("Azure 语音 Key") + ":",
-                      L("Azure 语音服务密钥"), on_edit=self._refresh_stt_engines)
-        self._plain_row(form, "azure_stt_endpoint", L("Azure 端点") + ":",
-                        "https://<资源名>.cognitiveservices.azure.com",
-                        on_edit=self._refresh_stt_engines)
-        self._test_row(form, "stt", AzureStt.name)
-        self._key_row(form, "baidu_stt_key", L("百度 API Key") + ":",
-                      L("百度智能云 API Key"), on_edit=self._refresh_stt_engines)
-        self._key_row(form, "baidu_stt_secret", L("百度 Secret Key") + ":",
-                      L("百度智能云 Secret Key"),
-                      on_edit=self._refresh_stt_engines)
-        self._test_row(form, "stt", BaiduStt.name)
-        self._key_row(form, "tencent_stt_id", L("腾讯 SecretId") + ":",
-                      L("腾讯云 SecretId"), on_edit=self._refresh_stt_engines)
-        self._key_row(form, "tencent_stt_secret", L("腾讯 SecretKey") + ":",
-                      L("腾讯云 SecretKey"), on_edit=self._refresh_stt_engines)
-        self._test_row(form, "stt", TencentStt.name)
+                       "系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。"
+                       "「接口地址」「模型名」同样是留空用默认值。")
+        _oe = self._refresh_stt_engines
+        self._engine_block(
+            form, GroqStt.label,
+            keys=[("groq_key", "Groq Key:", "gsk_...", True)],
+            ovr_id=f"stt_{GroqStt.name}", def_ep=GroqStt.endpoint,
+            def_model=GroqStt.model, test=("stt", GroqStt.name), on_edit=_oe)
+        self._engine_block(
+            form, OpenAiStt.label,
+            ovr_id=f"stt_{OpenAiStt.name}", def_ep=OpenAiStt.endpoint,
+            def_model=OpenAiStt.model, test=("stt", OpenAiStt.name),
+            on_edit=_oe,
+            note="OpenAI 与翻译引擎共用同一份 Key，在「翻译引擎」页填写。")
+        self._engine_block(
+            form, AzureStt.label,
+            keys=[("azure_stt_key", L("Azure 语音 Key") + ":",
+                   L("Azure 语音服务密钥"), True),
+                  ("azure_stt_endpoint", L("Azure 端点") + ":",
+                   "https://<资源名>.cognitiveservices.azure.com", False)],
+            test=("stt", AzureStt.name), on_edit=_oe,
+            note="Azure 的地址就是上面那格凭据，所以不另设端点覆盖；"
+                 "语言由文本框的语言设置决定，没有模型名这一项。")
+        self._engine_block(
+            form, BaiduStt.label,
+            keys=[("baidu_stt_key", L("百度 API Key") + ":",
+                   L("百度智能云 API Key"), True),
+                  ("baidu_stt_secret", L("百度 Secret Key") + ":",
+                   L("百度智能云 Secret Key"), True)],
+            ovr_id=f"stt_{BaiduStt.name}", def_ep=BaiduStt.ASR_URL,
+            def_model=None, test=("stt", BaiduStt.name), on_edit=_oe,
+            note="语言靠 dev_pid 选（普通话 / 英语），没有模型名这一项。")
+        self._engine_block(
+            form, TencentStt.label,
+            keys=[("tencent_stt_id", L("腾讯 SecretId") + ":",
+                   L("腾讯云 SecretId"), True),
+                  ("tencent_stt_secret", L("腾讯 SecretKey") + ":",
+                   L("腾讯云 SecretKey"), True)],
+            ovr_id=f"stt_{TencentStt.name}",
+            def_ep=f"https://{TencentStt.HOST}", def_model=None,
+            test=("stt", TencentStt.name), on_edit=_oe,
+            note="语言靠引擎类型选（16k_zh / 16k_en），没有模型名这一项。")
         self._show_keys_row(form)
         self._gap_row(form)
 
@@ -5173,20 +5208,17 @@ class SettingsDialog(QDialog):
         for _i in CUSTOM_STT_SLOTS:
             if _i > 1:
                 self._sep_row(form)
-            self._plain_row(form, f"custom_stt{_i}_name",
-                            L(f"识别 {_i} 名称") + ":", L("显示名称，如 MyWhisper"),
-                            on_edit=self._refresh_stt_engines)
-            self._plain_row(form, f"custom_stt{_i}_endpoint",
-                            L("接口地址") + ":",
-                            "https://api.example.com/v1/audio/transcriptions",
-                            on_edit=self._refresh_stt_engines)
-            self._plain_row(form, f"custom_stt{_i}_model", L("模型名") + ":",
-                            L("模型名，如 whisper-large-v3"),
-                            on_edit=self._refresh_stt_engines)
-            self._key_row(form, f"custom_stt{_i}_key",
-                          L(f"识别 {_i} Key") + ":", "sk-...",
-                          on_edit=self._refresh_stt_engines)
-            self._test_row(form, "stt", f"custom_stt{_i}")
+            self._engine_block(
+                form, f"{L('自定义')}{_i}",
+                keys=[(f"custom_stt{_i}_name", L(f"识别 {_i} 名称") + ":",
+                       L("显示名称，如 MyWhisper"), False),
+                      (f"custom_stt{_i}_endpoint", L("接口地址") + ":",
+                       "https://api.example.com/v1/audio/transcriptions", False),
+                      (f"custom_stt{_i}_model", L("模型名") + ":",
+                       L("模型名，如 whisper-large-v3"), False),
+                      (f"custom_stt{_i}_key", L(f"识别 {_i} Key") + ":",
+                       "sk-...", True)],
+                test=("stt", f"custom_stt{_i}"), on_edit=_oe)
         self._show_keys_row(form)
         return page
 
@@ -5243,8 +5275,9 @@ class SettingsDialog(QDialog):
         page, form = self._new_page()
         self._title_row(form, "朗读引擎")
         self._hint_row(form,
-                       "嗓音与语速在主界面选择。这里只显示两个朗读后端的状态："
-                       "线上的 edge-tts 与离线的 Kokoro。")
+                       "嗓音与语速在主界面选择。edge-tts 与 Kokoro 不要 Key，"
+                       "下面这些在线引擎填好各自的密钥就会出现在主界面的嗓音"
+                       "列表里，名字后面带引擎名以示区分。")
         self._status_row(form, "edge-tts（线上联网）",
                          lambda: self._tts_state_text("edge_tts", "edge"))
         self._status_row(form, "Kokoro（离线本地）",
@@ -5255,7 +5288,82 @@ class SettingsDialog(QDialog):
             os.environ.get("ENGLISHCOACH_KOKORO_DIR", "") or L("未找到")))
         self._asset_row(form, "kokoro")
         self._asset_row(form, "spacy_en")
+        self._gap_row(form)
+
+        self._title_row(form, "在线朗读引擎密钥（可选）")
+        self._hint_row(form,
+                       "每家提供的中英文嗓音都会并进主界面的嗓音下拉。这些引擎"
+                       "都不回逐词时间戳，卡拉OK按音频总长推算，跟得会松一些"
+                       "（详见使用说明）。")
+        _oe = self._refresh_tts_voices
+        self._engine_block(
+            form, AzureTts.label, test=("tts", AzureTts.name), on_edit=_oe,
+            note="与 Azure 识别共用同一个语音资源的 Key 和端点，"
+                 "在「语音识别引擎」页填写。")
+        self._engine_block(
+            form, OpenAiTts.label,
+            ovr_id=f"tts_{OpenAiTts.name}", def_ep=OpenAiTts.endpoint,
+            def_model=OpenAiTts.model, test=("tts", OpenAiTts.name),
+            on_edit=_oe,
+            note="与翻译引擎共用同一份 OpenAI Key，在「翻译引擎」页填写。")
+        self._engine_block(
+            form, ElevenLabsTts.label,
+            keys=[("elevenlabs_key", "ElevenLabs Key:", "sk_...", True)],
+            ovr_id=f"tts_{ElevenLabsTts.name}", def_ep=ElevenLabsTts.endpoint,
+            def_model=ElevenLabsTts.model,
+            test=("tts", ElevenLabsTts.name), on_edit=_oe)
+        self._engine_block(
+            form, BaiduTts.label,
+            ovr_id=f"tts_{BaiduTts.name}", def_ep=BaiduTts.endpoint,
+            def_model=None, test=("tts", BaiduTts.name), on_edit=_oe,
+            note="与百度识别共用同一套 API Key / Secret Key，"
+                 "在「语音识别引擎」页填写。嗓音靠 per 选，没有模型名这一项。")
+        self._engine_block(
+            form, TencentTts.label,
+            ovr_id=f"tts_{TencentTts.name}",
+            def_ep=f"https://{TencentTts.HOST}", def_model=None,
+            test=("tts", TencentTts.name), on_edit=_oe,
+            note="与腾讯识别共用同一套 SecretId / SecretKey，"
+                 "在「语音识别引擎」页填写。嗓音靠 VoiceType 选。")
+        self._show_keys_row(form)
+        self._gap_row(form)
+
+        self._title_row(form, "自定义朗读引擎（可选，最多三组）")
+        self._hint_row(form,
+                       "接口需兼容 OpenAI 的 /audio/speech 格式，认证走 Bearer。"
+                       "接口地址、模型名、Key 三样填齐才会出现在嗓音列表里；"
+                       "嗓音名留空按 alloy 算。Key 会原样发往你填写的地址，"
+                       "请只填信得过的服务。")
+        for _i in CUSTOM_TTS_SLOTS:
+            if _i > 1:
+                self._sep_row(form)
+            self._engine_block(
+                form, f"{L('自定义')}{_i}",
+                keys=[(f"custom_tts{_i}_name", L(f"朗读 {_i} 名称") + ":",
+                       L("显示名称，如 MyTTS"), False),
+                      (f"custom_tts{_i}_endpoint", L("接口地址") + ":",
+                       "https://api.example.com/v1/audio/speech", False),
+                      (f"custom_tts{_i}_model", L("模型名") + ":",
+                       L("模型名，如 tts-1"), False),
+                      (f"custom_tts{_i}_voice", L("嗓音名") + ":",
+                       L("嗓音名，如 alloy"), False),
+                      (f"custom_tts{_i}_key", L(f"朗读 {_i} Key") + ":",
+                       "sk-...", True)],
+                test=("tts", f"custom_tts{_i}"), on_edit=_oe)
+        self._show_keys_row(form)
         return page
+
+    def _refresh_tts_voices(self):
+        """凭据改完重建主界面的嗓音下拉：刚填上 Key 的引擎立刻多出它的嗓音，
+        清空的立刻消失。与识别引擎那边同一条规矩。"""
+        try:
+            self._persist_keys()
+            _p = self.parent()
+            if _p is not None and hasattr(_p, "refresh_voice_choices"):
+                _p.refresh_voice_choices()
+            self._refresh_status()
+        except Exception:
+            _log_exc("refresh_tts_voices")
 
     # ---------- 状态取值 ----------
 
@@ -5456,6 +5564,8 @@ class SettingsDialog(QDialog):
             _p = self.parent()
             if _p is not None and hasattr(_p, "refresh_engine_choices"):
                 _p.refresh_engine_choices()
+            if _p is not None and hasattr(_p, "refresh_voice_choices"):
+                _p.refresh_voice_choices()
         except Exception:
             _log_exc("refresh_after_keys")
 
@@ -6084,7 +6194,7 @@ _EN["下载到的不是有效的 whl 文件"] = "what came back is not a valid w
 # —— 在线识别引擎（v2.19.0）——
 _EN["识别引擎"] = "Recognition engine"
 _EN["本地 Whisper"] = "Local Whisper"
-_EN["在线识别引擎密钥（可选）"] = "Online Engine Keys (Optional)"
+_EN["在线识别引擎密钥（可选）"] = "Online Recognition Keys (Optional)"
 _EN["本地 Whisper 不联网、不要 Key，录音不出本机；在线引擎通常更快更准，但要填各自的密钥，而且录音会上传到对应的服务商。识别语言跟随文本框的语言设置。"] = (
     "Whisper runs locally with no network and no key, and the recording "
     "never leaves this machine. The online engines are usually faster and "
@@ -6174,14 +6284,87 @@ _EN["请求被拒，通常是模型名或参数不对，改「模型名」后重
     "the model name and test again.")
 _EN["未归类的错误，看下面的原文，详情也已写入日志"] = (
     "Unclassified error - see the reply below; the details are in the log too.")
-_EN["识别 1 名称"] = "Engine 1 name"
-_EN["识别 1 Key"] = "Engine 1 key"
+
+# —— 在线朗读引擎（v2.19.0）——
+_EN["在线朗读引擎密钥（可选）"] = "Online Speech Keys (Optional)"
+_EN["嗓音与语速在主界面选择。edge-tts 与 Kokoro 不要 Key，下面这些在线引擎填好各自的密钥就会出现在主界面的嗓音列表里，名字后面带引擎名以示区分。"] = (
+    "Voices and speech rate are chosen in the main window. edge-tts and "
+    "Kokoro need no key; fill in a key for any engine below and its voices "
+    "join the main window's voice list, each tagged with the engine name.")
+_EN["每家提供的中英文嗓音都会并进主界面的嗓音下拉。这些引擎都不回逐词时间戳，卡拉OK按音频总长推算，跟得会松一些（详见使用说明）。"] = (
+    "Each engine's Chinese and English voices join the voice dropdowns in "
+    "the main window. None of them report per-word timings, so the karaoke "
+    "highlighting is worked out from the length of the audio and tracks more "
+    "loosely (see the help for details).")
+_EN["与 Azure 识别共用同一个语音资源的 Key 和端点，在「语音识别引擎」页填写。"] = (
+    "Shares one Speech resource key and endpoint with Azure recognition; "
+    "enter them on the Speech Recognition page.")
+_EN["与翻译引擎共用同一份 OpenAI Key，在「翻译引擎」页填写。"] = (
+    "Shares one OpenAI key with the translation engine; enter it on the "
+    "Translation Engines page.")
+_EN["与百度识别共用同一套 API Key / Secret Key，在「语音识别引擎」页填写。嗓音靠 per 选，没有模型名这一项。"] = (
+    "Shares its API Key and Secret Key with Baidu recognition; enter them on "
+    "the Speech Recognition page. Voices are chosen by per; there is no "
+    "model name.")
+_EN["与腾讯识别共用同一套 SecretId / SecretKey，在「语音识别引擎」页填写。嗓音靠 VoiceType 选。"] = (
+    "Shares its SecretId and SecretKey with Tencent recognition; enter them "
+    "on the Speech Recognition page. Voices are chosen by VoiceType.")
+_EN["自定义朗读引擎（可选，最多三组）"] = "Custom Speech Engines (optional, up to three)"
+_EN["接口需兼容 OpenAI 的 /audio/speech 格式，认证走 Bearer。接口地址、模型名、Key 三样填齐才会出现在嗓音列表里；嗓音名留空按 alloy 算。Key 会原样发往你填写的地址，请只填信得过的服务。"] = (
+    "The service must speak OpenAI's /audio/speech format with Bearer auth. "
+    "The address, model name and key must all be filled in before its voice "
+    "appears in the list; leave the voice name blank and alloy is used. The "
+    "key is sent as-is to the address you enter, so only enter services you "
+    "trust.")
+_EN["嗓音名"] = "Voice name"
+_EN["嗓音名，如 alloy"] = "voice name, e.g. alloy"
+_EN["显示名称，如 MyTTS"] = "display name, e.g. MyTTS"
+_EN["模型名，如 tts-1"] = "model name, e.g. tts-1"
+_EN["请先在设置里填写该朗读引擎的密钥"] = "fill in this engine's key in Settings first"
+_EN["未知朗读引擎"] = "Unknown speech engine"
+_EN["没有返回音频"] = "no audio came back"
+_EN["没有可用的嗓音"] = "no voices available"
+_EN["收到音频"] = "Received"
+_EN["DeepL 按 Key 后缀在免费版和付费版端点之间自动切换，所以这一个不提供端点覆盖。"] = (
+    "DeepL switches between its free and paid endpoints by the key's suffix, "
+    "so this one has no endpoint override.")
+_EN["「接口地址」和「模型名」留空就好：留空即使用内置默认值，灰字就是那个默认值。只有服务商改了端点、停用了模型名而新版还没发布时才需要自己填，「恢复默认」把它清空即可。能改的只有这两项——认证方式和请求体结构是代码不是参数。"] = (
+    "Leave the address and model name empty: empty means the built-in value, "
+    "shown as the grey text. You only need to fill one in when a provider "
+    "has moved an endpoint or retired a model name and no new release has "
+    "caught up; Reset clears it again. These two are all that can change — "
+    "how a request is authenticated and shaped is code, not a parameter.")
+_EN["Azure 的地址就是上面那格凭据，所以不另设端点覆盖；语言由文本框的语言设置决定，没有模型名这一项。"] = (
+    "Azure's address is the credential field above, so it has no separate "
+    "override; the language follows the pane's setting and there is no model "
+    "name.")
+_EN["语言靠 dev_pid 选（普通话 / 英语），没有模型名这一项。"] = (
+    "The language is chosen by dev_pid (Mandarin or English); there is no "
+    "model name.")
+_EN["语言靠引擎类型选（16k_zh / 16k_en），没有模型名这一项。"] = (
+    "The language is chosen by engine type (16k_zh or 16k_en); there is no "
+    "model name.")
+_EN["填好谁就多出谁，一个都不填也不影响本地识别。密钥只写进本机的系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。「接口地址」「模型名」同样是留空用默认值。"] = (
+    "Fill in one and it appears in the list; fill in none and local "
+    "recognition still works. Keys are written to this machine's own "
+    "settings. Note that with an online engine every recording is uploaded "
+    "to that provider. The address and model name are likewise empty for the "
+    "default.")
+_EN["Google 云翻译"] = "Google Cloud Translation"
+_EN["朗读 1 名称"] = "Speech 1 name"
+_EN["朗读 1 Key"] = "Speech 1 key"
+_EN["朗读 2 名称"] = "Speech 2 name"
+_EN["朗读 2 Key"] = "Speech 2 key"
+_EN["朗读 3 名称"] = "Speech 3 name"
+_EN["朗读 3 Key"] = "Speech 3 key"
+_EN["识别 1 名称"] = "Recognition 1 name"
+_EN["识别 1 Key"] = "Recognition 1 key"
 _EN["自定义1"] = "Custom 1"
-_EN["识别 2 名称"] = "Engine 2 name"
-_EN["识别 2 Key"] = "Engine 2 key"
+_EN["识别 2 名称"] = "Recognition 2 name"
+_EN["识别 2 Key"] = "Recognition 2 key"
 _EN["自定义2"] = "Custom 2"
-_EN["识别 3 名称"] = "Engine 3 name"
-_EN["识别 3 Key"] = "Engine 3 key"
+_EN["识别 3 名称"] = "Recognition 3 name"
+_EN["识别 3 Key"] = "Recognition 3 key"
 _EN["自定义3"] = "Custom 3"
 
 # —— 引擎筛选 / 日志弹窗 / 注音页（v2.19.0）——
@@ -7618,6 +7801,14 @@ class OnlineSttBase(SttBackend):
     def unavailable_reason(self):
         return f"{L('请先在设置里填写该识别引擎的密钥')}"
 
+    def eff(self, field, default=""):
+        """端点 / 模型名：用户填了覆盖值就用他的，否则用内置默认。
+
+        上一版把这两格摆到界面上了，后端却还在读类属性 —— 填了等于没填。
+        所有子类一律通过这个方法取值，不再直接用 self.endpoint / self.model。
+        """
+        return _ovr_get(f"stt_{self.name}", field) or default
+
     def transcribe(self, samples, lang):
         if not self.available():
             raise RuntimeError(self.unavailable_reason())
@@ -7664,7 +7855,8 @@ class GroqStt(OnlineSttBase):
     model = "whisper-large-v3-turbo"
 
     def _run(self, wav, lang):
-        return self._openai_style(self.endpoint, self.model, lang, wav)
+        return self._openai_style(self.eff("endpoint", self.endpoint),
+                                  self.eff("model", self.model), lang, wav)
 
 
 class OpenAiStt(OnlineSttBase):
@@ -7678,7 +7870,8 @@ class OpenAiStt(OnlineSttBase):
     model = "gpt-4o-mini-transcribe"
 
     def _run(self, wav, lang):
-        return self._openai_style(self.endpoint, self.model, lang, wav)
+        return self._openai_style(self.eff("endpoint", self.endpoint),
+                                  self.eff("model", self.model), lang, wav)
 
 
 class AzureStt(OnlineSttBase):
@@ -7780,7 +7973,8 @@ class BaiduStt(OnlineSttBase):
             "speech": base64.b64encode(wav).decode("ascii"),
             "len": len(wav),
         }
-        r = requests.post(self.ASR_URL, json=body, timeout=self.timeout)
+        r = requests.post(self.eff("endpoint", self.ASR_URL), json=body,
+                          timeout=self.timeout)
         self._check(r)
         j = r.json() or {}
         if j.get("err_no"):
@@ -7853,7 +8047,8 @@ class TencentStt(OnlineSttBase):
                              self._cred("tencent_stt_secret"),
                              self.SERVICE, self.HOST, self.ACTION, payload, ts)
         r = requests.post(
-            f"https://{self.HOST}", data=payload.encode("utf-8"),
+            self.eff("endpoint", f"https://{self.HOST}"),
+            data=payload.encode("utf-8"),
             headers={
                 "Authorization": auth,
                 "Content-Type": "application/json; charset=utf-8",
@@ -8415,6 +8610,352 @@ class AssetWorker(QThread):
 
 
 # ---------------------------------------------------------------------------
+#  在线朗读引擎（需 API Key）
+#
+#  与识别那边同一条规矩：凭据填齐才出现在嗓音列表里，测试只是让人确认能不能
+#  用，测失败不会把它藏起来。
+#
+#  端点、参数、响应字段都对着各家官方文档核过。作者的开发容器连不上这些服务、
+#  也没有 Key，所以真实连通性是在用户机器上验的。
+#
+#  时间戳：Azure 会给逐词边界，卡拉OK能贴着走；其余几家不给，交给
+#  _build_fallback_boundaries 按音频总长推算。界面上不加任何标记 —— 两种都
+#  是估算，只是精细程度不同，帮助文档里说明了这件事。
+# ---------------------------------------------------------------------------
+
+class OnlineTts:
+    """在线朗读后端的形状。
+
+    synth(text, rate) -> (音频字节, 词边界列表)
+    词边界给不出就返回空列表，卡拉OK会自动改用按总长推算的那套。
+    """
+
+    name = ""
+    label = ""
+    cred_keys = ()
+    endpoint = ""
+    model = ""
+    timeout = 60
+    # 该引擎提供哪些嗓音：{显示名: 服务商那边的嗓音 id}
+    zh_voices = {}
+    en_voices = {}
+
+    @staticmethod
+    def _cred(key):
+        from PyQt6.QtCore import QSettings as _QS
+        return (_QS("Strilen", "EnglishCoach").value(key, "") or "").strip()
+
+    def eff(self, field, default=""):
+        return _ovr_get(f"tts_{self.name}", field) or default
+
+    @property
+    def short_name(self):
+        """嗓音名后面括号里那个引擎简称。"""
+        return self.label.split(" -")[0]
+
+    def available(self):
+        return all(self._cred(k) for k in self.cred_keys)
+
+    def unavailable_reason(self):
+        return L("请先在设置里填写该朗读引擎的密钥")
+
+    def _check(self, resp):
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"{self.label} HTTP {resp.status_code}: {(resp.text or '')[:300]}")
+        return resp
+
+    def synth(self, text, voice_id, rate):
+        raise NotImplementedError
+
+
+def _rate_percent(rate):
+    """滑杆值 -50~50 转成各家都认的百分比写法。"""
+    return f"{'+' if rate >= 0 else ''}{int(rate)}%"
+
+
+class AzureTts(OnlineTts):
+    """Azure 语音合成。五家里唯一给逐词时间戳的，卡拉OK能贴着走。
+
+    Key 与 Azure 识别共用一份，端点也共用那一格 —— 同一个语音资源。
+    """
+
+    name = "azure"
+    label = "Azure -API Key 联网"
+    cred_keys = ("azure_stt_key", "azure_stt_endpoint")
+    zh_voices = {"晓晓": "zh-CN-XiaoxiaoNeural", "云希": "zh-CN-YunxiNeural",
+                 "晓辰": "zh-CN-XiaochenNeural"}
+    en_voices = {"Ava": "en-US-AvaNeural", "Andrew": "en-US-AndrewNeural",
+                 "Emma": "en-US-EmmaNeural"}
+
+    def _base(self):
+        ep = self._cred("azure_stt_endpoint")
+        if not ep.startswith("http"):
+            ep = ("https://" + ep if "." in ep
+                  else f"https://{ep}.cognitiveservices.azure.com")
+        return ep.rstrip("/")
+
+    def synth(self, text, voice_id, rate):
+        import html as _html
+        import requests
+        lang = voice_id.rsplit("-", 1)[0] if "-" in voice_id else "en-US"
+        lang = "-".join(voice_id.split("-")[:2])
+        ssml = (f"<speak version='1.0' xml:lang='{lang}'>"
+                f"<voice name='{voice_id}'>"
+                f"<prosody rate='{_rate_percent(rate)}'>"
+                f"{_html.escape(text)}</prosody></voice></speak>")
+        r = requests.post(
+            self._base() + "/tts/cognitiveservices/v1",
+            headers={
+                "Ocp-Apim-Subscription-Key": self._cred("azure_stt_key"),
+                "Content-Type": "application/ssml+xml",
+                # 与 edge-tts 同一种容器，播放器那边不用改
+                "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+                "User-Agent": "EnglishCoach",
+            },
+            data=ssml.encode("utf-8"), timeout=self.timeout)
+        self._check(r)
+        # REST 合成接口只回音频，不回词边界（那是 SDK 的 WordBoundary 事件）。
+        # 所以这里同样交给按总长推算那套，不假装有精确时间戳。
+        return r.content, []
+
+
+class OpenAiTts(OnlineTts):
+    """OpenAI 语音合成。Key 与翻译引擎共用同一份。"""
+
+    name = "openai"
+    label = "OpenAI -API Key 联网"
+    cred_keys = ("openai_key",)
+    endpoint = "https://api.openai.com/v1/audio/speech"
+    model = "gpt-4o-mini-tts"
+    zh_voices = {"Nova": "nova", "Alloy": "alloy", "Shimmer": "shimmer"}
+    en_voices = {"Nova": "nova", "Onyx": "onyx", "Fable": "fable",
+                 "Alloy": "alloy"}
+
+    def synth(self, text, voice_id, rate):
+        import requests
+        body = {"model": self.eff("model", self.model), "input": text,
+                "voice": voice_id, "response_format": "mp3"}
+        # speed 是倍率，1.0 为常速；滑杆的 -50~50 映射到 0.5~1.5
+        body["speed"] = max(0.25, min(4.0, 1.0 + rate / 100.0))
+        r = requests.post(self.eff("endpoint", self.endpoint),
+                          headers={"Authorization": f"Bearer {self._cred('openai_key')}",
+                                   "Content-Type": "application/json"},
+                          json=body, timeout=self.timeout)
+        self._check(r)
+        return r.content, []
+
+
+class ElevenLabsTts(OnlineTts):
+    """ElevenLabs。多语种，中英文都能读。"""
+
+    name = "elevenlabs"
+    label = "ElevenLabs -API Key 联网"
+    cred_keys = ("elevenlabs_key",)
+    endpoint = "https://api.elevenlabs.io/v1/text-to-speech"
+    model = "eleven_multilingual_v2"
+    # 官方公共音色库里的固定 id
+    en_voices = {"Rachel": "21m00Tcm4TlvDq8ikWAM",
+                 "Adam": "pNInz6obpgDQGcFmaJgB",
+                 "Bella": "EXAVITQu4vr4xnSDxMaL"}
+    zh_voices = {"Rachel": "21m00Tcm4TlvDq8ikWAM",
+                 "Adam": "pNInz6obpgDQGcFmaJgB"}
+
+    def synth(self, text, voice_id, rate):
+        import requests
+        url = f"{self.eff('endpoint', self.endpoint)}/{voice_id}"
+        r = requests.post(
+            url,
+            headers={"xi-api-key": self._cred("elevenlabs_key"),
+                     "Content-Type": "application/json",
+                     "Accept": "audio/mpeg"},
+            json={"text": text, "model_id": self.eff("model", self.model)},
+            timeout=self.timeout)
+        self._check(r)
+        return r.content, []
+
+
+class BaiduTts(OnlineTts):
+    """百度语音合成。中文见长，英文也能读。
+
+    与百度识别共用同一套 API Key / Secret Key，token 也走同一个接口。
+    """
+
+    name = "baidu"
+    label = "百度 -API Key 联网"
+    cred_keys = ("baidu_stt_key", "baidu_stt_secret")
+    endpoint = "https://tsn.baidu.com/text2audio"
+    zh_voices = {"度小美": "0", "度小宇": "1", "度逍遥": "3", "度丫丫": "4"}
+    en_voices = {"度小美": "0", "度小宇": "1"}
+
+    def synth(self, text, voice_id, rate):
+        import requests
+        tok = BaiduStt()._get_token()      # 取 token 的逻辑与识别那边共用
+        # spd 0~15，5 为常速；把 -50~50 线性映射过去
+        spd = max(0, min(15, int(round(5 + rate / 10.0))))
+        r = requests.post(
+            self.eff("endpoint", self.endpoint),
+            data={"tex": text, "tok": tok, "cuid": "EnglishCoach",
+                  "ctp": 1, "lan": "zh", "per": voice_id, "spd": spd,
+                  "aue": 3},        # aue=3 -> mp3
+            timeout=self.timeout)
+        self._check(r)
+        # 出错时它回的是 JSON 而不是音频，用 Content-Type 分辨
+        if "json" in (r.headers.get("Content-Type") or ""):
+            j = r.json() or {}
+            raise RuntimeError(
+                f"{self.label}: {j.get('err_no', '')} {j.get('err_msg', '')}")
+        return r.content, []
+
+
+class TencentTts(OnlineTts):
+    """腾讯云语音合成。签名与一句话识别同一套 TC3。"""
+
+    name = "tencent"
+    label = "腾讯 -API Key 联网"
+    cred_keys = ("tencent_stt_id", "tencent_stt_secret")
+    HOST = "tts.tencentcloudapi.com"
+    SERVICE = "tts"
+    VERSION = "2019-08-23"
+    ACTION = "TextToVoice"
+    zh_voices = {"智瑜": "101001", "智聆": "101002", "智美": "101003"}
+    en_voices = {"WeJack": "101050", "WeRose": "101051"}
+
+    def synth(self, text, voice_id, rate):
+        import base64
+        import json as _json
+        import time
+        import uuid
+        import requests
+        ts = int(time.time())
+        payload = _json.dumps({
+            "Text": text, "SessionId": str(uuid.uuid4()),
+            "VoiceType": int(voice_id), "Codec": "mp3",
+            # Speed -2~2，0 为常速
+            "Speed": max(-2.0, min(2.0, rate / 25.0)),
+        }, separators=(",", ":"))
+        auth = TencentStt.tc3_auth(
+            self._cred("tencent_stt_id"), self._cred("tencent_stt_secret"),
+            self.SERVICE, self.HOST, self.ACTION, payload, ts)
+        r = requests.post(
+            self.eff("endpoint", f"https://{self.HOST}"),
+            data=payload.encode("utf-8"),
+            headers={"Authorization": auth,
+                     "Content-Type": "application/json; charset=utf-8",
+                     "Host": self.HOST, "X-TC-Action": self.ACTION,
+                     "X-TC-Timestamp": str(ts),
+                     "X-TC-Version": self.VERSION},
+            timeout=self.timeout)
+        self._check(r)
+        resp = ((r.json() or {}).get("Response") or {})
+        if "Error" in resp:
+            err = resp["Error"]
+            raise RuntimeError(
+                f"{self.label}: {err.get('Code', '')} {err.get('Message', '')}")
+        return base64.b64decode(resp.get("Audio", "")), []
+
+
+CUSTOM_TTS_SLOTS = (1, 2, 3)
+
+
+class CustomTts(OnlineTts):
+    """用户自填的 OpenAI 兼容合成服务（POST 一个 JSON 到 /audio/speech）。"""
+
+    def __init__(self, slot):
+        self.slot = int(slot)
+        self.name = f"custom_tts{self.slot}"
+        self.cred_keys = (f"custom_tts{self.slot}_key",)
+
+    def _field(self, f):
+        return self._cred(f"custom_tts{self.slot}_{f}")
+
+    @property
+    def label(self):
+        n = self._field("name") or f"{L('自定义')}{self.slot}"
+        m = self._field("model")
+        head = f"{m} -{n}" if m else n
+        if len(head) > 40:
+            head = head[:40] + "…"
+        return head + CUSTOM_ENGINE_SUFFIX
+
+    @property
+    def short_name(self):
+        # 默认实现会取 label 的第一段，那对自定义槽位是【模型名】；
+        # 用户起的名字才是他用来认出这一组的东西。
+        return self._field("name") or f"{L('自定义')}{self.slot}"
+
+    @property
+    def zh_voices(self):
+        v = self._field("voice") or "alloy"
+        return {v: v}
+
+    en_voices = zh_voices
+
+    def available(self):
+        return all(self._field(f) for f in ("endpoint", "model", "key"))
+
+    def unavailable_reason(self):
+        return L("请把接口地址、模型名和 Key 都填好")
+
+    def synth(self, text, voice_id, rate):
+        import requests
+        r = requests.post(
+            self._field("endpoint"),
+            headers={"Authorization": f"Bearer {self._field('key')}",
+                     "Content-Type": "application/json"},
+            json={"model": self._field("model"), "input": text,
+                  "voice": voice_id, "response_format": "mp3",
+                  "speed": max(0.25, min(4.0, 1.0 + rate / 100.0))},
+            timeout=self.timeout)
+        self._check(r)
+        return r.content, []
+
+
+TTS_ENGINE_CLASSES = (AzureTts, OpenAiTts, ElevenLabsTts, BaiduTts, TencentTts)
+_TTS_BACKENDS = {c.name: c for c in TTS_ENGINE_CLASSES}
+
+
+def _all_voices(lang):
+    """内置嗓音 + 填好 Key 的在线嗓音。内置的排前面，与引擎列表同一个体例。"""
+    out = dict(ZH_VOICES if lang == "zh" else EN_VOICES)
+    out.update(_online_tts_voices(lang))
+    return out
+
+
+def _tts_make(name):
+    """按名字造一个在线朗读后端实例；认不出返回 None。"""
+    for i in CUSTOM_TTS_SLOTS:
+        if name == f"custom_tts{i}":
+            return CustomTts(i)
+    c = _TTS_BACKENDS.get(name)
+    return c() if c else None
+
+
+def _tts_all_backends():
+    return ([c() for c in TTS_ENGINE_CLASSES]
+            + [CustomTts(i) for i in CUSTOM_TTS_SLOTS])
+
+
+def _online_tts_voices(lang):
+    """把填好了凭据的在线引擎的嗓音并进嗓音表。
+
+    lang: "zh" / "en"。返回 {显示名: {"id":…, "engine":"online",
+    "backend":引擎名}}，与内置的 EN_VOICES / ZH_VOICES 同一个形状，
+    所以朗读那条路一行不用改。
+    """
+    out = {}
+    for be in _tts_all_backends():
+        if not be.available():
+            continue          # 与翻译/识别同一条规矩：没填 Key 就不出现
+        table = be.zh_voices if lang == "zh" else be.en_voices
+        short = be.short_name
+        for disp, vid in (table or {}).items():
+            out[f"{disp} ({short}){CUSTOM_ENGINE_SUFFIX}"] = {
+                "id": vid, "engine": "online", "backend": be.name}
+    return out
+
+
+# ---------------------------------------------------------------------------
 #  引擎连通性测试
 #
 #  刻意【不】另起炉灶去 curl 或探活：那样测的是另一条路。curl 在打包版里不
@@ -8488,7 +9029,12 @@ class EngineTestWorker(QThread):
 
     def run(self):
         try:
-            out = self._test_tr() if self.kind == "tr" else self._test_stt()
+            if self.kind == "tr":
+                out = self._test_tr()
+            elif self.kind == "tts":
+                out = self._test_tts()
+            else:
+                out = self._test_stt()
             body = _redact(str(out), _all_secret_values())
             self.done.emit(True, L("连通正常"), body[:1000])
         except Exception as e:
@@ -8523,6 +9069,23 @@ class EngineTestWorker(QThread):
         if cfg is None:
             raise RuntimeError(f"{L('未知翻译引擎')}: {self.ident}")
         return w._run_llm(cfg)
+
+    def _test_tts(self):
+        """合成一个词。返回多少字节的音频就报多少 —— 能出音频就说明端点、
+        密钥、嗓音 id 都对。"""
+        be = _tts_make(self.ident)
+        if be is None:
+            raise RuntimeError(f"{L('未知朗读引擎')}: {self.ident}")
+        if not be.available():
+            raise RuntimeError(be.unavailable_reason())
+        table = be.en_voices or be.zh_voices
+        if not table:
+            raise RuntimeError(f"{be.label}: {L('没有可用的嗓音')}")
+        vid = next(iter(table.values()))
+        audio, _b = be.synth("hello", vid, 0)
+        if not audio:
+            raise RuntimeError(f"{be.label}: {L('没有返回音频')}")
+        return f"{L('收到音频')} {len(audio)} bytes"
 
     def _test_stt(self):
         """识别半秒静音。返回空文本是正常的——静音本来就没内容，
@@ -8995,19 +9558,19 @@ class MainWindow(QMainWindow):
         tts_bar.setContentsMargins(0, 0, 0, 0)
         tts_bar.setSpacing(6)
         self.zh_voice_combo = QComboBox()
-        _combo_fill(self.zh_voice_combo, ZH_VOICES.keys())
+        _combo_fill(self.zh_voice_combo, _all_voices("zh").keys())
         fit_combo_width(self.zh_voice_combo)
         _combo_select_data(self.zh_voice_combo, 
-            self.settings.value("zh_voice", _first_local_voice(ZH_VOICES)))
+            self.settings.value("zh_voice", _first_local_voice(_all_voices("zh"))))
         self.zh_voice_combo.currentTextChanged.connect(self._on_zh_voice_changed)
         self.zh_voice_combo.setToolTip(L("中文嗓音"))
         tts_bar.addWidget(self.zh_voice_combo)
 
         self.en_voice_combo = QComboBox()
-        _combo_fill(self.en_voice_combo, EN_VOICES.keys())
+        _combo_fill(self.en_voice_combo, _all_voices("en").keys())
         fit_combo_width(self.en_voice_combo)
         _combo_select_data(self.en_voice_combo, 
-            self.settings.value("en_voice", _first_local_voice(EN_VOICES)))
+            self.settings.value("en_voice", _first_local_voice(_all_voices("en"))))
         self.en_voice_combo.currentTextChanged.connect(self._on_en_voice_changed)
         self.en_voice_combo.setToolTip(L("英文嗓音"))
         tts_bar.addWidget(self.en_voice_combo)
@@ -10803,11 +11366,13 @@ class MainWindow(QMainWindow):
         # 按文本语种选嗓音
         if _text_is_chinese(text):
             voice_name = self.zh_voice_combo.currentData()
-            voice_spec = ZH_VOICES.get(voice_name, next(iter(ZH_VOICES.values())))
+            _vt = _all_voices("zh")
+            voice_spec = _vt.get(voice_name, next(iter(_vt.values())))
             self._last_lang = "ZH"
         else:
             voice_name = self.en_voice_combo.currentData()
-            voice_spec = EN_VOICES.get(voice_name, next(iter(EN_VOICES.values())))
+            _vt = _all_voices("en")
+            voice_spec = _vt.get(voice_name, next(iter(_vt.values())))
             self._last_lang = "EN"
         self._last_voice_name = voice_name
         rate = self.rate_slider.value()
@@ -12143,6 +12708,29 @@ class MainWindow(QMainWindow):
             obtn.setToolTip(f"朗读{oname}")
         if not clear_only:
             self.status.showMessage(L("已停止"), 2000)
+
+    def refresh_voice_choices(self):
+        """在线朗读引擎的凭据改了之后重建两个嗓音下拉，尽量保住原来选中的。"""
+        for _cb, _lang, _key in ((getattr(self, "zh_voice_combo", None), "zh",
+                                  "zh_voice"),
+                                 (getattr(self, "en_voice_combo", None), "en",
+                                  "en_voice")):
+            if _cb is None:
+                continue
+            try:
+                cur = _cb.currentData()
+                _cb.blockSignals(True)
+                try:
+                    _cb.clear()
+                    _combo_fill(_cb, _all_voices(_lang).keys())
+                    _combo_select_data(_cb, cur)
+                    if _cb.currentIndex() < 0:
+                        _cb.setCurrentIndex(0)
+                finally:
+                    _cb.blockSignals(False)
+                self.settings.setValue(_key, _cb.currentData())
+            except Exception:
+                _log_exc("refresh_voice_choices")
 
     def refresh_engine_choices(self):
         """自定义引擎改动后重建引擎下拉，尽量保住当前选中的引擎。"""
