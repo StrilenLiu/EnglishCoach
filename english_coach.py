@@ -3804,6 +3804,11 @@ def fit_combo_width(combo, extra=0, popup_extra=0, width_items=None):
               else [combo.itemText(i) for i in range(combo.count())])
     for _t in _texts:
         widest = max(widest, fm.horizontalAdvance(_t))
+    # 把锚点记在控件上：切界面语言时 _refit_combo_width 会按新语言重算宽度，
+    # 不告诉它锚点的话，它会拿实际项去量 —— 自定义引擎名一长，或英文后缀
+    # 一变长(-API Key -> -Online API Key)，主界面的引擎下拉就又被撑开了，
+    # 而且只增不减，缩不回来。
+    combo.setProperty("_width_items", list(width_items or []))
     # 留足右侧下拉箭头 + 最小内边距（尽量紧凑，给交换钮居中腾空间）
     combo.setFixedWidth(widest + 52 + extra)   # +52基础，extra额外加宽
     combo.setFixedHeight(36)   # 与正方形按钮等高
@@ -5415,8 +5420,15 @@ _EN = {
 }
 
 _EN_SUB = [
+    # 顺序有讲究：长的、更具体的必须排在前面。英译中是按这张表逐条反向替换的，
+    # 要是 " -Online" 排在前头，"DeepSeek -Online API Key" 会先被啃成
+    # "DeepSeek -线上联网 API Key"，后面那条 " -Online API Key" 就再也匹配
+    # 不上了。
+    # 「联网」这两个字在英文里不能丢：-线上联网 译成 -Online，要 Key 的这档
+    # 也得让人一眼看出同样是联网的，只是多一把钥匙。
+    (" -API-Key联网", " -Online API Key"),
+    ("-API-Key联网", " -Online API Key"),
     (" -线上联网", " -Online"), ("-线上联网", " -Online"),
-    (" -API-Key联网", " -API Key"), ("-API-Key联网", " -API Key"),
     (" -纯离线", " -Offline"), ("-纯离线", " -Offline"),
     ("离线本地", "Offline Local"), ("自动检测", "Auto Detect"),
     ("(普通话·女)", "(Mandarin·F)"), ("(普通话·男)", "(Mandarin·M)"),
@@ -5748,9 +5760,14 @@ def _refit_combo_width(combo):
     闭合框只增不减，避免中英来回切换时越切越窄。"""
     from PyQt6.QtGui import QFontMetrics as _FM
     fm = _FM(combo.font())
+    # 建下拉时钉过宽度锚点的，仍按那批文本算（见 fit_combo_width）；
+    # 没钉过的照旧按实际项算。
+    _anchor = combo.property("_width_items") or None
+    _texts = ([L(t) for t in _anchor] if _anchor
+              else [combo.itemText(i) for i in range(combo.count())])
     w = 0
-    for i in range(combo.count()):
-        w = max(w, fm.horizontalAdvance(combo.itemText(i)))
+    for _t in _texts:
+        w = max(w, fm.horizontalAdvance(_t))
     if w <= 0:
         return
     need = w + 52                      # 与 fit_combo_width 同款基础余量
