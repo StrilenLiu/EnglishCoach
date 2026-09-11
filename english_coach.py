@@ -4346,7 +4346,8 @@ class SettingsDialog(QDialog):
 
         # 跨页共用的登记表。控件分到哪一页都不影响保存与显隐密钥——这几个名字
         # 被 _persist_keys / _toggle_echo / _retheme 引用，改页不改名。
-        self._key_edits = {}          # key_name -> QLineEdit
+        self._key_edits = {}          # settings 键名 -> QLineEdit
+        self._plain_settings = set()  # 其中不该被"显示密钥"遮起来的那些
         self._custom_edits = {}       # 槽位 -> (名称, 地址, 模型名)
         self._show_keys_btns = []     # 翻译引擎页与自定义引擎页各一个，状态同步
         self._status_rows = []        # (中文原串, 标签, 值控件, 取值函数)
@@ -4489,16 +4490,35 @@ class SettingsDialog(QDialog):
         f.setStyleSheet("background:#4a4a4a; border:none;")
         form.addRow("", f)
 
-    def _key_row(self, form, key_name, label, placeholder):
-        """一行 API Key 输入框，顺手登记进 _key_edits——保存与显隐密钥
-        都只认这张表，不用在别处再点一次名。"""
-        e = QLineEdit(self.settings.value(f"{key_name}_key", ""))
-        e.setEchoMode(QLineEdit.EchoMode.Password)
+    def _key_row(self, form, setting, label, placeholder, on_edit=None):
+        """一行密钥输入框，顺手登记进 _key_edits —— 保存与显隐密钥都只认这
+        张表，不用在别处再点一次名。
+
+        setting 是【完整的 settings 键名】。以前这里按 f"{前缀}_key" 拼，
+        遇到百度的 Secret、腾讯的 SecretId 这种一家两把钥匙的就拼不出像样
+        的名字了，索性让调用方直接写全。
+        """
+        return self._edit_row(form, setting, label, placeholder,
+                              secret=True, on_edit=on_edit)
+
+    def _plain_row(self, form, setting, label, placeholder, on_edit=None):
+        """明文的一行（端点地址之类，不是秘密，藏起来反而看不清填没填对）。"""
+        return self._edit_row(form, setting, label, placeholder,
+                              secret=False, on_edit=on_edit)
+
+    def _edit_row(self, form, setting, label, placeholder, secret, on_edit):
+        e = QLineEdit(self.settings.value(setting, ""))
+        if secret:
+            e.setEchoMode(QLineEdit.EchoMode.Password)
+        else:
+            self._plain_settings.add(setting)
         e.setPlaceholderText(placeholder)
         e.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         e.setMinimumWidth(220)
+        if on_edit is not None:
+            e.editingFinished.connect(on_edit)
         form.addRow(label, e)
-        self._key_edits[key_name] = e
+        self._key_edits[setting] = e
         return e
 
     def _show_keys_row(self, form):
@@ -4727,9 +4747,9 @@ class SettingsDialog(QDialog):
                              "主界面的引擎列表里。")
 
         self.deepl_edit = self._key_row(
-            form, "deepl", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
+            form, "deepl_key", "DeepL Key:", L("免费版 Key 以 :fx 结尾"))
         self.google_api_edit = self._key_row(
-            form, "google_api", L("Google 云翻译 Key") + ":",
+            form, "google_api_key", L("Google 云翻译 Key") + ":",
             L("Google 云翻译 Key (AIza...)"))
 
         # 各 LLM 引擎的 Key 输入框（动态生成）
@@ -4745,10 +4765,10 @@ class SettingsDialog(QDialog):
                 ("kimi", "Kimi Key:", "sk-..."),
                 ("hunyuan", L("混元 HY-MT Key:"), L("腾讯云混元 sk-...")),
         ):
-            self._key_row(form, kn, label, ph)
+            self._key_row(form, f"{kn}_key", label, ph)
         # 兼容旧引用
-        self.deepseek_edit = self._key_edits["deepseek"]
-        self.hunyuan_edit = self._key_edits["hunyuan"]
+        self.deepseek_edit = self._key_edits["deepseek_key"]
+        self.hunyuan_edit = self._key_edits["hunyuan_key"]
 
         # 显示API-Key（与输入框左对齐；按下=显示且青色，弹起=隐藏灰色）
         self.show_keys_btn = self._show_keys_row(form)
@@ -4785,7 +4805,8 @@ class SettingsDialog(QDialog):
             form.addRow(L("接口地址") + ":", _u)
             form.addRow(L("模型名") + ":", _m)
             # Key 交给 _key_edits 统一管：显示/隐藏密钥与保存都自动覆盖到。
-            self._key_row(form, f"custom{_i}", L(f"引擎 {_i} Key") + ":", "sk-...")
+            self._key_row(form, f"custom{_i}_key", L(f"引擎 {_i} Key") + ":",
+                          "sk-...")
             self._custom_edits[_i] = (_n, _u, _m)
 
         # 不留空行：翻译引擎页的显示密钥就是紧跟着最后一个 Key 的，两页得一样
@@ -4826,17 +4847,103 @@ class SettingsDialog(QDialog):
         page, form = self._new_page()
         self._title_row(form, "语音识别引擎")
         self._hint_row(form,
-                       "录音不出本机：本地 Whisper 不联网、不需要 API Key。"
-                       "识别语言跟随文本框的语言设置，选「自动检测」就交给模型自己判断。")
-        self._status_row(form, "当前引擎", lambda: L("本地 Whisper（离线本地）"))
+                       "本地 Whisper 不联网、不要 Key，录音不出本机；在线引擎通常更快"
+                       "更准，但要填各自的密钥，而且录音会上传到对应的服务商。"
+                       "识别语言跟随文本框的语言设置。")
+
+        self.stt_combo = QComboBox()
+        self.stt_combo.setFixedHeight(36)
+        _apply_combo_popup_style(self.stt_combo)
+        self.stt_combo.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                     QSizePolicy.Policy.Fixed)
+        self.stt_combo.setMinimumWidth(200)
+        self._fill_stt_combo()
+        self.stt_combo.currentIndexChanged.connect(self._on_stt_engine_changed)
+        form.addRow(L("识别引擎") + ":", self.stt_combo)
         self._status_row(form, "状态", self._stt_state_text)
+        self._gap_row(form)
+
+        self._title_row(form, "本地 Whisper")
         self._status_row(form, "识别组件",
                          lambda: self._pkg_text("faster_whisper"))
         self._status_row(form, "模型目录",
                          lambda: _whisper_model_dir() or L("未找到"))
         self._status_row(form, "麦克风", self._mic_state_text)
         self._asset_row(form, "whisper")
+        self._gap_row(form)
+
+        self._title_row(form, "在线识别引擎密钥（可选）")
+        self._hint_row(form,
+                       "填好谁就多出谁，一个都不填也不影响本地识别。密钥只写进本机的"
+                       "系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。")
+        self._key_row(form, "groq_key", "Groq Key:", "gsk_...",
+                      on_edit=self._refresh_stt_engines)
+        self._hint_row(form, "OpenAI 与翻译引擎共用同一份 Key，在「翻译引擎」页填写。")
+        self._key_row(form, "azure_stt_key", L("Azure 语音 Key") + ":",
+                      L("Azure 语音服务密钥"), on_edit=self._refresh_stt_engines)
+        self._plain_row(form, "azure_stt_endpoint", L("Azure 端点") + ":",
+                        "https://<资源名>.cognitiveservices.azure.com",
+                        on_edit=self._refresh_stt_engines)
+        self._key_row(form, "baidu_stt_key", L("百度 API Key") + ":",
+                      L("百度智能云 API Key"), on_edit=self._refresh_stt_engines)
+        self._key_row(form, "baidu_stt_secret", L("百度 Secret Key") + ":",
+                      L("百度智能云 Secret Key"),
+                      on_edit=self._refresh_stt_engines)
+        self._key_row(form, "tencent_stt_id", L("腾讯 SecretId") + ":",
+                      L("腾讯云 SecretId"), on_edit=self._refresh_stt_engines)
+        self._key_row(form, "tencent_stt_secret", L("腾讯 SecretKey") + ":",
+                      L("腾讯云 SecretKey"), on_edit=self._refresh_stt_engines)
+        self._show_keys_row(form)
         return page
+
+    # ---------- 识别引擎下拉 ----------
+
+    def _fill_stt_combo(self):
+        """按当前凭据重建识别引擎下拉，尽量保住原来选中的那个。"""
+        cb = self.stt_combo
+        cur = cb.currentData() or self.settings.value(
+            "stt_engine", WhisperLocalStt.name)
+        cb.blockSignals(True)
+        try:
+            cb.clear()
+            from PyQt6.QtCore import Qt as _Qt
+            for _name, _label in _stt_engine_choices():
+                cb.addItem(L(_label), _name)
+                cb.setItemData(cb.count() - 1, L(_label),
+                               _Qt.ItemDataRole.ToolTipRole)
+            idx = cb.findData(cur)
+            cb.setCurrentIndex(idx if idx >= 0 else 0)
+        finally:
+            cb.blockSignals(False)
+        # 原先选的引擎因为凭据被清空而消失了：把设置改成现在选中的这个，
+        # 免得 settings 里留着一个列表上根本没有的名字。
+        if cb.currentData() and cb.currentData() != cur:
+            self.settings.setValue("stt_engine", cb.currentData())
+            _reset_stt_backend()
+
+    def _refresh_stt_engines(self):
+        """凭据改完就重算一遍下拉：刚填上 Key 的引擎立刻出现，清空的立刻消失。
+
+        _stt_engine_choices 是照 settings 判断的，所以得先把输入框里的东西
+        落盘再重建。
+        """
+        try:
+            self._persist_keys()
+            self._fill_stt_combo()
+            self._refresh_status()
+        except Exception:
+            _log_exc("refresh_stt_engines")
+
+    def _on_stt_engine_changed(self, _i=0):
+        name = self.stt_combo.currentData()
+        if not name:
+            return
+        self.settings.setValue("stt_engine", name)
+        _reset_stt_backend()          # 下次识别按新引擎来
+        self._refresh_status()
+        _p = self.parent()
+        if _p is not None and hasattr(_p, "_sync_voice_btn"):
+            _p._sync_voice_btn()      # 麦克风钮的可用性也跟着变
 
     def _page_tts(self):
         page, form = self._new_page()
@@ -4863,11 +4970,14 @@ class SettingsDialog(QDialog):
                                  else L("缺失"))
 
     def _stt_state_text(self):
-        if not _whisper_model_dir():
-            return f"{L('不可用')} — {L('未找到语音识别模型')}"
-        if not _module_present("faster_whisper"):
-            return f"{L('不可用')} — {L('语音识别组件缺失')}"
-        return L("可用")
+        """当前【选中的】那个引擎能不能用，不是笼统说本地能不能用。"""
+        be = _selected_stt_class()()
+        try:
+            if be.available():
+                return L("可用")
+            return f"{L('不可用')} — {be.unavailable_reason()}"
+        except Exception:
+            return L("不可用")
 
     def _argos_state_text(self):
         if not _module_present("argostranslate"):
@@ -4915,9 +5025,9 @@ class SettingsDialog(QDialog):
 
     def _toggle_echo(self, show):
         mode = QLineEdit.EchoMode.Normal if show else QLineEdit.EchoMode.Password
-        self.deepl_edit.setEchoMode(mode)
-        self.google_api_edit.setEchoMode(mode)
-        for e in self._key_edits.values():
+        for kn, e in self._key_edits.items():
+            if kn in self._plain_settings:
+                continue          # 端点地址之类本来就是明文，不归它管
             e.setEchoMode(mode)
 
     def _open_log(self):
@@ -5037,11 +5147,12 @@ class SettingsDialog(QDialog):
             self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
             self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
             for kn, e in self._key_edits.items():
-                self.settings.setValue(f"{kn}_key", e.text().strip())
+                self.settings.setValue(kn, e.text().strip())
             self.settings.setValue(
                 "multi_style", "true" if self.multi_style_chk.isChecked() else "false")
         except Exception:
             _log_exc("persist_keys")
+        _reset_stt_backend()      # 识别引擎的凭据可能变了，别再用缓存的实例
         # 全部写完再刷：刚填上 Key 的引擎这时才会出现在下拉里，刚清空的
         # 才会消失。
         try:
@@ -5058,7 +5169,7 @@ class SettingsDialog(QDialog):
         self.settings.setValue("deepl_key", self.deepl_edit.text().strip())
         self.settings.setValue("google_api_key", self.google_api_edit.text().strip())
         for kn, e in self._key_edits.items():
-            self.settings.setValue(f"{kn}_key", e.text().strip())
+            self.settings.setValue(kn, e.text().strip())
         self.settings.setValue(
             "multi_style", "true" if self.multi_style_chk.isChecked() else "false")
         _old_lang = self.settings.value("ui_lang", "中文")
@@ -5588,7 +5699,7 @@ _EN["嗓音与语速在主界面选择。这里只显示两个朗读后端的状
     "offline.")
 _EN["当前引擎"] = "Engine in use"
 _EN["状态"] = "Status"
-_EN["识别组件"] = "Component"
+_EN["识别组件"] = "Recognition component"
 _EN["模型目录"] = "Model folder"
 _EN["麦克风"] = "Microphone"
 _EN["本地 Whisper（离线本地）"] = "Whisper, running locally"
@@ -5619,7 +5730,7 @@ _EN["国内镜像"] = "mirror"
 _EN["重试"] = "retry"
 _EN["已就绪"] = "is ready"
 _EN["下载失败"] = "download failed"
-_EN["下载组件"] = "Download"
+_EN["下载组件"] = "Download a component"
 _EN["该功能需要先下载"] = "This feature first needs"
 _EN["优先从官方源下载，失败会自动改用国内镜像。"] = (
     "It is fetched from the official source first, falling back to a mirror "
@@ -5641,6 +5752,41 @@ _EN["模型已下载但未能装入 Argos"] = "downloaded, but Argos would not i
 _EN["下载"] = "Download"
 _EN["下载到的不是有效的 whl 文件"] = "what came back is not a valid wheel"
 
+# —— 在线识别引擎（v2.19.0）——
+_EN["识别引擎"] = "Recognition engine"
+_EN["本地 Whisper"] = "Local Whisper"
+_EN["在线识别引擎密钥（可选）"] = "Online Engine Keys (Optional)"
+_EN["本地 Whisper 不联网、不要 Key，录音不出本机；在线引擎通常更快更准，但要填各自的密钥，而且录音会上传到对应的服务商。识别语言跟随文本框的语言设置。"] = (
+    "Whisper runs locally with no network and no key, and the recording "
+    "never leaves this machine. The online engines are usually faster and "
+    "more accurate, but each needs its own key and every recording is "
+    "uploaded to that provider. Recognition follows the language the pane "
+    "is set to.")
+_EN["填好谁就多出谁，一个都不填也不影响本地识别。密钥只写进本机的系统设置。注意：用在线引擎时，每次录音都会上传到对应服务商。"] = (
+    "Fill in one and it appears in the list; fill in none and local "
+    "recognition still works. Keys are written to this machine's own "
+    "settings. Note that with an online engine every recording is uploaded "
+    "to that provider.")
+_EN["OpenAI 与翻译引擎共用同一份 Key，在「翻译引擎」页填写。"] = (
+    "OpenAI shares one key with the translation engine; enter it on the "
+    "Translation Engines page.")
+_EN["Azure 语音 Key"] = "Azure Speech key"
+_EN["Azure 语音服务密钥"] = "Azure Speech resource key"
+_EN["Azure 端点"] = "Azure endpoint"
+_EN["百度 API Key"] = "Baidu API Key"
+_EN["百度智能云 API Key"] = "Baidu AI Cloud API Key"
+_EN["百度 Secret Key"] = "Baidu Secret Key"
+_EN["百度智能云 Secret Key"] = "Baidu AI Cloud Secret Key"
+_EN["腾讯 SecretId"] = "Tencent SecretId"
+_EN["腾讯云 SecretId"] = "Tencent Cloud SecretId"
+_EN["腾讯 SecretKey"] = "Tencent SecretKey"
+_EN["腾讯云 SecretKey"] = "Tencent Cloud SecretKey"
+_EN["请先在设置里填写该识别引擎的密钥"] = (
+    "fill in this engine's key in Settings first")
+_EN["没听出内容，检查一下语言设置是否与所说的一致"] = (
+    "nothing recognised - check that the pane's language matches what was "
+    "spoken")
+
 # —— 引擎筛选 / 日志弹窗 / 注音页（v2.19.0）——
 _EN["本地翻译引擎"] = "Local Engine"
 _EN["Argos 纯离线，不联网也不要 Key。Google 免费版同样不用 Key，两者始终可选，所以引擎列表不会空。"] = (
@@ -5652,8 +5798,7 @@ _EN["Key 只写进本机的系统设置，不随程序上传到任何地方。�
     "anywhere by the app. Leave one blank to keep that engine switched off — "
     "an engine with no key does not appear in the main window's engine list.")
 _EN["Argos（离线本地）"] = "Argos, running locally"
-_EN["翻译组件"] = "Component"
-_EN["注音"] = "Ruby"
+_EN["翻译组件"] = "Translation component"
 _EN["英文标国际音标，中文标带声调拼音。音标用的是 Kokoro 朗读的同一套 G2P，所以标出来的和读出来的一致；词典里查不到的名字也能按规则推断。注音行排在译文下面，不朗读、不参与选区联动。"] = (
     "English gets IPA, Chinese gets pinyin with tone marks. The phonetics "
     "come from the same G2P that Kokoro speaks with, so what is written "
@@ -6952,6 +7097,7 @@ class WhisperLocalStt(SttBackend):
     所以除了模型本身没引入新的运行时。"""
 
     name = "whisper-local"
+    label = "Whisper -离线本地"      # 下拉里显示的名字，与 Argos -离线本地 同体例
 
     def __init__(self):
         self._model = None
@@ -6986,8 +7132,347 @@ class WhisperLocalStt(SttBackend):
         return "".join(sg.text for sg in segs).strip()
 
 
-_STT_BACKENDS = {WhisperLocalStt.name: WhisperLocalStt}
+# ---------------------------------------------------------------------------
+#  在线识别引擎
+#
+#  五家都实现同一个 SttBackend，调用侧一行不用改。录音是内存里的 float32
+#  采样，各家要的都是一个真正的音频文件，所以统一用标准库 wave 打成 16kHz
+#  单声道 16bit 的 WAV —— 不引入任何新依赖，也不落盘。
+#
+#  端点、参数名、响应字段都对着各家官方文档核过（腾讯的签名另外比对了官方
+#  Python SDK 的源码）。但作者的开发容器连不上这些服务、也没有 Key，所以
+#  真实连通性是在用户机器上验的；这里能离线验的只有请求构造本身。
+# ---------------------------------------------------------------------------
+
+def _pcm_to_wav(samples, rate=STT_SAMPLE_RATE):
+    """float32(-1~1) 单声道采样 -> WAV 字节。"""
+    import io as _io
+    import wave
+    import numpy as _np
+    pcm = _np.clip(_np.asarray(samples, dtype=_np.float32), -1.0, 1.0)
+    pcm = (pcm * 32767.0).astype("<i2")
+    buf = _io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(int(rate))
+        w.writeframes(pcm.tobytes())
+    return buf.getvalue()
+
+
+class OnlineSttBase(SttBackend):
+    """在线识别引擎的共同部分。
+
+    子类给出 label(下拉里显示的名字)、cred_keys(settings 里必须填的几项)，
+    再实现 _run(wav, lang)。凭据齐了才算可用 —— 和翻译引擎同一条规矩：
+    填不全就别出现在列表里，选了也只会报错。
+    """
+
+    label = ""
+    cred_keys = ()
+    timeout = 30
+
+    @staticmethod
+    def _cred(key):
+        from PyQt6.QtCore import QSettings as _QS
+        return (_QS("Strilen", "EnglishCoach").value(key, "") or "").strip()
+
+    def available(self):
+        return all(self._cred(k) for k in self.cred_keys)
+
+    def unavailable_reason(self):
+        return f"{L('请先在设置里填写该识别引擎的密钥')}"
+
+    def transcribe(self, samples, lang):
+        if not self.available():
+            raise RuntimeError(self.unavailable_reason())
+        return (self._run(_pcm_to_wav(samples), lang) or "").strip()
+
+    def _run(self, wav, lang):
+        raise NotImplementedError
+
+    # -- 给子类用的小工具 --
+
+    def _check(self, resp):
+        """HTTP 层面的失败统一在这里变成能看懂的话。"""
+        if resp.status_code >= 400:
+            body = (resp.text or "")[:300]
+            raise RuntimeError(f"{self.label} HTTP {resp.status_code}: {body}")
+        return resp
+
+    def _openai_style(self, url, model, lang, wav, extra_headers=None):
+        """OpenAI 兼容的 /audio/transcriptions：Groq 和 OpenAI 共用这一份。
+
+        multipart 上传，字段就 file / model / language，响应取 text。
+        language 留空＝交给模型自己判断，所以「自动检测」时干脆不带这个字段。
+        """
+        import requests
+        headers = {"Authorization": f"Bearer {self._cred(self.cred_keys[0])}"}
+        headers.update(extra_headers or {})
+        data = {"model": model, "response_format": "json"}
+        if lang:
+            data["language"] = lang
+        r = requests.post(url, headers=headers, data=data,
+                          files={"file": ("audio.wav", wav, "audio/wav")},
+                          timeout=self.timeout)
+        self._check(r)
+        return (r.json() or {}).get("text", "")
+
+
+class GroqStt(OnlineSttBase):
+    """Groq 托管的 Whisper large v3 turbo。接口与 OpenAI 完全兼容。"""
+
+    name = "groq"
+    label = "Groq -API Key 联网"
+    cred_keys = ("groq_key",)
+    endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
+    model = "whisper-large-v3-turbo"
+
+    def _run(self, wav, lang):
+        return self._openai_style(self.endpoint, self.model, lang, wav)
+
+
+class OpenAiStt(OnlineSttBase):
+    """OpenAI 官方转写。Key 与翻译引擎那边共用同一份 openai_key，
+    省得同一个账号填两遍。"""
+
+    name = "openai"
+    label = "OpenAI -API Key 联网"
+    cred_keys = ("openai_key",)
+    endpoint = "https://api.openai.com/v1/audio/transcriptions"
+    model = "gpt-4o-mini-transcribe"
+
+    def _run(self, wav, lang):
+        return self._openai_style(self.endpoint, self.model, lang, wav)
+
+
+class AzureStt(OnlineSttBase):
+    """Azure 语音服务的「短音频」REST 接口（单次上限 60 秒，够用）。
+
+    它必须指定具体的区域语言，没有"自动"这一档，所以「自动检测」按英文处理
+    —— 与其猜错语言不如按最常见的来，用户要中文把文本框语言设成中文即可。
+    """
+
+    name = "azure"
+    label = "Azure -API Key 联网"
+    cred_keys = ("azure_stt_key", "azure_stt_endpoint")
+    _LOCALE = {"zh": "zh-CN", "en": "en-US"}
+
+    def _base(self):
+        """端点容忍三种写法：完整 URL、带域名的主机、或者只填资源名。"""
+        ep = self._cred("azure_stt_endpoint")
+        if not ep.startswith("http"):
+            ep = ("https://" + ep if "." in ep
+                  else f"https://{ep}.cognitiveservices.azure.com")
+        return ep.rstrip("/")
+
+    def _run(self, wav, lang):
+        import requests
+        url = (self._base()
+               + "/stt/speech/recognition/conversation/cognitiveservices/v1")
+        r = requests.post(
+            url,
+            params={"language": self._LOCALE.get(lang, "en-US"),
+                    "format": "simple"},
+            headers={
+                "Ocp-Apim-Subscription-Key": self._cred("azure_stt_key"),
+                "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000",
+                "Accept": "application/json",
+            },
+            data=wav, timeout=self.timeout)
+        self._check(r)
+        j = r.json() or {}
+        status = j.get("RecognitionStatus", "")
+        if status != "Success":
+            # NoMatch 通常是说的语言和 language 参数对不上，单独点明，
+            # 否则用户只会看到一句没头没尾的 NoMatch。
+            if status == "NoMatch":
+                raise RuntimeError(
+                    f"{self.label}: {L('没听出内容，检查一下语言设置是否与所说的一致')}")
+            raise RuntimeError(f"{self.label}: {status or j}")
+        return j.get("DisplayText", "")
+
+
+class BaiduStt(OnlineSttBase):
+    """百度短语音识别标准版。
+
+    要先拿 access_token（有效期很长，缓存起来，别每次识别都换一次）。
+    语言靠 dev_pid 选：1537 普通话、1737 英语。
+    """
+
+    name = "baidu"
+    label = "百度 -API Key 联网"
+    cred_keys = ("baidu_stt_key", "baidu_stt_secret")
+    TOKEN_URL = "https://aip.baidubce.com/oauth/2.0/token"
+    ASR_URL = "https://vop.baidu.com/server_api"
+    _DEV_PID = {"zh": 1537, "en": 1737}
+
+    def __init__(self):
+        self._token = ""
+        self._token_for = ()
+
+    def _get_token(self):
+        import requests
+        ak, sk = self._cred("baidu_stt_key"), self._cred("baidu_stt_secret")
+        if self._token and self._token_for == (ak, sk):
+            return self._token
+        r = requests.get(self.TOKEN_URL,
+                         params={"grant_type": "client_credentials",
+                                 "client_id": ak, "client_secret": sk},
+                         timeout=self.timeout)
+        self._check(r)
+        j = r.json() or {}
+        tok = j.get("access_token", "")
+        if not tok:
+            raise RuntimeError(
+                f"{self.label}: {j.get('error_description') or j}")
+        self._token, self._token_for = tok, (ak, sk)
+        return tok
+
+    def _run(self, wav, lang):
+        import base64
+        import hashlib
+        import requests
+        # cuid 只要求全局唯一且稳定，用机器名的散列，不上报任何可识别信息
+        cuid = hashlib.md5(
+            (os.environ.get("COMPUTERNAME")
+             or os.environ.get("HOSTNAME") or "EnglishCoach").encode()
+        ).hexdigest()[:16]
+        body = {
+            "format": "wav", "rate": STT_SAMPLE_RATE, "channel": 1,
+            "cuid": cuid, "token": self._get_token(),
+            "dev_pid": self._DEV_PID.get(lang, 1537),
+            "speech": base64.b64encode(wav).decode("ascii"),
+            "len": len(wav),
+        }
+        r = requests.post(self.ASR_URL, json=body, timeout=self.timeout)
+        self._check(r)
+        j = r.json() or {}
+        if j.get("err_no"):
+            raise RuntimeError(
+                f"{self.label}: {j.get('err_no')} {j.get('err_msg', '')}")
+        res = j.get("result") or []
+        return res[0] if res else ""
+
+
+class TencentStt(OnlineSttBase):
+    """腾讯云一句话识别（60 秒以内）。
+
+    签名走 TC3-HMAC-SHA256。这套算法按官方 Python SDK 的源码实现：
+    只签 content-type 和 host 两个头，最终签名是十六进制不是 base64。
+    """
+
+    name = "tencent"
+    label = "腾讯 -API Key 联网"
+    cred_keys = ("tencent_stt_id", "tencent_stt_secret")
+    HOST = "asr.tencentcloudapi.com"
+    SERVICE = "asr"
+    VERSION = "2019-06-14"
+    ACTION = "SentenceRecognition"
+    _ENG = {"zh": "16k_zh", "en": "16k_en"}
+
+    @staticmethod
+    def tc3_auth(secret_id, secret_key, service, host, action, payload, ts):
+        """算出 Authorization 头。独立成静态方法，便于离线对着官方实现验。"""
+        import hashlib
+        import hmac
+        import datetime
+
+        def _h(key, msg):
+            return hmac.new(key, msg.encode("utf-8"), hashlib.sha256)
+
+        ct = "application/json; charset=utf-8"
+        canonical = "\n".join([
+            "POST", "/", "",
+            f"content-type:{ct}\nhost:{host}\n",
+            "content-type;host",
+            hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        ])
+        date = datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+        scope = f"{date}/{service}/tc3_request"
+        str2sign = "\n".join([
+            "TC3-HMAC-SHA256", str(ts), scope,
+            hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        ])
+        k_date = _h(("TC3" + secret_key).encode("utf-8"), date)
+        k_service = _h(k_date.digest(), service)
+        k_signing = _h(k_service.digest(), "tc3_request")
+        sig = _h(k_signing.digest(), str2sign).hexdigest()
+        return (f"TC3-HMAC-SHA256 Credential={secret_id}/{scope}, "
+                f"SignedHeaders=content-type;host, Signature={sig}")
+
+    def _run(self, wav, lang):
+        import base64
+        import json as _json
+        import time
+        import requests
+        ts = int(time.time())
+        payload = _json.dumps({
+            "EngSerViceType": self._ENG.get(lang, "16k_zh"),
+            "SourceType": 1,                 # 1 = 音频数据直接放在请求里
+            "VoiceFormat": "wav",
+            "Data": base64.b64encode(wav).decode("ascii"),
+            "DataLen": len(wav),
+        }, separators=(",", ":"))
+        auth = self.tc3_auth(self._cred("tencent_stt_id"),
+                             self._cred("tencent_stt_secret"),
+                             self.SERVICE, self.HOST, self.ACTION, payload, ts)
+        r = requests.post(
+            f"https://{self.HOST}", data=payload.encode("utf-8"),
+            headers={
+                "Authorization": auth,
+                "Content-Type": "application/json; charset=utf-8",
+                "Host": self.HOST,
+                "X-TC-Action": self.ACTION,
+                "X-TC-Timestamp": str(ts),
+                "X-TC-Version": self.VERSION,
+            }, timeout=self.timeout)
+        self._check(r)
+        resp = ((r.json() or {}).get("Response") or {})
+        if "Error" in resp:
+            err = resp["Error"]
+            raise RuntimeError(
+                f"{self.label}: {err.get('Code', '')} {err.get('Message', '')}")
+        return resp.get("Result", "")
+
+
+# 下拉里的顺序：本地的排最前(不要 Key、开箱即用)，在线的按上手难易排。
+STT_ENGINE_CLASSES = (WhisperLocalStt, GroqStt, OpenAiStt, AzureStt,
+                      BaiduStt, TencentStt)
+_STT_BACKENDS = {c.name: c for c in STT_ENGINE_CLASSES}
 _stt_instance = None
+
+
+def _stt_engine_choices():
+    """能用的识别引擎（名字, 显示文字）。凭据没填全的不列出来 —— 与翻译
+    引擎同一条规矩。本地 Whisper 始终在列，所以下拉不会空。"""
+    out = []
+    for c in STT_ENGINE_CLASSES:
+        if issubclass(c, OnlineSttBase) and not c().available():
+            continue
+        out.append((c.name, getattr(c, "label", c.name)))
+    return out
+
+
+def _selected_stt_class():
+    """settings 里选中的那个引擎类。认不出的名字退回本地 Whisper。"""
+    from PyQt6.QtCore import QSettings as _QS
+    _n = _QS("Strilen", "EnglishCoach").value("stt_engine",
+                                              WhisperLocalStt.name)
+    return _STT_BACKENDS.get(_n, WhisperLocalStt)
+
+
+def _stt_wants_local_model():
+    """选的是本地引擎、而模型还没下 —— 只有这种情况才该去提示下载。
+    选了在线引擎却弹"要不要下 145MB 模型"是莫名其妙的。"""
+    return (_selected_stt_class() is WhisperLocalStt
+            and not _asset_ready("whisper"))
+
+
+def _reset_stt_backend():
+    """换了引擎或改了凭据之后丢掉缓存的实例，下次识别重新按设置来。"""
+    global _stt_instance
+    _stt_instance = None
 
 
 def _stt_backend():
@@ -8567,9 +9052,10 @@ class MainWindow(QMainWindow):
                 b.setEnabled(False)
                 b.setToolTip(f"{_name} — {L('没有可用的麦克风')}")
                 return
-            # 只缺模型的话不置灰：灰着的按钮等于死路一条，用户不知道去哪儿
-            # 弄模型。留着可点，点一下就问要不要下。
-            if not _asset_ready("whisper"):
+            # 用本地引擎而模型还没下：不置灰，灰着的按钮等于死路一条，用户
+            # 不知道去哪儿弄模型。留着可点，点一下就问要不要下。
+            # 选了在线引擎就不走这条 —— 那时候提下载模型莫名其妙。
+            if _stt_wants_local_model():
                 b.setEnabled(True)
                 b.setToolTip(f"{_name} — {L('点击下载语音识别模型')}")
                 return
@@ -8593,9 +9079,10 @@ class MainWindow(QMainWindow):
         self._voice_timer = QElapsedTimer()
         self._voice_timer.start()
         self._voice_was_on = getattr(self, "_voice_on", False)
-        # 模型没下过：这一下不录音，改成问要不要下。下完自动把按钮点亮，
-        # 用户再按一次就能说话。
-        self._voice_diverted = not self._ensure_asset("whisper")
+        # 用本地引擎而模型没下过：这一下不录音，改成问要不要下。下完自动把
+        # 按钮点亮，用户再按一次就能说话。在线引擎不走这条。
+        self._voice_diverted = (_stt_wants_local_model()
+                                and not self._ensure_asset("whisper"))
         if self._voice_diverted:
             return
         if not self._voice_was_on:
