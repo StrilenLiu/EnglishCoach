@@ -57,17 +57,14 @@ def main(argv):
             print(f"[✓] {label} 已就位，跳过")
             continue
         print(f"[·] {label} 开始安装…")
-        # 官方源优先；只有在失败确实是网络问题时才换镜像 —— 404、文件名不
-        # 对这类错误换个源也是一样的结果，不值得让人多等几轮退避。
+        # 官方源优先，不成换国内镜像 —— 所有源一律都会走到。只有在同一个
+        # 源上原地重试确实没意义时(404、磁盘满)才提前跳过剩下的次数。
         sources = [("官方源", a["official"])]
         if a.get("mirror"):
             sources.append(("国内镜像", a["mirror"]))
         ok = False
-        net_trouble = False
         last = ""
-        for si, (sname, endpoint) in enumerate(sources):
-            if si and not net_trouble:
-                break
+        for sname, endpoint in sources:
             for attempt in range(ec.ASSET_RETRIES):
                 try:
                     a["fetch"](endpoint, _report)
@@ -78,9 +75,9 @@ def main(argv):
                 except Exception as e:
                     sys.stdout.write("\r" + " " * 70 + "\r")
                     last = f"{type(e).__name__}: {e}"
-                    if ec._is_network_error(e):
-                        net_trouble = True
                     print(f"    {sname} 第 {attempt + 1} 次失败：{last}")
+                    if not ec._worth_retrying(e):
+                        break
                     if attempt < ec.ASSET_RETRIES - 1:
                         import time
                         time.sleep(ec.ASSET_BACKOFF[

@@ -3102,10 +3102,21 @@ def _phonetic_en(text):
     """
     global _EN_G2P
     if _EN_G2P is None:
+        if not _asset_ready("spacy_en"):
+            # misaki 建 G2P 时会自己去 spacy.cli.download 装这个模型，而
+            # spaCy 的 run_command 在子进程失败时【直接 sys.exit】(它的
+            # docstring 就是这么写的)。SystemExit 是 BaseException，下面
+            # 的 except Exception 根本接不住，于是从 Qt 槽里一路窜出去，
+            # 整个程序当场退出 —— Win10 上"点注音闪退"就是这么来的。
+            # 所以模型不在就根本不去碰 misaki，交给调用方去走下载流程。
+            return ""
         try:
             from misaki import en as _misaki_en
             _EN_G2P = _misaki_en.G2P(trf=False, british=False, fallback=None)
-        except Exception:
+        except BaseException:
+            # 这里刻意用 BaseException 而不是 Exception：上面说的 sys.exit
+            # 只要还有别的路径能走到，也不许它把程序带走。
+            _log_exc("misaki_g2p_init")
             _EN_G2P = False
     if not _EN_G2P:
         return ""
@@ -5534,7 +5545,6 @@ _EN["优先从官方源下载，失败会自动改用国内镜像。"] = (
     "if that fails.")
 _EN["下载在后台进行，进度显示在底部状态栏。"] = (
     "The download runs in the background; the status bar shows its progress.")
-_EN["以后不再询问，缺什么直接下载"] = "Download what is missing without asking"
 _EN["已有组件正在下载，请稍候"] = "Something is already downloading, please wait"
 _EN["最后一次的原因"] = "Last error"
 _EN["可以这样手动安装"] = "To install it by hand"
@@ -5548,6 +5558,7 @@ _EN["打包版不能自行安装组件"] = (
 _EN["镜像仓库里没有可安装的 whl"] = "the mirror repository has no installable wheel"
 _EN["模型已下载但未能装入 Argos"] = "downloaded, but Argos would not install them"
 _EN["下载"] = "Download"
+_EN["下载到的不是有效的 whl 文件"] = "what came back is not a valid wheel"
 
 
 def L(s):
@@ -6124,7 +6135,9 @@ def _apply_win_palette(app):
     try:
         from PyQt6.QtWidgets import QToolTip as _QTT
         _QTT.setPalette(pal)
-        app.setStyleSheet(_tooltip_css())
+        # 气球提示 + 各种临时弹窗都挂 app 级：它们要么是独立顶层窗口、要么
+        # 干脆没有父窗，主窗那份样式表一概够不着。
+        app.setStyleSheet(_tooltip_css() + _dialog_css())
     except Exception:
         pass
 
@@ -6182,6 +6195,41 @@ def _tooltip_css():
     return ("""
             QToolTip { background:#2d2d30; color:#e0e0e0; border:1px solid #4a4a4a;
                 padding:2px 5px; font-size:11px; }
+""")
+
+
+def _dialog_css():
+    """临时弹出来的那些窗口(QMessageBox / QInputDialog / QFileDialog)的配色。
+
+    这些窗常常没有父窗——全局异常兜底那个就是 parent=None——拿不到主窗的
+    样式表。本来它们靠 app 调色板也能对，但自从 _apply_win_palette 给 app
+    设了样式表(当时是为了让气球提示能查到规则)，Qt 就改用 QStyleSheetStyle
+    绘制：没有匹配规则的 QMessageBox 背景回落成默认浅色，而文字仍按调色板
+    取深色主题的浅灰 —— 于是浅底浅字，字和背景一个色，根本看不清。这是我
+    上一版引入的，这里补回来。
+
+    挂在 app 级：不管谁弹的、有没有父窗，都能查到。
+    刻意不写 QCheckBox 规则：一旦写了，windows11 引擎会整体接管渲染，
+    复选框的指示器边线就没了（这个坑本仓库踩过很多次）。
+    """
+    import sys
+    if sys.platform == "darwin":
+        return ""                     # mac 由 AppKit 原生外观驱动，别插手
+    if _theme_is_light():
+        _bg, _fg, _bd = "#f2f2f3", "#1f1f22", "#c9c9cc"
+        _btn, _hv = "#e9e9ea", "#dcdce0"
+    else:
+        _bg, _fg, _bd = "#1e1e1e", "#dcdcdc", "#3a3a3a"
+        _btn, _hv = "#2d2d30", "#37373d"
+    return (f"""
+            QMessageBox, QInputDialog, QProgressDialog {{ background:{_bg}; }}
+            QMessageBox QLabel, QInputDialog QLabel,
+            QProgressDialog QLabel {{ background:transparent; color:{_fg}; }}
+            QMessageBox QPushButton, QInputDialog QPushButton {{
+                background:{_btn}; color:{_fg}; border:1px solid {_bd};
+                border-radius:5px; padding:5px 16px; min-width:72px; }}
+            QMessageBox QPushButton:hover, QInputDialog QPushButton:hover {{
+                background:{_hv}; border:1px solid #4ea1ff; }}
 """)
 
 
@@ -6940,29 +6988,27 @@ class AssetError(Exception):
         self.how_to_fix = how_to_fix
 
 
-def _is_network_error(exc):
-    """网络问题(换镜像有意义) vs 源本身的问题(换了也一样)。
+def _worth_retrying(exc):
+    """在【同一个源】上再试一次有没有意义。
 
-    分清这两种是为了别白等：连不上、超时、SSL 握手失败，换个国内镜像很可能
-    就好了；而 404、文件名不对、磁盘写不进去，换几个源都是同样的结果，早点
-    报错比让用户对着退避计时器干等六轮强。
+    只管这一件事。换不换下一个源不看它 —— 所有源一律都会走到一遍。
+    上一版把两件事混在一起判断，代价很直接：Win10 上 GitHub 的下载被截成
+    一个坏压缩包，pip 只说了句 "Wheel ... is invalid"，其中的 "invalid"
+    被当成"源本身的问题"，于是官方源三次之后直接收摊，国内镜像一次都没试
+    ——而那台机器上镜像明明是通的。
+
+    返回 False 的只剩两类：本机层面的死结（磁盘满、没权限、打包版不能装
+    组件），再试一百次也一样；以及这个源上确实没有这个东西（404），该换
+    源而不是原地打转。
     """
-    import socket
-    name = type(exc).__name__
-    if isinstance(exc, (socket.timeout, socket.gaierror, ConnectionError,
-                        TimeoutError)):
-        return True
-    if any(k in name for k in ("Timeout", "Connection", "SSL", "Proxy",
-                               "TooManyRedirects", "ChunkedEncoding",
-                               "IncompleteRead", "LocalEntryNotFound")):
-        return True
     txt = str(exc).lower()
-    if any(k in txt for k in ("404", "not found", "no such file",
-                              "permission denied", "disk", "invalid")):
+    if any(k in txt for k in ("no space left", "permission denied",
+                              "read-only file system", "打包版",
+                              "packaged build")):
         return False
-    return any(k in txt for k in ("timed out", "connection", "network",
-                                  "unreachable", "reset by peer", "ssl",
-                                  "handshake", "proxy", "resolve"))
+    if "404" in txt or "not found" in txt:
+        return False
+    return True
 
 
 def _hf_snapshot(repo_id, target, endpoint, report):
@@ -7042,29 +7088,42 @@ def _have_spacy_en():
     return _module_present("en_core_web_sm")
 
 
+SPACY_EN_WHL = ("https://github.com/explosion/spacy-models/releases/download/"
+                "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl")
+
+
 def _get_spacy_en(endpoint, report):
-    """spaCy 英文模型不在 PyPI 上，pip 镜像只会返回 0 字节占位。
-    官方走 GitHub Releases 的 whl；镜像走 HF 上的 spacy/en_core_web_sm 仓库
-    ——那里的 whl 文件名不写死，问一下仓库再取，免得版本一换就断。
+    """spaCy 英文模型不在 PyPI 上：官方走 GitHub Releases 的 whl，镜像走
+    HF 上的 spacy/en_core_web_sm 仓库（whl 文件名不写死，问一下仓库再取，
+    免得版本一换就断）。
+
+    刻意不把 URL 直接丢给 pip。pip 下坏了只会回一句 "Wheel ... is invalid"
+    ——是被截断、被中间人换成一张网页、还是真的文件损坏，一概看不出来，也
+    没有进度可言。自己下、自己验是不是真的 zip，再把本地文件交给 pip，出事
+    的时候说得清是哪一步、收到了多少字节。
     """
+    import tempfile
+    import zipfile
     if getattr(sys, "frozen", False):
         raise AssetError(L("打包版不能自行安装组件"))
     if endpoint == HF_OFFICIAL:
-        _pip_install([
-            "https://github.com/explosion/spacy-models/releases/download/"
-            "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"],
-            report)
-        return "en_core_web_sm"
-    os.environ["HF_ENDPOINT"] = endpoint
-    os.environ.pop("HF_HUB_OFFLINE", None)
-    from huggingface_hub import list_repo_files, hf_hub_download
-    report(-1, L("正在连接…"))
-    whls = [f for f in list_repo_files("spacy/en_core_web_sm")
-            if f.endswith(".whl")]
-    if not whls:
-        raise AssetError(L("镜像仓库里没有可安装的 whl"))
-    local = hf_hub_download("spacy/en_core_web_sm", sorted(whls)[-1])
-    _pip_install([local], report)
+        whl = os.path.join(tempfile.mkdtemp(prefix="ec_spacy_"),
+                           os.path.basename(SPACY_EN_WHL))
+        _download_file(SPACY_EN_WHL, whl, report)
+    else:
+        os.environ["HF_ENDPOINT"] = endpoint
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        from huggingface_hub import list_repo_files, hf_hub_download
+        report(-1, L("正在连接…"))
+        names = [f for f in list_repo_files("spacy/en_core_web_sm")
+                 if f.endswith(".whl")]
+        if not names:
+            raise AssetError(L("镜像仓库里没有可安装的 whl"))
+        whl = hf_hub_download("spacy/en_core_web_sm", sorted(names)[-1])
+    if not zipfile.is_zipfile(whl):
+        sz = os.path.getsize(whl) if os.path.isfile(whl) else 0
+        raise AssetError(f"{L('下载到的不是有效的 whl 文件')}（{sz} bytes）")
+    _pip_install([whl], report)
     return "en_core_web_sm"
 
 
@@ -7168,9 +7227,10 @@ def _asset_ready(aid):
 class AssetWorker(QThread):
     """后台把一样资产装好。
 
-    先官方源试 ASSET_RETRIES 次(退避 2/4/8 秒)；每次失败都判断是不是网络
-    问题，只要有一次是网络问题、而且这一样有镜像，就转投镜像再试同样的轮
-    数。两轮都不成，把最后的原因和手动安装命令一起抛回去。
+    官方源试 ASSET_RETRIES 次(退避 2/4/8 秒)，不成就换国内镜像再试同样的
+    轮数 —— 所有源一律都会走到，不再靠猜错误类型决定换不换。只有在同一个
+    源上原地重试确实没意义时(404、磁盘满、打包版不能装)才提前跳过剩下的
+    次数，直接换源。全都不成，把最后的原因和手动安装命令一起抛回去。
     """
 
     progress = pyqtSignal(int, str)      # 百分比(-1=不确定), 附加说明
@@ -7194,10 +7254,7 @@ class AssetWorker(QThread):
         if a.get("mirror"):
             sources.append(("国内镜像", a["mirror"]))
         last = ""
-        net_trouble = False
         for si, (label, endpoint) in enumerate(sources):
-            if si and not net_trouble:
-                break            # 不是网络问题，换镜像也是同样的结果
             for attempt in range(ASSET_RETRIES):
                 if self._stop:
                     return
@@ -7209,10 +7266,10 @@ class AssetWorker(QThread):
                     return
                 except Exception as e:
                     last = f"{type(e).__name__}: {e}"
-                    if _is_network_error(e):
-                        net_trouble = True
                     _log_error(f"[资产] {self.aid} 经{label}第{attempt + 1}次"
                                f"失败: {last}")
+                    if not _worth_retrying(e):
+                        break     # 这个源上原地重试没意义，直接换下一个源
                     if attempt < ASSET_RETRIES - 1:
                         time.sleep(ASSET_BACKOFF[
                             min(attempt, len(ASSET_BACKOFF) - 1)])
@@ -8174,6 +8231,14 @@ class MainWindow(QMainWindow):
         ed = self.output_edit
         full = ed.toPlainText()
         if not full.strip():
+            return
+        # 英文注音要 spaCy 英文模型(misaki 的隐藏依赖)。缺了就走和设置窗里
+        # 那个下载钮完全同一条路：问一次、后台下、状态栏出进度、失败弹手动
+        # 命令并记日志。下完自动回到这里重来。
+        if (_resolve_target_lang(self.tgt_combo.currentData(),
+                                 self.input_edit.toPlainText()) != "中文"
+                and not _asset_ready("spacy_en")):
+            self._ensure_asset("spacy_en", self._do_ruby)
             return
         cur = ed.textCursor()
         le = getattr(self, "_lit_end", None)
@@ -9447,10 +9512,12 @@ class MainWindow(QMainWindow):
 
     def _confirm_asset(self, a):
         """下载前问一声。几百 MB 的东西不吭声就开始下，在按流量计费或网速
-        慢的机器上很不友好。勾了"以后不再询问"就记进设置，之后直接下。"""
-        if self.settings.value("asset_auto_download", "false") == "true":
-            return True
-        from PyQt6.QtWidgets import QCheckBox
+        慢的机器上很不友好。
+
+        这里没有"以后不再询问"：一共就四样东西，各问一次，记不记得住这个
+        选择意义不大；而且给弹窗塞 QCheckBox 会让 windows11 样式引擎接管
+        整个弹窗的渲染，不值当。
+        """
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle(L("下载组件"))
@@ -9461,13 +9528,8 @@ class MainWindow(QMainWindow):
         box.setStandardButtons(QMessageBox.StandardButton.Yes
                                | QMessageBox.StandardButton.No)
         box.setDefaultButton(QMessageBox.StandardButton.Yes)
-        chk = QCheckBox(L("以后不再询问，缺什么直接下载"))
-        box.setCheckBox(chk)
         self._style_msgbox(box)
-        ok = box.exec() == QMessageBox.StandardButton.Yes
-        if ok and chk.isChecked():
-            self.settings.setValue("asset_auto_download", "true")
-        return ok
+        return box.exec() == QMessageBox.StandardButton.Yes
 
     def _show_asset_busy(self):
         """状态栏右侧永久区放一条进度条。和合成用的那条各是各的：下载可能
