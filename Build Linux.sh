@@ -994,6 +994,12 @@ elif [ "$_selftest_rc" -eq 124 ]; then
         "启动自检超时 —— 产物启动后卡住" \
         "用户运行后会一直没有反应" \
         "看 ${_selftest_log} 里的输出定位卡在哪一步"
+elif [ "$_selftest_rc" -eq 3 ]; then
+    record_problem \
+        "启动自检：程序自己的看门狗超时了" \
+        "产物启动后卡住，用户那边同样会卡住" \
+        "日志里写了卡在哪一步：运行日志.txt 里搜 selftest"
+    grep "selftest" "$_selftest_log" 2>/dev/null | tail -n 6 | sed 's/^/      /'
 elif [ "$_selftest_rc" -eq 2 ]; then
     record_problem \
         "启动自检：有必需模块没被打进产物" \

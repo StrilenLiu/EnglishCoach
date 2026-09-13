@@ -13,9 +13,9 @@ setlocal enabledelayedexpansion
 set APP_NAME=English Coach
 
 REM ==========================================================================
-REM  产物完整性拦截 / Build integrity gate
-REM  任何会让产物功能残缺的问题都必须阻断编译，不再"警告一下就假装成功"。
-REM  设 STRICT=0 可强行忽略：  set STRICT=0 ^&^& "Build Windows.bat"
+REM  Build integrity gate
+REM  Anything that would leave the output functionally incomplete blocks
+REM  the build. Override with:  set STRICT=0 ^&^& "Build Windows.bat"
 REM ==========================================================================
 if not defined STRICT set STRICT=1
 set "BUILD_PROBLEMS="
@@ -52,10 +52,10 @@ if not "%CONDA_DEFAULT_ENV%"=="%CONDA_ENV%" (
 
 echo ==^> [2/7] Install dependencies ^(Tsinghua mirror, fallback to PyPI^)
 python -m pip install --upgrade pip -i %PIP_MIRROR%
-REM PyInstaller 6.10 起才自带 setuptools/_vendor/jaraco/text 的钩子。
-REM 缺了它，pkg_resources 在 import 期要读的 "Lorem ipsum.txt" 不会
-REM 被打进产物，程序一启动就 FileNotFoundError（窗口都出不来）。
-REM 这里必须写下限，不能只写 pyinstaller —— pip 见已装过就跳过升级。
+REM PyInstaller ships the setuptools/_vendor/jaraco/text hook only from 6.10.
+REM Without it the "Lorem ipsum.txt" that pkg_resources reads at import time
+REM is not bundled and the app dies with FileNotFoundError before any window.
+REM State a floor - with a bare name pip keeps whatever is already installed.
 call :pipinstall PyQt6 edge-tts requests "pyinstaller>=6.10" pillow
 REM --- Argos offline translation: pinned, torch-free combo ---
 call :pipinstall "setuptools<81"
@@ -157,7 +157,7 @@ if not exist dist mkdir dist
 mkdir "%DESTDIR%"
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
-REM 编译前结算：功能性缺失在此拦截，不浪费后续十几分钟的打包时间
+REM Settle before building, so a missing feature does not cost the packaging time
 call :gate
 if errorlevel 1 goto :end
 
@@ -209,9 +209,9 @@ if exist "%OUT%" del /q "%OUT%"
 REM Zip the whole app folder (so the zip contains "English Coach\English Coach.exe")
 rem Move the PyInstaller output into this platform's folder, keep dist root clean
 if exist "dist\%APP_NAME%" move /y "dist\%APP_NAME%" "%DESTDIR%" >nul
-REM ---- 产物实物校验 ----
-REM 前面查的是"过程有没有报错"，这里查的是"产物里到底有没有东西"。
-REM 两者缺一不可：曾出现过程无报错、产物却缺模型的情况。
+REM ---- Check what actually landed in the output ----
+REM Above we checked the build for errors; here we check the output for content.
+REM Both are needed: a clean build has shipped without its models before.
 echo     Verifying build output ...
 if not exist "%DESTDIR%\%APP_NAME%\%APP_NAME%.exe" (
     call :problem "Executable missing from the build" "The program cannot start at all"
@@ -248,33 +248,37 @@ if %WSP_N% LSS 1 (
     echo       OK - Whisper speech model present
 )
 
-REM ---- 启动自检 ----
-REM 上面查的全是"产物里有哪些文件"，查不出"一运行就崩"。少一个 import 期
-REM 要读的数据文件（setuptools 里的 "Lorem ipsum.txt" 就是这么漏的），
-REM 上面每一项都会通过、zip 照样打出来，用户一双击才发现。
-REM 这里真把它跑一遍：建完主窗口立刻退出，退出码不是 0 就阻断。
+REM ---- Startup self-test ----
+REM Everything above asks which files are present, which cannot catch a build
+REM that dies the moment it runs. A data file read at import time (setuptools'
+REM "Lorem ipsum.txt") passes every check above and ships in the zip.
+REM So run it for real: it exits once the main window is up. Non-zero blocks.
 echo     Self-test: launching the build once ...
 powershell -NoProfile -Command "$env:ENGLISHCOACH_SELFTEST='1'; $p = Start-Process -FilePath '%DESTDIR%\%APP_NAME%\%APP_NAME%.exe' -PassThru -WindowStyle Hidden; if (-not $p.WaitForExit(180000)) { $p.Kill(); exit 124 }; exit $p.ExitCode"
 set "SELFTEST_RC=%ERRORLEVEL%"
 if "%SELFTEST_RC%"=="0" (
     echo       OK - the build starts
 ) else if "%SELFTEST_RC%"=="124" (
-    REM 超时有两种：真卡住，或者 windowed 产物崩溃后弹出 PyInstaller 的
-    REM 错误框在等人点确定 —— 那个框在构建机上没人点。两种都是坏产物。
+    REM A timeout means either a real hang, or a windowed build that crashed
+    REM into a PyInstaller error dialog nobody clicks. Both are bad output.
     call :problem "Self-test timed out - the build hangs, or crashed into an error dialog nobody clicked" "Users cannot get the program running"
 ) else (
     if "%SELFTEST_RC%"=="2" (
         call :problem "Self-test: a required module was not bundled" "That whole feature is dead for users - the model ships but the library that reads it does not"
+    ) else if "%SELFTEST_RC%"=="3" (
+        REM The app's own watchdog fired and logged the step it stalled on.
+        REM Search the run log under %%APPDATA%%\EnglishCoach for "selftest".
+        call :problem "Self-test: the app's own watchdog timed out" "The build hangs on startup; users would see the same"
     ) else (
         call :problem "Self-test failed - the build crashes on startup (exit %SELFTEST_RC%)" "The program cannot start at all on a clean machine"
     )
 )
 
-REM 打包后结算：产物已生成但内容不合格，同样阻断，避免误当成品发布
+REM Settle again after packaging: a built but unfit output must not ship either
 call :gate
 if errorlevel 1 goto :end
 
-REM --- 随产物附带安装/卸载脚本（必须在打包成 zip 之前放进去）---
+REM --- Bundle the install/uninstall scripts (before zipping, not after) ---
 for %%S in (Install.bat Uninstall.bat) do (
     if exist "%%S" (
         copy /y "%%S" "%DESTDIR%\%APP_NAME%\%%S" >nul
@@ -339,8 +343,8 @@ for %%A in ("%~1") do if %%~zA GTR 40000000 (exit /b 0)
 exit /b 1
 
 REM ==========================================================================
-REM  :problem  记录一个会导致产物功能残缺的问题
-REM      %1 = 简述   %2 = 影响
+REM  :problem  record something that leaves the output functionally incomplete
+REM      %1 = what   %2 = impact
 REM ==========================================================================
 :problem
 set /a PROBLEM_COUNT+=1
@@ -350,7 +354,7 @@ set "BUILD_PROBLEMS=1"
 exit /b 0
 
 REM ==========================================================================
-REM  :gate  结算已记录的问题。STRICT=1 时阻断编译并以非 0 退出。
+REM  :gate  settle recorded problems. With STRICT=1 it blocks and exits non-zero.
 REM ==========================================================================
 :gate
 if not defined BUILD_PROBLEMS exit /b 0
@@ -359,7 +363,8 @@ echo ============================================================
 echo   BUILD BLOCKED - the output would be functionally incomplete
 echo   编译被拦截：产物将存在功能缺失（共 %PROBLEM_COUNT% 项，见上方 [X] 行）
 echo ============================================================
-REM 把原因落盘。横幅一闪而过，终端一关就查无对证。
+REM Write the reason to a file: the banner scrolls past and closing the
+REM terminal used to lose it for good.
 if not exist dist mkdir dist 2>nul
 echo English Coach build blocked - %DATE% %TIME%> "dist\build-blocked.txt"
 echo %BUILD_PROBLEMS%>> "dist\build-blocked.txt"

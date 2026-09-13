@@ -259,6 +259,42 @@ SELFTEST_MODULES = (
 )
 
 
+# 自检走到哪一步了。卡住时看门狗会把它写进日志 —— 上一次 Windows 自检整整
+# 卡了 180 秒被外面的计时器杀掉，什么线索都没留下，只能靠猜。
+_SELFTEST_STEP = "(还没开始)"
+
+
+def _selftest_step(name):
+    global _SELFTEST_STEP
+    _SELFTEST_STEP = name
+    if SELFTEST:
+        print(f"[selftest] 到达 {name}")
+        # Windows 的产物是 --windowed，sys.stdout 是 None，print 等于没写。
+        # 日志是那边唯一留得下痕迹的地方。
+        _log_error(f"[selftest] 到达 {name}")
+
+
+def _selftest_watchdog(seconds=120):
+    """自检兜底：到点没跑完就自己硬退出，别让构建脚本干等。
+
+    用 os._exit 而不是 sys.exit —— 解释器收尾会 join 线程、拆 Qt 对象，
+    而"卡住"这件事本身很可能就卡在那儿。硬退出，退出码 3 单独一档。
+    """
+    import threading
+
+    def _boom():
+        try:
+            _log_error(f"[selftest] 看门狗：{seconds}s 没跑完，"
+                       f"卡在 {_SELFTEST_STEP}")
+        except Exception:
+            pass
+        os._exit(3)
+    t = threading.Timer(seconds, _boom)
+    t.daemon = True
+    t.start()
+    return t
+
+
 def _selftest_missing_modules():
     """点名 SELFTEST_MODULES，返回缺的那几个。
 
@@ -543,6 +579,9 @@ CHANGELOG = [
             "macOS 构建新增代码签名校验：PyInstaller 会给产物做 ad-hoc 签名，而 Apple Silicon 上没有有效签名的程序会直接报「已损坏，无法打开」，用户完全没法自救。校验放在清理隔离标记之后 —— 签名坏掉的典型原因正是签完之后又动了包里的东西",
             "修复 macOS 产物的代码签名一直是无效的。PyInstaller 打完包会做一次 ad-hoc 签名，而构建脚本紧接着用 PlistBuddy 改 Info.plist（最低系统版本、麦克风用途说明、版本号）—— bundle 的签名覆盖 Info.plist，改完就失效了，报的是 invalid Info.plist (plist or signature have been modified)。这个毛病从加上那几行 PlistBuddy 起就一直在，谁也没验过；后果是下载来的包很容易被报成「已损坏，无法打开」，而那种情况用户完全没法自救。现在改完 plist、清完隔离标记之后重签一次再校验，三步的先后不能乱",
             "修复 misaki 装不上时被悄悄跳过：原先那行的回退只补了中文那三个包，misaki 本身漏掉也不吭声，Kokoro 读英文就会失败。现在会如实记一笔并阻断",
+            "修复 Windows 构建脚本把自己的中文注释当命令执行（满屏「'xxx' 不是内部或外部命令」）。脚本开头第七行自己写着 ASCII-only for GBK consoles —— cmd.exe 在 chcp 65001 之后按字符数记文件偏移，非 ASCII 的注释行会让它重新定位时错位，半截注释就被当成命令跑了。是我往里加中文注释破了这条规矩（注释行从 12 行涨到 24 行），现在两个 .bat 的注释全部改回英文，只剩几行要给用户看的中文 echo",
+            "启动自检加看门狗：到点没跑完就自己硬退出（退出码 3），并把卡在哪一步写进运行日志。上一次 Windows 自检整整卡了 180 秒才被外面的计时器杀掉，什么线索都没留下。自检走完也改成 os._exit —— 解释器收尾要 join 线程、拆 QMediaPlayer/QAudioOutput，Windows 上这一段本身就可能卡住",
+            "自检每一步都往日志里记一笔（进程启动 / 主窗构造 / 窗口显示 / 模块点名 / 准备退出）。Windows 产物是 --windowed，sys.stdout 是 None，print 落不到任何地方，日志是那边唯一留得下痕迹的",
             "编译被拦截时把原因写进 dist/构建失败原因.txt：横幅一闪而过，终端一关就查无对证",
             "macOS 的 DMG 里附一份「请先读我」：程序没有 Apple 开发者签名，首次打开会被系统拦下，而 Install.command 自己也会被拦（它正是用来清隔离标记的，先有鸡先有蛋）。说明里给一条不依赖任何脚本、复制就能用的终端命令",
         ],
@@ -577,6 +616,9 @@ CHANGELOG = [
             "The macOS build now verifies the code signature. PyInstaller ad-hoc signs the output, and on Apple Silicon a binary without a valid signature is reported as damaged and refuses to open, with nothing the user can do. The check runs after the quarantine flags are cleared, since touching the bundle after signing is exactly what breaks a signature",
             "Fixed the macOS build having had an invalid code signature all along. PyInstaller ad-hoc signs the bundle, and the build script then edits Info.plist with PlistBuddy (minimum system version, microphone usage description, version numbers) - the bundle signature covers Info.plist, so editing it invalidates the signature: invalid Info.plist (plist or signature have been modified). This has been true since those PlistBuddy lines were added and nobody ever checked. A downloaded copy is then easily reported as damaged and refusing to open, which the user cannot work around. The bundle is now re-signed after the plist edits and the quarantine flags are cleared, then verified - in that order",
             "Fixed misaki being skipped in silence when it fails to install: the fallback only reinstalled the three Chinese packages and let misaki go missing, which breaks Kokoro reading English. It is now recorded and blocks the build",
+            "Fixed the Windows build scripts executing their own Chinese comments as commands (screenfuls of \"'xxx' is not recognized as an internal or external command\"). Line seven of the script says ASCII-only for GBK consoles: after chcp 65001, cmd.exe tracks its position in the file by character count, and a non-ASCII comment line throws that count off, so half a comment gets run as a command. Adding Chinese comments is what broke it - they had grown from 12 lines to 24 - and both .bat files now carry English comments only, keeping just the few Chinese echo lines meant for the user",
+            "The startup self-test now carries a watchdog: if it has not finished in time it exits hard with code 3 and logs the step it stalled on. The last Windows self-test hung for a full 180 seconds before the outer timer killed it, leaving nothing to go on. A successful self-test now exits with os._exit too - interpreter shutdown joins threads and tears down QMediaPlayer and QAudioOutput, which can itself hang on Windows",
+            "The self-test logs each step it reaches (process start, main window, shown, module roll call, about to exit). A Windows build is --windowed, so sys.stdout is None and print goes nowhere; the log is the only place anything survives",
             "A blocked build writes its reasons to dist/构建失败原因.txt: the banner scrolls past and closing the terminal used to lose it",
             "The macOS DMG now carries a read-me-first note. The app has no Apple Developer ID, so the first launch is blocked - and Install.command, which exists to clear the quarantine flag, is blocked too. The note gives one Terminal line that needs no script at all",
         ],
@@ -13885,7 +13927,11 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    if SELFTEST:
+        _selftest_watchdog()
+    _selftest_step("进程启动")
     app = QApplication(sys.argv)
+    _selftest_step("QApplication 就绪")
     _install_global_excepthook()   # 越早越好：把槽函数异常从闪退变成提示
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(True)
@@ -13939,7 +13985,9 @@ def main():
         _log_exc("migrate_engine_setting")
     try:
         _apply_color_scheme(app)
+        _selftest_step("开始构造主窗")
         win = MainWindow()
+        _selftest_step("主窗构造完成")
         try:
             def _on_sys_scheme(_sch):
                 from PyQt6.QtCore import QSettings as _QS
@@ -14014,6 +14062,7 @@ def main():
     QTimer.singleShot(0, lambda: _safe_fusion(win))
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
+    _selftest_step("窗口已显示")
     if SELFTEST:
         # 走到这儿说明所有 import、捆绑资源和界面构造都过了。再点一遍必需
         # 模块，然后立刻退出，让构建脚本拿到退出码。
@@ -14028,15 +14077,24 @@ def main():
             print(f"[selftest] FAILED: {len(_miss)}/{len(SELFTEST_MODULES)} "
                   f"个必需模块没被打进产物")
             sys.exit(2)
+        _selftest_step("模块点名通过")
         print(f"[selftest] English Coach {APP_VERSION} started OK; "
               f"{len(SELFTEST_MODULES)} 个必需模块齐全")
+        _log_error(f"[selftest] OK: {APP_VERSION}，"
+                   f"{len(SELFTEST_MODULES)} 个必需模块齐全")
         QTimer.singleShot(0, app.quit)
         _rc = app.exec()
         try:
             win._shutdown_workers()
         except Exception:
             pass
-        sys.exit(_rc)
+        _selftest_step("准备退出")
+        # 硬退出。走 sys.exit 要过解释器收尾：join 线程、拆 QMediaPlayer /
+        # QAudioOutput，Windows 上这一段能卡住不动（上次 180 秒就是卡在
+        # 主窗建完之后的某处）。自检进程本来就是用完即弃，没什么要收的。
+        sys.stdout.flush() if sys.stdout else None
+        sys.stderr.flush() if sys.stderr else None
+        os._exit(_rc)
     sys.exit(app.exec())
 
 
