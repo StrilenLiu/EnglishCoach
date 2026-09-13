@@ -77,6 +77,14 @@ gate_check () {       # 在关键节点结算已记录的问题
     echo "============================================================"
     echo "$BUILD_PROBLEMS"
     echo ""
+    # 把原因落盘。横幅一闪而过，终端一关就查无对证 —— 上次就是这么丢的。
+    mkdir -p dist 2>/dev/null
+    {
+        echo "English Coach 编译被拦截 — $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "$BUILD_PROBLEMS"
+    } > "dist/构建失败原因.txt" 2>/dev/null
+    echo "  原因已写入 dist/构建失败原因.txt"
+    echo ""
     if [ "$STRICT" = "1" ]; then
         echo "  已中止，未产出安装包。修复后重新编译即可。"
         echo "  Aborted; no package was produced. Fix the above and rebuild."

@@ -52,6 +52,14 @@ gate_check () {
     echo "============================================================"
     echo "$BUILD_PROBLEMS"
     echo ""
+    # 把原因落盘。横幅一闪而过，终端一关就查无对证 —— 上次就是这么丢的。
+    mkdir -p dist 2>/dev/null
+    {
+        echo "English Coach 编译被拦截 — $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "$BUILD_PROBLEMS"
+    } > "dist/构建失败原因.txt" 2>/dev/null
+    echo "  原因已写入 dist/构建失败原因.txt"
+    echo ""
     if [ "$STRICT" = "1" ]; then
         echo "  已中止，未产出安装包。修复后重新编译即可。"
         echo "  如确需强行编译： STRICT=0 bash \"Build MacOS.sh\""
@@ -159,7 +167,15 @@ pip_install python-docx pypdf pdfplumber reportlab num2words
 # Kokoro/misaki 链路中容易缺失的传递依赖，显式补齐（曾遇 ordered_set 缺失）
 pip_install ordered_set addict regex pydantic loguru
 # 中文 G2P 依赖（Kokoro 读中文需要：pypinyin/jieba/cn2an）
-pip_install pypinyin jieba cn2an "misaki[zh]" || pip_install pypinyin jieba cn2an
+# 回退那条【只补中文那三个】，misaki 本身是漏掉的 —— 以前就这么悄悄放过去了，
+# 现在启动自检会点它的名，所以这里如实记一笔，别再当没事发生。
+pip_install pypinyin jieba cn2an "misaki[zh]" || {
+    pip_install pypinyin jieba cn2an
+    pip_install misaki || record_problem \
+        "misaki 安装失败（离线朗读的英文 G2P）" \
+        "Kokoro 读英文会失败；启动自检也会因缺模块阻断编译" \
+        "手动试： pip install 'misaki[zh]' ；网络问题可换镜像后重编"
+}
 # misaki 英文 G2P 需要 spaCy 英文模型。它不在 PyPI（spaCy 模型走 GitHub Releases），
 # 清华等镜像会返回 0 字节占位文件导致 "Wheel is invalid" 报错。故先检查是否已安装：
 # 已装则跳过（不再产生噪音报错），未装才安装——优先官方 GitHub wheel，失败再退回 pip。
@@ -398,6 +414,8 @@ if [ -f "$PLIST" ]; then
       || /usr/libexec/PlistBuddy -c "Add :NSMicrophoneUsageDescription string ${_MIC_DESC}" "$PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" 2>/dev/null || true
+    # 注意：改 Info.plist 会让 PyInstaller 刚做好的 ad-hoc 签名失效
+    # （bundle 的签名覆盖 Info.plist）。下面 [7/8] 会重签一次，顺序不能乱。
 fi
 
 # ---- 产物实物校验 + 启动自检 ----
@@ -442,17 +460,26 @@ fi
 
 gate_check
 
-echo "==> [7/8] 解除自身隔离"
+echo "==> [7/8] 解除自身隔离 + 重新签名"
+# 三步的顺序不能乱：
+#   ① xattr -cr  清隔离标记。要排在签名之前 —— codesign 对非 Mach-O 的资源
+#      文件会把签名写进扩展属性，签完再 xattr -cr 等于亲手把它抹掉。
+#   ② 重签。PyInstaller 打完包会做一次 ad-hoc 签名，但我们紧接着用
+#      PlistBuddy 改了 Info.plist（最低系统版本、麦克风用途说明、版本号），
+#      而 bundle 的签名覆盖 Info.plist —— 改完签名就失效了。实测报的是
+#      "invalid Info.plist (plist or signature have been modified)"。
+#      这个毛病从加上那几行 PlistBuddy 起就一直在，只是从来没人验过。
+#   ③ 再校验。
+# 说明：ad-hoc 签名只满足"必须有签名"这条（Apple Silicon 上没有有效签名的
+# 程序会被报成"已损坏，无法打开"，用户完全没法自救）。它【不】满足
+# Gatekeeper —— 去掉首次打开那个提示只有 Developer ID + 公证一条路。
 xattr -cr "dist/${APP_NAME}.app" 2>/dev/null || true
 
-# 代码签名。PyInstaller 会给产物做 ad-hoc 签名（codesign -s -），Apple Silicon
-# 上【没有】有效签名的二进制根本跑不起来 —— 用户看到的是"已损坏，无法打开"，
-# 比 Gatekeeper 那个"未验证开发者"严重得多，而且完全没法自救。
-# 必须在 xattr -cr 【之后】验：签名坏掉的典型原因就是签完之后又动了包里的
-# 东西，而那一步正是我们自己干的。
-# 注意：ad-hoc 签名只满足"必须签名"这条，不满足 Gatekeeper —— 去掉首次打开
-# 那个提示只能靠 Apple Developer ID + 公证，不是这里能解决的。
 if [ -d "$_appbundle" ]; then
+    echo "    重新签名（ad-hoc）..."
+    codesign --force --deep --sign - "$_appbundle" 2>/tmp/ec_codesign_sign.log || {
+        sed 's/^/      /' /tmp/ec_codesign_sign.log 2>/dev/null | head -n 10
+    }
     echo "    校验代码签名..."
     if codesign --verify --deep --strict "$_appbundle" 2>/tmp/ec_codesign.log; then
         echo "      ✓ 签名有效（ad-hoc）"
@@ -460,7 +487,7 @@ if [ -d "$_appbundle" ]; then
         record_problem \
             "代码签名校验不通过" \
             "Apple Silicon 上会直接报「已损坏，无法打开」，用户无法自救" \
-            "看 /tmp/ec_codesign.log；多半是签名之后又改动了包里的文件"
+            "原文见下面几行，完整内容在 /tmp/ec_codesign.log"
         sed 's/^/      /' /tmp/ec_codesign.log 2>/dev/null | head -n 10
     fi
     gate_check

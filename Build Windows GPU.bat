@@ -357,6 +357,11 @@ echo ============================================================
 echo   BUILD BLOCKED - the output would be functionally incomplete
 echo   编译被拦截：产物将存在功能缺失（共 %PROBLEM_COUNT% 项，见上方 [X] 行）
 echo ============================================================
+REM 把原因落盘。横幅一闪而过，终端一关就查无对证。
+if not exist dist mkdir dist 2>nul
+echo English Coach build blocked - %DATE% %TIME%> "dist\build-blocked.txt"
+echo %BUILD_PROBLEMS%>> "dist\build-blocked.txt"
+echo   Reason written to dist\build-blocked.txt
 echo.
 if "%STRICT%"=="1" (
     echo   已中止，未产出安装包。修复上述问题后重新编译即可。
