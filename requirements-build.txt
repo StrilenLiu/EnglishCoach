@@ -11,7 +11,11 @@
 
 -r requirements.txt
 
-pyinstaller
+# 6.10 起才自带 setuptools/_vendor/jaraco/text 的钩子。缺了它，pkg_resources
+# 在 import 期要读的 "Lorem ipsum.txt" 不会被打进产物，程序一启动就
+# FileNotFoundError —— 而且编译过程一声不响，拦截检查也查不出来。
+# 写下限而不是只写包名：pip 见已装过就跳过升级，旧环境会一直用旧版。
+pyinstaller>=6.10
 pillow          # 生成各平台图标 / icon generation (make_icon.py)
 
 # ---------------------------------------------------------------------------

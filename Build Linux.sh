@@ -92,6 +92,26 @@ gate_check () {       # 在关键节点结算已记录的问题
     BUILD_PROBLEMS=""
 }
 
+# 把产物真跑一遍：建完主窗口就退出，退出码 0 表示能启动。
+#   $1 = 可执行文件路径   $2 = 输出日志路径
+# 超时返回 124（macOS 自带的 shell 没有 timeout(1)，所以自己轮询，不依赖它）。
+run_selftest () {
+    local _exe="$1" _log="$2" _pid _rc=0 _waited=0
+    ENGLISHCOACH_SELFTEST=1 QT_QPA_PLATFORM=offscreen "$_exe" >"$_log" 2>&1 &
+    _pid=$!
+    while kill -0 "$_pid" 2>/dev/null; do
+        sleep 2
+        _waited=$((_waited + 2))
+        if [ "$_waited" -ge 300 ]; then
+            kill -9 "$_pid" 2>/dev/null || true
+            wait "$_pid" 2>/dev/null || true
+            return 124
+        fi
+    done
+    wait "$_pid" || _rc=$?
+    return $_rc
+}
+
 # 多镜像：清华优先，失败回退官方源
 PIP_MIRROR="https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_FALLBACK="https://pypi.org/simple"
@@ -207,7 +227,11 @@ PYCHK
 
 echo "==> [2/8] 升级 pip 与打包工具"
 pip_install -U pip
-pip_install pyinstaller
+# PyInstaller 6.10 起才自带 setuptools/_vendor/jaraco/text 的钩子。缺了它，
+# pkg_resources 在 import 期要读的 "Lorem ipsum.txt" 不会被打进产物，程序
+# 一启动就 FileNotFoundError（窗口都出不来）。必须写下限，不能只写
+# pyinstaller —— pip 见已装过就跳过升级，旧环境会一直用旧版。
+pip_install "pyinstaller>=6.10"
 
 # ============================================================================
 #  系统级工具检查（统一处理，避免每次缺一个工具就在半途失败）
@@ -704,6 +728,7 @@ mkdir -p "$DESTDIR"
     --collect-all reportlab \
     --hidden-import num2words \
     --hidden-import pypdf \
+    --collect-data setuptools \
     --copy-metadata kokoro \
     --copy-metadata misaki \
     "$MAIN"
@@ -936,6 +961,31 @@ if [ "${_voice_n}" -lt 1 ]; then
         "预下载须使用 HF 缓存结构（本脚本已改为此方式），请重新执行预下载步骤"
 else
     echo "      ✓ Kokoro 音色文件 ${_voice_n} 个"
+fi
+
+# ---- 启动自检 ----
+# 上面查的全是"产物里有哪些文件"，查不出"一运行就崩"。少一个 import 期要读
+# 的数据文件（setuptools 里的 "Lorem ipsum.txt" 就是这么漏的），上面每一项
+# 都会通过、包照样打出来，用户一运行才发现。这里真把它跑一遍。
+# offscreen：Docker 里编译时没有 X server，自检不该因此失败。
+echo "    启动自检：把产物跑一遍..."
+_selftest_log="$(mktemp)"
+_selftest_rc=0
+run_selftest "${_appdir}/${APP_NAME}" "$_selftest_log" || _selftest_rc=$?
+if [ "$_selftest_rc" -eq 0 ]; then
+    echo "      ✓ 产物能正常启动"
+elif [ "$_selftest_rc" -eq 124 ]; then
+    record_problem \
+        "启动自检超时 —— 产物启动后卡住" \
+        "用户运行后会一直没有反应" \
+        "看 ${_selftest_log} 里的输出定位卡在哪一步"
+else
+    record_problem \
+        "启动自检失败 —— 产物一启动就崩（退出码 ${_selftest_rc}）" \
+        "在干净的机器上程序根本打不开" \
+        "看下面的输出；缺打包数据文件的话补对应的 --collect-data"
+    echo "      --- 自检输出（末 25 行）---"
+    tail -n 25 "$_selftest_log" 2>/dev/null | sed 's/^/      /'
 fi
 
 # 打包后结算：产物已生成但内容不合格，同样阻断，避免误当成品发布

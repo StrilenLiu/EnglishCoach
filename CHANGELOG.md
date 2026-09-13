@@ -11,7 +11,7 @@
 
 ---
 
-## v2.19.0 — 2026-09-11
+## v2.19.0 — 2026-09-13
 
 **十个联网引擎 · 嗓音名单改成各家自己报的 · 每个引擎都能测**
 
@@ -39,6 +39,8 @@
 - 设置窗里所有「测试」与「显示密钥」按钮的间距统一为 4px，与主界面方按钮、日志窗的导出/关闭同一档
 - 英文界面下所有需要 Key 的引擎统一显示为「-Online API Key」；中文下统一为「-API Key 联网」。存过的旧引擎名会自动迁移，不会悄悄退回默认引擎
 - 使用说明补充：卡拉OK字幕跟得准不准取决于引擎给不给逐词时间信息，两种都是估算，不承诺与发音严格对齐；以及嗓音从哪来、太多了怎么筛
+- 修复产物换一台机器就启动失败（FileNotFoundError: setuptools\_vendor\jaraco\text\Lorem ipsum.txt）。Argos 离线翻译依赖的 ctranslate2 需要 pkg_resources，所以 setuptools 钉在 81 以下，而 PyInstaller 要到 6.10 才自带收集那个数据文件的钩子 —— 构建脚本没给 PyInstaller 钉版本，pip 见环境里已装过就跳过升级，旧版本会一直用下去。现在四个脚本都要求 pyinstaller>=6.10，并显式加 --collect-data setuptools 兜底
+- 四个构建脚本新增启动自检：编完把产物真跑一遍（建完主窗口立刻退出），退出码不是 0 就阻断编译。原先的拦截只查产物里有哪些文件，查不出「一运行就崩」—— 上面那个缺文件的问题，正是这样通过了全部检查才发出去的
 
 - *Five online recognition engines beside the local one: Groq, OpenAI, Azure, Baidu and Tencent. They implement the same backend interface local Whisper does, so nothing on the calling side changed; the recording is packed into a 16kHz mono WAV in memory before upload, with no file on disk and no new dependency. The local engine needs no key, so the list is never empty*
 - *Five online speech engines: Azure, OpenAI, ElevenLabs, Baidu and Tencent, each contributing Chinese and English voices to the main window's voice lists, plus three custom slots for any OpenAI-compatible /audio/speech service. Azure, Baidu and Tencent reuse the credentials already entered for their recognition counterparts rather than asking twice, and Tencent's synthesis signs with the same TC3 implementation already checked against their SDK*
@@ -62,6 +64,8 @@
 - *Every Test and Show keys button in settings is now 4px apart, matching the square buttons in the main window and the log window's export and close*
 - *In English every keyed engine now reads "-Online API Key", and in Chinese "-API Key 联网". A previously saved engine name is migrated rather than silently falling back to the default engine*
 - *The help now explains that how closely the karaoke tracks depends on whether the engine reports per-word timings, that both kinds are estimates with no promise of exact alignment, and where the voice lists come from and how to filter them*
+- *Fixed a build failing to start on any other machine (FileNotFoundError for setuptools' Lorem ipsum.txt). ctranslate2, which Argos offline translation needs, requires pkg_resources, so setuptools is pinned below 81 - and PyInstaller only ships the hook that collects that data file from 6.10 onwards. The build scripts never pinned PyInstaller, and pip skips the upgrade when any version is already installed, so an old one persists. All four scripts now require pyinstaller 6.10 or newer and pass --collect-data setuptools as a belt-and-braces measure*
+- *All four build scripts now run a startup self-test: once the build is made, it is actually launched (it exits as soon as the main window is up) and a non-zero exit blocks the build. The existing gate only checked which files are in the output, which cannot catch a build that crashes the moment it runs - exactly how the missing file above passed every check and shipped*
 
 ## v2.18.0 — 2026-09-10
 

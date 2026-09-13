@@ -23,6 +23,26 @@ record_problem () {
       影响：$2
       处理：$3"
 }
+# 把产物真跑一遍：建完主窗口就退出，退出码 0 表示能启动。
+#   $1 = 可执行文件路径   $2 = 输出日志路径
+# 超时返回 124。mac 自带的 shell 没有 timeout(1)，所以自己轮询，不依赖它。
+run_selftest () {
+    local _exe="$1" _log="$2" _pid _rc=0 _waited=0
+    ENGLISHCOACH_SELFTEST=1 QT_QPA_PLATFORM=offscreen "$_exe" >"$_log" 2>&1 &
+    _pid=$!
+    while kill -0 "$_pid" 2>/dev/null; do
+        sleep 2
+        _waited=$((_waited + 2))
+        if [ "$_waited" -ge 300 ]; then
+            kill -9 "$_pid" 2>/dev/null || true
+            wait "$_pid" 2>/dev/null || true
+            return 124
+        fi
+    done
+    wait "$_pid" || _rc=$?
+    return $_rc
+}
+
 gate_check () {
     [ -z "$BUILD_PROBLEMS" ] && return 0
     echo ""
@@ -100,7 +120,11 @@ else
     pip_install "PyQt6==6.4.2" "PyQt6-Qt6==6.4.3" "PyQt6-sip"
     MIN_MACOS="11.0"
 fi
-pip_install requests pyinstaller pillow
+# PyInstaller 6.10 起才自带 setuptools/_vendor/jaraco/text 的钩子。缺了它，
+# pkg_resources 在 import 期要读的 "Lorem ipsum.txt" 不会被打进产物，程序
+# 一启动就 FileNotFoundError（窗口都出不来）。必须写下限，不能只写
+# pyinstaller —— pip 见已装过就跳过升级，旧环境会一直用旧版。
+pip_install requests "pyinstaller>=6.10" pillow
 pip_install pyobjc-framework-Cocoa   # mac 原生外观(AppKit)辅助
 # —— Argos 离线翻译：钉死兼容 Big Sur 且无 PyTorch 的版本组合 ——
 # numpy<2 避免 NumPy 2.x 冲突；sentencepiece 0.2.0 有 cp312 Intel 预编译包；
@@ -350,6 +374,7 @@ python -m PyInstaller \
     --collect-all reportlab \
     --hidden-import num2words \
     --hidden-import pypdf \
+    --collect-data setuptools \
     --copy-metadata kokoro \
     --copy-metadata misaki \
     --osx-bundle-identifier "com.strilen.englishcoach" \
@@ -367,6 +392,40 @@ if [ -f "$PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$PLIST" 2>/dev/null || true
 fi
+
+# ---- 产物实物校验 + 启动自检 ----
+# 前面查的是"编译过程有没有报错"，这里查的是"产物到底能不能用"。
+# 尤其是自检：少一个 import 期要读的数据文件（setuptools 里的
+# "Lorem ipsum.txt" 就是这么漏的），编译一声不响，用户一双击才发现。
+_appbin="dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+[ -x "$_appbin" ] || record_problem \
+    "产物中缺少可执行文件" \
+    "程序根本无法启动" \
+    "检查上方 PyInstaller 输出是否有错误"
+
+if [ -x "$_appbin" ]; then
+    echo "    启动自检：把产物跑一遍..."
+    _selftest_log="$(mktemp)"
+    _selftest_rc=0
+    run_selftest "$_appbin" "$_selftest_log" || _selftest_rc=$?
+    if [ "$_selftest_rc" -eq 0 ]; then
+        echo "      ✓ 产物能正常启动"
+    elif [ "$_selftest_rc" -eq 124 ]; then
+        record_problem \
+            "启动自检超时 —— 产物启动后卡住" \
+            "用户双击后会一直没有反应" \
+            "看 ${_selftest_log} 里的输出定位卡在哪一步"
+    else
+        record_problem \
+            "启动自检失败 —— 产物一启动就崩（退出码 ${_selftest_rc}）" \
+            "在干净的机器上程序根本打不开" \
+            "看下面的输出；缺打包数据文件的话补对应的 --collect-data"
+        echo "      --- 自检输出（末 25 行）---"
+        tail -n 25 "$_selftest_log" 2>/dev/null | sed 's/^/      /'
+    fi
+fi
+
+gate_check
 
 echo "==> [7/8] 解除自身隔离"
 xattr -cr "dist/${APP_NAME}.app" 2>/dev/null || true

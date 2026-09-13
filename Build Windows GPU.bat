@@ -52,7 +52,11 @@ if not "%CONDA_DEFAULT_ENV%"=="%CONDA_ENV%" (
 
 echo ==^> [2/7] Install dependencies ^(Tsinghua mirror, fallback to PyPI^)
 python -m pip install --upgrade pip -i %PIP_MIRROR%
-call :pipinstall PyQt6 edge-tts requests pyinstaller pillow
+REM PyInstaller 6.10 起才自带 setuptools/_vendor/jaraco/text 的钩子。
+REM 缺了它，pkg_resources 在 import 期要读的 "Lorem ipsum.txt" 不会
+REM 被打进产物，程序一启动就 FileNotFoundError（窗口都出不来）。
+REM 这里必须写下限，不能只写 pyinstaller —— pip 见已装过就跳过升级。
+call :pipinstall PyQt6 edge-tts requests "pyinstaller>=6.10" pillow
 REM --- Argos offline translation: pinned, torch-free combo ---
 REM ctranslate2 4.3.1 needs pkg_resources (removed in setuptools 81+),
 REM so pin setuptools<81 first to keep pkg_resources available.
@@ -192,6 +196,7 @@ python -m PyInstaller ^
     --collect-all reportlab ^
     --hidden-import num2words ^
     --hidden-import pypdf ^
+    --collect-data setuptools ^
     --copy-metadata kokoro ^
     --copy-metadata misaki ^
     %MAIN%
@@ -240,6 +245,24 @@ if %WSP_N% LSS 1 (
     call :problem "No Whisper speech model in the build" "Voice input will not work at all"
 ) else (
     echo       OK - Whisper speech model present
+)
+
+REM ---- 启动自检 ----
+REM 上面查的全是"产物里有哪些文件"，查不出"一运行就崩"。少一个 import 期
+REM 要读的数据文件（setuptools 里的 "Lorem ipsum.txt" 就是这么漏的），
+REM 上面每一项都会通过、zip 照样打出来，用户一双击才发现。
+REM 这里真把它跑一遍：建完主窗口立刻退出，退出码不是 0 就阻断。
+echo     Self-test: launching the build once ...
+powershell -NoProfile -Command "$env:ENGLISHCOACH_SELFTEST='1'; $p = Start-Process -FilePath '%DESTDIR%\%APP_NAME%\%APP_NAME%.exe' -PassThru -WindowStyle Hidden; if (-not $p.WaitForExit(180000)) { $p.Kill(); exit 124 }; exit $p.ExitCode"
+set "SELFTEST_RC=%ERRORLEVEL%"
+if "%SELFTEST_RC%"=="0" (
+    echo       OK - the build starts
+) else if "%SELFTEST_RC%"=="124" (
+    REM 超时有两种：真卡住，或者 windowed 产物崩溃后弹出 PyInstaller 的
+    REM 错误框在等人点确定 —— 那个框在构建机上没人点。两种都是坏产物。
+    call :problem "Self-test timed out - the build hangs, or crashed into an error dialog nobody clicked" "Users cannot get the program running"
+) else (
+    call :problem "Self-test failed - the build crashes on startup (exit %SELFTEST_RC%)" "The program cannot start at all on a clean machine"
 )
 
 call :gate
