@@ -226,6 +226,57 @@ APP_VERSION = "2.19.0"
 # 全部检查照样通过、zip 照样打出来，用户一双击才发现。只有真把它跑起来
 # 才算数。
 SELFTEST = bool(os.environ.get("ENGLISHCOACH_SELFTEST"))
+
+# 自检要点名的模块：产物里少了谁，对应的功能在用户端就是坏的。
+# 这张表等于"这个程序离了什么不行"的清单 —— 新增必需组件时要同步加一条。
+#
+# 为什么非要有它：构建脚本给 PyInstaller 传 --collect-all faster_whisper，
+# 却从来没 pip 装过那个包；PyInstaller 对没装的包只打一行 WARNING、收到空，
+# 编译一路绿灯，产物里于是有 145MB 的模型、没有读它的库。Mac 版的语音录入
+# 就是这么坏的，而所有拦截检查都查不出来 —— 它们只数文件，不问模块在不在。
+SELFTEST_MODULES = (
+    ("faster_whisper", "语音录入"),
+    ("ctranslate2", "离线翻译与语音录入"),
+    ("argostranslate", "离线翻译"),
+    ("sentencepiece", "离线翻译"),
+    ("kokoro", "离线朗读"),
+    ("misaki", "离线朗读的英文注音"),
+    ("soundfile", "离线朗读出声"),
+    ("torch", "离线朗读"),
+    ("transformers", "离线朗读"),
+    ("edge_tts", "在线朗读"),
+    ("numpy", "音频处理"),
+    ("requests", "所有联网引擎"),
+    ("pypinyin", "中文注音"),
+    ("jieba", "中文分词"),
+    ("cn2an", "中文数字"),
+    ("docx", "docx 导入导出"),
+    ("pypdf", "pdf 导入"),
+    ("pdfplumber", "pdf 导入"),
+    ("reportlab", "pdf 导出"),
+    ("num2words", "数字转词"),
+    ("lameenc", "mp3 导出"),
+)
+
+
+def _selftest_missing_modules():
+    """点名 SELFTEST_MODULES，返回缺的那几个。
+
+    只用 find_spec 看"在不在"，【不】真去 import：kokoro / misaki 那条链在
+    导入期会摸 spaCy 英文模型，缺了会一路走到 sys.exit()（点注音那次闪退就
+    是这么来的），自检不该自己踩这个雷。要抓的那类问题 —— 整个模块没被打
+    进产物 —— find_spec 足够看出来。
+    """
+    import importlib.util
+    miss = []
+    for _name, _what in SELFTEST_MODULES:
+        try:
+            ok = importlib.util.find_spec(_name) is not None
+        except Exception:
+            ok = False
+        if not ok:
+            miss.append((_name, _what))
+    return miss
 APP_AUTHOR = "Strilen"
 APP_EMAIL = "vfx@strilen.com"
 APP_WEBSITE = "www.strilen.com"
@@ -487,6 +538,10 @@ CHANGELOG = [
             "使用说明补充：卡拉OK字幕跟得准不准取决于引擎给不给逐词时间信息，两种都是估算，不承诺与发音严格对齐；以及嗓音从哪来、太多了怎么筛",
             "修复产物换一台机器就启动失败（FileNotFoundError: setuptools\\_vendor\\jaraco\\text\\Lorem ipsum.txt）。Argos 离线翻译依赖的 ctranslate2 需要 pkg_resources，所以 setuptools 钉在 81 以下，而 PyInstaller 要到 6.10 才自带收集那个数据文件的钩子 —— 构建脚本没给 PyInstaller 钉版本，pip 见环境里已装过就跳过升级，旧版本会一直用下去。现在四个脚本都要求 pyinstaller>=6.10，并显式加 --collect-data setuptools 兜底",
             "四个构建脚本新增启动自检：编完把产物真跑一遍（建完主窗口立刻退出），退出码不是 0 就阻断编译。原先的拦截只查产物里有哪些文件，查不出「一运行就崩」—— 上面那个缺文件的问题，正是这样通过了全部检查才发出去的",
+            "修复语音录入在产物里根本不能用：四个构建脚本都只下载了 145MB 的识别模型、并给 PyInstaller 传 --collect-all faster_whisper，却从来没 pip 装过这个包。PyInstaller 对没装的包只打一行 WARNING、收到空，编译一路绿灯，产物里于是有模型、没有读它的库。Windows 版此前能用纯属巧合 —— 那台构建机的环境里手动装过。现在四个脚本都装 faster-whisper 1.1.1（装在 transformers 之前，且实测不会把钉死的 ctranslate2 4.3.1 顶掉）",
+            "启动自检顺带点名 21 个必需模块（识别、朗读、离线翻译、注音、导入导出各自依赖的那些），缺任何一个都阻断编译并在日志里写明缺的是谁、对应哪个功能坏了。只看模块在不在、不真去 import —— kokoro / misaki 那条链在导入期会摸 spaCy 模型，缺了会直接退出进程",
+            "macOS 构建新增代码签名校验：PyInstaller 会给产物做 ad-hoc 签名，而 Apple Silicon 上没有有效签名的程序会直接报「已损坏，无法打开」，用户完全没法自救。校验放在清理隔离标记之后 —— 签名坏掉的典型原因正是签完之后又动了包里的东西",
+            "macOS 的 DMG 里附一份「请先读我」：程序没有 Apple 开发者签名，首次打开会被系统拦下，而 Install.command 自己也会被拦（它正是用来清隔离标记的，先有鸡先有蛋）。说明里给一条不依赖任何脚本、复制就能用的终端命令",
         ],
         "title_en": "Ten keyed online engines, voice lists straight from the providers, and a test button on each",
         "notes_en": [
@@ -514,6 +569,10 @@ CHANGELOG = [
             "The help now explains that how closely the karaoke tracks depends on whether the engine reports per-word timings, that both kinds are estimates with no promise of exact alignment, and where the voice lists come from and how to filter them",
             "Fixed a build failing to start on any other machine (FileNotFoundError for setuptools' Lorem ipsum.txt). ctranslate2, which Argos offline translation needs, requires pkg_resources, so setuptools is pinned below 81 - and PyInstaller only ships the hook that collects that data file from 6.10 onwards. The build scripts never pinned PyInstaller, and pip skips the upgrade when any version is already installed, so an old one persists. All four scripts now require pyinstaller 6.10 or newer and pass --collect-data setuptools as a belt-and-braces measure",
             "All four build scripts now run a startup self-test: once the build is made, it is actually launched (it exits as soon as the main window is up) and a non-zero exit blocks the build. The existing gate only checked which files are in the output, which cannot catch a build that crashes the moment it runs - exactly how the missing file above passed every check and shipped",
+            "Fixed voice input being dead in the builds: all four scripts downloaded the 145MB recognition model and passed --collect-all faster_whisper to PyInstaller, but never installed the package. PyInstaller only warns for a package that is not installed and collects nothing, so the build went green and shipped a model with no library to read it. The Windows build worked by accident - that machine had it installed by hand. All four scripts now install faster-whisper 1.1.1, before transformers, and it leaves the pinned ctranslate2 4.3.1 alone (measured)",
+            "The self-test also takes a roll call of 21 required modules - the ones recognition, speech, offline translation, ruby and import/export each depend on. Any one missing blocks the build and the log names which module and which feature it kills. It checks only whether each module is present rather than importing it: the kokoro and misaki chain reaches for the spaCy model at import time and exits the process when it is absent",
+            "The macOS build now verifies the code signature. PyInstaller ad-hoc signs the output, and on Apple Silicon a binary without a valid signature is reported as damaged and refuses to open, with nothing the user can do. The check runs after the quarantine flags are cleared, since touching the bundle after signing is exactly what breaks a signature",
+            "The macOS DMG now carries a read-me-first note. The app has no Apple Developer ID, so the first launch is blocked - and Install.command, which exists to clear the quarantine flag, is blocked too. The note gives one Terminal line that needs no script at all",
         ],
     },
     {
@@ -13950,9 +14009,21 @@ def main():
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
     if SELFTEST:
-        # 走到这儿就说明所有 import、捆绑资源和界面构造都过了。立刻退出，
-        # 让构建脚本拿到退出码。
-        print(f"[selftest] English Coach {APP_VERSION} started OK")
+        # 走到这儿说明所有 import、捆绑资源和界面构造都过了。再点一遍必需
+        # 模块，然后立刻退出，让构建脚本拿到退出码。
+        _miss = _selftest_missing_modules()
+        for _n, _w in _miss:
+            line = f"[selftest] 缺模块 {_n} —— {_w}在用户端不可用"
+            print(line)
+            # Windows 的产物是 --windowed，没有控制台，print 落不到任何地方。
+            # 写一份进运行日志，构建机上才查得到到底少了谁。
+            _log_error(line)
+        if _miss:
+            print(f"[selftest] FAILED: {len(_miss)}/{len(SELFTEST_MODULES)} "
+                  f"个必需模块没被打进产物")
+            sys.exit(2)
+        print(f"[selftest] English Coach {APP_VERSION} started OK; "
+              f"{len(SELFTEST_MODULES)} 个必需模块齐全")
         QTimer.singleShot(0, app.quit)
         _rc = app.exec()
         try:

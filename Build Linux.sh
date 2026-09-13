@@ -336,6 +336,13 @@ pip_install "setuptools<81"
 pip_install "numpy<2"
 pip_install "sentencepiece==0.2.0"
 pip_install "ctranslate2==4.3.1"
+# 语音录入的识别库。四个脚本以前都只下载模型、传 --collect-all faster_whisper，
+# 却从来没装过这个包 —— PyInstaller 对没装的包只 WARNING、收到空，编译照样成功，
+# 产物里于是有 145MB 的模型、没有读它的库。
+# 必须装在 transformers 之前：它会把 huggingface_hub 顶到 1.x，而 transformers
+# 4.40.2 要 <1.0，后装的那个说了算。ctranslate2 不受影响 —— faster-whisper
+# 声明的是 ctranslate2<5,>=4.0，4.3.1 正好满足，实测不会被顶掉。
+pip_install "faster-whisper==1.1.1"
 "$PY" -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_MIRROR" || \
 "$PY" -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_FALLBACK"
 pip_install sacremoses
@@ -584,7 +591,7 @@ fi
 gate_check
 
 echo "==> [6/8] 校验离线翻译依赖"
-if ! "$PY" -c "import ctranslate2, sentencepiece" 2>/dev/null; then
+if ! "$PY" -c "import ctranslate2, sentencepiece, faster_whisper" 2>/dev/null; then
     echo "✗ ctranslate2 / sentencepiece 导入失败。"
     echo "  请确认用了预编译包： pip install 'sentencepiece==0.2.0' 'ctranslate2==4.3.1' --only-binary :all:"
     exit 1
@@ -979,6 +986,12 @@ elif [ "$_selftest_rc" -eq 124 ]; then
         "启动自检超时 —— 产物启动后卡住" \
         "用户运行后会一直没有反应" \
         "看 ${_selftest_log} 里的输出定位卡在哪一步"
+elif [ "$_selftest_rc" -eq 2 ]; then
+    record_problem \
+        "启动自检：有必需模块没被打进产物" \
+        "对应功能在用户端整个不可用（模型在、读它的库不在）" \
+        "看下面点名的模块，确认构建环境里真的 pip 装过它"
+    grep "selftest" "$_selftest_log" 2>/dev/null | sed 's/^/      /'
 else
     record_problem \
         "启动自检失败 —— 产物一启动就崩（退出码 ${_selftest_rc}）" \

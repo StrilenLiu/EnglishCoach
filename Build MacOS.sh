@@ -133,6 +133,13 @@ pip_install "setuptools<81"
 pip_install "numpy<2"
 pip_install "sentencepiece==0.2.0"
 pip_install "ctranslate2==4.3.1"
+# 语音录入的识别库。四个脚本以前都只下载模型、传 --collect-all faster_whisper，
+# 却从来没装过这个包 —— PyInstaller 对没装的包只 WARNING、收到空，编译照样成功，
+# 产物里于是有 145MB 的模型、没有读它的库。
+# 必须装在 transformers 之前：它会把 huggingface_hub 顶到 1.x，而 transformers
+# 4.40.2 要 <1.0，后装的那个说了算。ctranslate2 不受影响 —— faster-whisper
+# 声明的是 ctranslate2<5,>=4.0，4.3.1 正好满足，实测不会被顶掉。
+pip_install "faster-whisper==1.1.1"
 python -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_MIRROR" || \
 python -m pip install "argostranslate==1.9.6" --no-deps -i "$PIP_FALLBACK"
 pip_install sacremoses
@@ -213,8 +220,8 @@ PYEOF
 
 # 校验 ctranslate2 + sentencepiece 能否导入（这是 Big Sur 上最易失败处）
 echo "    校验离线翻译依赖 ..."
-if ! python -c "import ctranslate2, sentencepiece" 2>/dev/null; then
-    echo "✗ ctranslate2 / sentencepiece 导入失败。"
+if ! python -c "import ctranslate2, sentencepiece, faster_whisper" 2>/dev/null; then
+    echo "✗ ctranslate2 / sentencepiece / faster_whisper 导入失败。"
     echo "  请确认用了预编译包： pip install 'sentencepiece==0.2.0' 'ctranslate2==4.3.1' --only-binary :all:"
     exit 1
 fi
@@ -397,7 +404,9 @@ fi
 # 前面查的是"编译过程有没有报错"，这里查的是"产物到底能不能用"。
 # 尤其是自检：少一个 import 期要读的数据文件（setuptools 里的
 # "Lorem ipsum.txt" 就是这么漏的），编译一声不响，用户一双击才发现。
-_appbin="dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}"
+_appbundle="dist/${APP_NAME}.app"
+_appbin="${_appbundle}/Contents/MacOS/${APP_NAME}"
+
 [ -x "$_appbin" ] || record_problem \
     "产物中缺少可执行文件" \
     "程序根本无法启动" \
@@ -415,6 +424,12 @@ if [ -x "$_appbin" ]; then
             "启动自检超时 —— 产物启动后卡住" \
             "用户双击后会一直没有反应" \
             "看 ${_selftest_log} 里的输出定位卡在哪一步"
+    elif [ "$_selftest_rc" -eq 2 ]; then
+        record_problem \
+            "启动自检：有必需模块没被打进产物" \
+            "对应功能在用户端整个不可用（模型在、读它的库不在）" \
+            "看下面点名的模块，确认构建环境里真的 pip 装过它"
+        grep "selftest" "$_selftest_log" 2>/dev/null | sed 's/^/      /'
     else
         record_problem \
             "启动自检失败 —— 产物一启动就崩（退出码 ${_selftest_rc}）" \
@@ -430,6 +445,27 @@ gate_check
 echo "==> [7/8] 解除自身隔离"
 xattr -cr "dist/${APP_NAME}.app" 2>/dev/null || true
 
+# 代码签名。PyInstaller 会给产物做 ad-hoc 签名（codesign -s -），Apple Silicon
+# 上【没有】有效签名的二进制根本跑不起来 —— 用户看到的是"已损坏，无法打开"，
+# 比 Gatekeeper 那个"未验证开发者"严重得多，而且完全没法自救。
+# 必须在 xattr -cr 【之后】验：签名坏掉的典型原因就是签完之后又动了包里的
+# 东西，而那一步正是我们自己干的。
+# 注意：ad-hoc 签名只满足"必须签名"这条，不满足 Gatekeeper —— 去掉首次打开
+# 那个提示只能靠 Apple Developer ID + 公证，不是这里能解决的。
+if [ -d "$_appbundle" ]; then
+    echo "    校验代码签名..."
+    if codesign --verify --deep --strict "$_appbundle" 2>/tmp/ec_codesign.log; then
+        echo "      ✓ 签名有效（ad-hoc）"
+    else
+        record_problem \
+            "代码签名校验不通过" \
+            "Apple Silicon 上会直接报「已损坏，无法打开」，用户无法自救" \
+            "看 /tmp/ec_codesign.log；多半是签名之后又改动了包里的文件"
+        sed 's/^/      /' /tmp/ec_codesign.log 2>/dev/null | head -n 10
+    fi
+    gate_check
+fi
+
 echo "==> [8/8] 打包 DMG"
 DMG="${DESTDIR}/EnglishCoach-${VERSION}-${ARCH_LABEL}.dmg"
 # 先卸载可能残留的同名挂载卷，避免 "hdiutil: create failed - 资源忙"
@@ -441,6 +477,42 @@ sleep 1
 STAGE=$(mktemp -d)
 cp -R "dist/${APP_NAME}.app" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
+# 首次打开说明。Install.command 本身也会被 Gatekeeper 拦下 —— 它正是用来清
+# 隔离标记的，结果自己先被拦，先有鸡先有蛋。所以这里给一条不依赖任何脚本、
+# 直接复制就能用的终端命令。放在 DMG 里，用户一挂载就看得见。
+cat > "$STAGE/请先读我 READ ME FIRST.txt" <<READMEEOF
+English Coach ${VERSION}
+
+首次打开被系统拦住？
+--------------------------------------------------------------
+这个 App 没有 Apple 开发者签名（那需要每年 99 美元的付费账号），
+所以 macOS 第一次打开时会拦一下。程序本身没有任何问题。
+
+最省事的办法：把下面这一整行复制到「终端」里回车，然后再打开 App。
+
+    xattr -dr com.apple.quarantine "/Volumes/${APP_NAME}"
+
+（如果已经把 App 拖进"应用程序"了，就把上面路径换成
+     /Applications/${APP_NAME}.app ）
+
+也可以：双击 Install.command 装进"应用程序"。它同样会被拦一次 ——
+系统设置 → 隐私与安全性 → 找到它，点「仍要打开」，之后就一劳永逸。
+
+Blocked on first launch?
+--------------------------------------------------------------
+This app is not signed with an Apple Developer ID (that needs a paid
+account), so macOS blocks the first launch. Nothing is wrong with it.
+
+Easiest fix - paste this one line into Terminal, then open the app:
+
+    xattr -dr com.apple.quarantine "/Volumes/${APP_NAME}"
+
+(If you already dragged the app into Applications, use
+     /Applications/${APP_NAME}.app  instead.)
+
+Or double-click Install.command. It gets blocked once too: go to
+System Settings > Privacy & Security and click "Open Anyway".
+READMEEOF
 # 重试机制：资源忙时等待再试
 n=0
 until hdiutil create -volname "${APP_NAME}" -srcfolder "$STAGE" -ov -format UDZO "$DMG"; do

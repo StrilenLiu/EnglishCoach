@@ -64,13 +64,20 @@ call :pipinstall "setuptools<81"
 call :pipinstall "numpy<2"
 call :pipinstall "sentencepiece==0.2.0"
 call :pipinstall "ctranslate2==4.3.1"
+REM Voice input needs this. All four scripts used to download the model and
+REM pass --collect-all faster_whisper without ever installing the package:
+REM PyInstaller only warns and collects nothing, so the build shipped a 145MB
+REM model with no library to read it.
+REM Install before transformers - it pulls huggingface_hub 1.x while
+REM transformers 4.40.2 wants <1.0, and whichever goes last wins.
+call :pipinstall "faster-whisper==1.1.1"
 python -m pip install "argostranslate==1.9.6" --no-deps -i %PIP_MIRROR%
 if errorlevel 1 python -m pip install "argostranslate==1.9.6" --no-deps -i %PIP_FALLBACK%
 call :pipinstall sacremoses
-echo     Verify ctranslate2 + sentencepiece ...
-python -c "import ctranslate2, sentencepiece" 2>nul
+echo     Verify ctranslate2 + sentencepiece + faster_whisper ...
+python -c "import ctranslate2, sentencepiece, faster_whisper" 2>nul
 if errorlevel 1 (
-    echo [X] ctranslate2 / sentencepiece import failed.
+    echo [X] ctranslate2 / sentencepiece / faster_whisper import failed.
     echo     Try: pip install "setuptools^<81" then re-run.
     goto :end
 )
@@ -262,7 +269,11 @@ if "%SELFTEST_RC%"=="0" (
     REM 错误框在等人点确定 —— 那个框在构建机上没人点。两种都是坏产物。
     call :problem "Self-test timed out - the build hangs, or crashed into an error dialog nobody clicked" "Users cannot get the program running"
 ) else (
-    call :problem "Self-test failed - the build crashes on startup (exit %SELFTEST_RC%)" "The program cannot start at all on a clean machine"
+    if "%SELFTEST_RC%"=="2" (
+        call :problem "Self-test: a required module was not bundled" "That whole feature is dead for users - the model ships but the library that reads it does not"
+    ) else (
+        call :problem "Self-test failed - the build crashes on startup (exit %SELFTEST_RC%)" "The program cannot start at all on a clean machine"
+    )
 )
 
 call :gate

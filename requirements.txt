@@ -79,7 +79,9 @@ kokoro
 # The model is not a pip package. The build scripts download it and bundle it;
 # to fetch it by hand use the command above. Without it the microphone button
 # stays disabled and says so in its tooltip.
-faster-whisper
+# 版本与构建脚本保持一致。1.x 声明的是 ctranslate2<5,>=4.0，
+# 与上面钉的 4.3.1 不冲突（实测不会把它顶掉）。
+faster-whisper==1.1.1
 soundfile
 lameenc
 
