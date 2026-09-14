@@ -20,6 +20,9 @@ REM ==========================================================================
 if not defined STRICT set STRICT=1
 set "BUILD_PROBLEMS="
 set "PROBLEM_COUNT=0"
+REM Start clean: the report exists only if this run recorded something.
+if not exist dist mkdir dist 2>nul
+if exist "dist\build-blocked.txt" del /q "dist\build-blocked.txt" 2>nul
 rem Auto-extract version from english_coach.py (single source of truth)
 for /f tokens^=2^ delims^=^" %%A in ('findstr /b /c:"APP_VERSION" english_coach.py') do set "VERSION=%%A"
 if not defined VERSION set VERSION=0.0.0
@@ -280,6 +283,23 @@ if "%SELFTEST_RC%"=="0" (
     )
 )
 
+REM Whatever went wrong above, dump the app's own trace - a timeout needs it
+REM most of all, and that branch used to miss out.
+if not "%SELFTEST_RC%"=="0" (
+    REM The app is --windowed, so its only trace is the file it writes itself.
+    REM Deliberately ASCII-named: a Chinese filename in this .bat is what made
+    REM cmd mis-parse the script earlier.
+    if exist "%APPDATA%\EnglishCoach\selftest.log" (
+        echo       --- selftest trace ---
+        type "%APPDATA%\EnglishCoach\selftest.log"
+        >>"dist\build-blocked.txt" echo       --- selftest trace ---
+        type "%APPDATA%\EnglishCoach\selftest.log" >>"dist\build-blocked.txt"
+    ) else (
+        echo       [!] no selftest trace - the app never got far enough to write one
+        >>"dist\build-blocked.txt" echo       [!] no selftest trace written
+    )
+)
+
 call :gate
 if errorlevel 1 goto :end
 
@@ -352,6 +372,16 @@ set /a PROBLEM_COUNT+=1
 echo   [X] %~1
 echo       Impact: %~2
 set "BUILD_PROBLEMS=1"
+REM Append to the report as we go, so closing the terminal loses nothing.
+REM Redirection goes FIRST: "echo %%VAR%%>>file" would parse a trailing 1 or 2
+REM as a stream handle and write nothing - that is how the last report ended
+REM up saying only "ECHO is off."
+if not exist dist mkdir dist 2>nul
+if "%PROBLEM_COUNT%"=="1" (
+    >>"dist\build-blocked.txt" echo English Coach build blocked - %DATE% %TIME%
+)
+>>"dist\build-blocked.txt" echo   [X] %~1
+>>"dist\build-blocked.txt" echo       Impact: %~2
 exit /b 0
 
 :gate
@@ -361,11 +391,7 @@ echo ============================================================
 echo   BUILD BLOCKED - the output would be functionally incomplete
 echo   编译被拦截：产物将存在功能缺失（共 %PROBLEM_COUNT% 项，见上方 [X] 行）
 echo ============================================================
-REM Write the reason to a file: the banner scrolls past and closing the
-REM terminal used to lose it for good.
-if not exist dist mkdir dist 2>nul
-echo English Coach build blocked - %DATE% %TIME%> "dist\build-blocked.txt"
-echo %BUILD_PROBLEMS%>> "dist\build-blocked.txt"
+REM :problem already appended every [X] line to the report as it happened.
 echo   Reason written to dist\build-blocked.txt
 echo.
 if "%STRICT%"=="1" (

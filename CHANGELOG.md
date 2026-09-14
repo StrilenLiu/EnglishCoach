@@ -49,7 +49,7 @@
 - 修复 Windows 构建脚本把自己的中文注释当命令执行（满屏「'xxx' 不是内部或外部命令」）。脚本开头第七行自己写着 ASCII-only for GBK consoles —— cmd.exe 在 chcp 65001 之后按字符数记文件偏移，非 ASCII 的注释行会让它重新定位时错位，半截注释就被当成命令跑了。是我往里加中文注释破了这条规矩（注释行从 12 行涨到 24 行），现在两个 .bat 的注释全部改回英文，只剩几行要给用户看的中文 echo
 - 启动自检加看门狗：到点没跑完就自己硬退出（退出码 3），并把卡在哪一步写进运行日志。上一次 Windows 自检整整卡了 180 秒才被外面的计时器杀掉，什么线索都没留下。自检走完也改成 os._exit —— 解释器收尾要 join 线程、拆 QMediaPlayer/QAudioOutput，Windows 上这一段本身就可能卡住
 - 自检每一步都往日志里记一笔（进程启动 / 主窗构造 / 窗口显示 / 模块点名 / 准备退出）。Windows 产物是 --windowed，sys.stdout 是 None，print 落不到任何地方，日志是那边唯一留得下痕迹的
-- 编译被拦截时把原因写进 dist/构建失败原因.txt：横幅一闪而过，终端一关就查无对证
+- 编译被拦截时把原因写进 dist/构建失败原因.txt（Windows 是 dist/build-blocked.txt）：横幅一闪而过，终端一关就查无对证。Windows 那份还会把自检自己写的那份足迹一并抄进去 —— 产物是 --windowed，落盘是它唯一留得下痕迹的办法
 - macOS 的 DMG 里附一份「请先读我」：程序没有 Apple 开发者签名，首次打开会被系统拦下，而 Install.command 自己也会被拦（它正是用来清隔离标记的，先有鸡先有蛋）。说明里给一条不依赖任何脚本、复制就能用的终端命令
 
 - *Five online recognition engines beside the local one: Groq, OpenAI, Azure, Baidu and Tencent. They implement the same backend interface local Whisper does, so nothing on the calling side changed; the recording is packed into a 16kHz mono WAV in memory before upload, with no file on disk and no new dependency. The local engine needs no key, so the list is never empty*
@@ -84,7 +84,7 @@
 - *Fixed the Windows build scripts executing their own Chinese comments as commands (screenfuls of "'xxx' is not recognized as an internal or external command"). Line seven of the script says ASCII-only for GBK consoles: after chcp 65001, cmd.exe tracks its position in the file by character count, and a non-ASCII comment line throws that count off, so half a comment gets run as a command. Adding Chinese comments is what broke it - they had grown from 12 lines to 24 - and both .bat files now carry English comments only, keeping just the few Chinese echo lines meant for the user*
 - *The startup self-test now carries a watchdog: if it has not finished in time it exits hard with code 3 and logs the step it stalled on. The last Windows self-test hung for a full 180 seconds before the outer timer killed it, leaving nothing to go on. A successful self-test now exits with os._exit too - interpreter shutdown joins threads and tears down QMediaPlayer and QAudioOutput, which can itself hang on Windows*
 - *The self-test logs each step it reaches (process start, main window, shown, module roll call, about to exit). A Windows build is --windowed, so sys.stdout is None and print goes nowhere; the log is the only place anything survives*
-- *A blocked build writes its reasons to dist/构建失败原因.txt: the banner scrolls past and closing the terminal used to lose it*
+- *A blocked build writes its reasons to dist/构建失败原因.txt (dist/build-blocked.txt on Windows): the banner scrolls past and closing the terminal used to lose it. The Windows report also copies in the trace the self-test writes for itself, since a --windowed build has nowhere else to leave one*
 - *The macOS DMG now carries a read-me-first note. The app has no Apple Developer ID, so the first launch is blocked - and Install.command, which exists to clear the quarantine flag, is blocked too. The note gives one Terminal line that needs no script at all*
 
 ## v2.18.0 — 2026-09-10

@@ -264,14 +264,36 @@ SELFTEST_MODULES = (
 _SELFTEST_STEP = "(还没开始)"
 
 
-def _selftest_step(name):
+def _selftest_log_path():
+    """自检专用的小日志。
+
+    单独一个文件、而且文件名【全 ASCII】：构建脚本要把它抄进失败报告里，
+    而 .bat 里出现非 ASCII 会让 cmd 记错文件偏移、把注释当命令跑（刚踩过）。
+    运行日志那份叫"运行日志.txt"，在 .bat 里引用不得。
+    """
+    return os.path.join(_app_data_dir(), "selftest.log")
+
+
+def _selftest_write(line):
+    try:
+        with open(_selftest_log_path(), "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
+def _selftest_step(name, tag=""):
+    """记一步。name 给人看（控制台与运行日志），tag 是写进 selftest.log 的
+    ASCII 版 —— 那个文件会被 .bat 抄进失败报告，构建机上多半用 GBK 记事本
+    打开，混着 UTF-8 中文就成乱码了。"""
     global _SELFTEST_STEP
-    _SELFTEST_STEP = name
+    _SELFTEST_STEP = tag or name
     if SELFTEST:
         print(f"[selftest] 到达 {name}")
         # Windows 的产物是 --windowed，sys.stdout 是 None，print 等于没写。
-        # 日志是那边唯一留得下痕迹的地方。
+        # 落盘是那边唯一留得下痕迹的办法。
         _log_error(f"[selftest] 到达 {name}")
+        _selftest_write(f"step: {tag or name}")
 
 
 def _selftest_watchdog(seconds=120):
@@ -286,6 +308,8 @@ def _selftest_watchdog(seconds=120):
         try:
             _log_error(f"[selftest] 看门狗：{seconds}s 没跑完，"
                        f"卡在 {_SELFTEST_STEP}")
+            _selftest_write(f"WATCHDOG: stalled at {_SELFTEST_STEP} "
+                            f"after {seconds}s")
         except Exception:
             pass
         os._exit(3)
@@ -582,7 +606,7 @@ CHANGELOG = [
             "修复 Windows 构建脚本把自己的中文注释当命令执行（满屏「'xxx' 不是内部或外部命令」）。脚本开头第七行自己写着 ASCII-only for GBK consoles —— cmd.exe 在 chcp 65001 之后按字符数记文件偏移，非 ASCII 的注释行会让它重新定位时错位，半截注释就被当成命令跑了。是我往里加中文注释破了这条规矩（注释行从 12 行涨到 24 行），现在两个 .bat 的注释全部改回英文，只剩几行要给用户看的中文 echo",
             "启动自检加看门狗：到点没跑完就自己硬退出（退出码 3），并把卡在哪一步写进运行日志。上一次 Windows 自检整整卡了 180 秒才被外面的计时器杀掉，什么线索都没留下。自检走完也改成 os._exit —— 解释器收尾要 join 线程、拆 QMediaPlayer/QAudioOutput，Windows 上这一段本身就可能卡住",
             "自检每一步都往日志里记一笔（进程启动 / 主窗构造 / 窗口显示 / 模块点名 / 准备退出）。Windows 产物是 --windowed，sys.stdout 是 None，print 落不到任何地方，日志是那边唯一留得下痕迹的",
-            "编译被拦截时把原因写进 dist/构建失败原因.txt：横幅一闪而过，终端一关就查无对证",
+            "编译被拦截时把原因写进 dist/构建失败原因.txt（Windows 是 dist/build-blocked.txt）：横幅一闪而过，终端一关就查无对证。Windows 那份还会把自检自己写的那份足迹一并抄进去 —— 产物是 --windowed，落盘是它唯一留得下痕迹的办法",
             "macOS 的 DMG 里附一份「请先读我」：程序没有 Apple 开发者签名，首次打开会被系统拦下，而 Install.command 自己也会被拦（它正是用来清隔离标记的，先有鸡先有蛋）。说明里给一条不依赖任何脚本、复制就能用的终端命令",
         ],
         "title_en": "Ten keyed online engines, voice lists straight from the providers, and a test button on each",
@@ -619,7 +643,7 @@ CHANGELOG = [
             "Fixed the Windows build scripts executing their own Chinese comments as commands (screenfuls of \"'xxx' is not recognized as an internal or external command\"). Line seven of the script says ASCII-only for GBK consoles: after chcp 65001, cmd.exe tracks its position in the file by character count, and a non-ASCII comment line throws that count off, so half a comment gets run as a command. Adding Chinese comments is what broke it - they had grown from 12 lines to 24 - and both .bat files now carry English comments only, keeping just the few Chinese echo lines meant for the user",
             "The startup self-test now carries a watchdog: if it has not finished in time it exits hard with code 3 and logs the step it stalled on. The last Windows self-test hung for a full 180 seconds before the outer timer killed it, leaving nothing to go on. A successful self-test now exits with os._exit too - interpreter shutdown joins threads and tears down QMediaPlayer and QAudioOutput, which can itself hang on Windows",
             "The self-test logs each step it reaches (process start, main window, shown, module roll call, about to exit). A Windows build is --windowed, so sys.stdout is None and print goes nowhere; the log is the only place anything survives",
-            "A blocked build writes its reasons to dist/构建失败原因.txt: the banner scrolls past and closing the terminal used to lose it",
+            "A blocked build writes its reasons to dist/构建失败原因.txt (dist/build-blocked.txt on Windows): the banner scrolls past and closing the terminal used to lose it. The Windows report also copies in the trace the self-test writes for itself, since a --windowed build has nowhere else to leave one",
             "The macOS DMG now carries a read-me-first note. The app has no Apple Developer ID, so the first launch is blocked - and Install.command, which exists to clear the quarantine flag, is blocked too. The note gives one Terminal line that needs no script at all",
         ],
     },
@@ -13928,10 +13952,14 @@ class MainWindow(QMainWindow):
 
 def main():
     if SELFTEST:
+        try:                       # 每次自检从空文件开始，别和上一轮混在一起
+            os.remove(_selftest_log_path())
+        except Exception:
+            pass
         _selftest_watchdog()
-    _selftest_step("进程启动")
+    _selftest_step("进程启动", "process started")
     app = QApplication(sys.argv)
-    _selftest_step("QApplication 就绪")
+    _selftest_step("QApplication 就绪", "QApplication ready")
     _install_global_excepthook()   # 越早越好：把槽函数异常从闪退变成提示
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(True)
@@ -13985,9 +14013,9 @@ def main():
         _log_exc("migrate_engine_setting")
     try:
         _apply_color_scheme(app)
-        _selftest_step("开始构造主窗")
+        _selftest_step("开始构造主窗", "building main window")
         win = MainWindow()
-        _selftest_step("主窗构造完成")
+        _selftest_step("主窗构造完成", "main window built")
         try:
             def _on_sys_scheme(_sch):
                 from PyQt6.QtCore import QSettings as _QS
@@ -14062,13 +14090,14 @@ def main():
     QTimer.singleShot(0, lambda: _safe_fusion(win))
     win.raise_()              # 提到最前
     win.activateWindow()      # 抢占焦点（老 macOS 上常需要）
-    _selftest_step("窗口已显示")
+    _selftest_step("窗口已显示", "window shown")
     if SELFTEST:
         # 走到这儿说明所有 import、捆绑资源和界面构造都过了。再点一遍必需
         # 模块，然后立刻退出，让构建脚本拿到退出码。
         _miss = _selftest_missing_modules()
         for _n, _w in _miss:
             line = f"[selftest] 缺模块 {_n} —— {_w}在用户端不可用"
+            _selftest_write(f"MISSING MODULE: {_n}")
             print(line)
             # Windows 的产物是 --windowed，没有控制台，print 落不到任何地方。
             # 写一份进运行日志，构建机上才查得到到底少了谁。
@@ -14077,18 +14106,20 @@ def main():
             print(f"[selftest] FAILED: {len(_miss)}/{len(SELFTEST_MODULES)} "
                   f"个必需模块没被打进产物")
             sys.exit(2)
-        _selftest_step("模块点名通过")
+        _selftest_step("模块点名通过", "module roll call passed")
         print(f"[selftest] English Coach {APP_VERSION} started OK; "
               f"{len(SELFTEST_MODULES)} 个必需模块齐全")
         _log_error(f"[selftest] OK: {APP_VERSION}，"
                    f"{len(SELFTEST_MODULES)} 个必需模块齐全")
+        _selftest_write(f"OK: {APP_VERSION}, all "
+                        f"{len(SELFTEST_MODULES)} required modules present")
         QTimer.singleShot(0, app.quit)
         _rc = app.exec()
         try:
             win._shutdown_workers()
         except Exception:
             pass
-        _selftest_step("准备退出")
+        _selftest_step("准备退出", "about to exit")
         # 硬退出。走 sys.exit 要过解释器收尾：join 线程、拆 QMediaPlayer /
         # QAudioOutput，Windows 上这一段能卡住不动（上次 180 秒就是卡在
         # 主窗建完之后的某处）。自检进程本来就是用完即弃，没什么要收的。
