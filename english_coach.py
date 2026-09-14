@@ -604,6 +604,7 @@ CHANGELOG = [
             "修复 macOS 产物的代码签名一直是无效的。PyInstaller 打完包会做一次 ad-hoc 签名，而构建脚本紧接着用 PlistBuddy 改 Info.plist（最低系统版本、麦克风用途说明、版本号）—— bundle 的签名覆盖 Info.plist，改完就失效了，报的是 invalid Info.plist (plist or signature have been modified)。这个毛病从加上那几行 PlistBuddy 起就一直在，谁也没验过；后果是下载来的包很容易被报成「已损坏，无法打开」，而那种情况用户完全没法自救。现在改完 plist、清完隔离标记之后重签一次再校验，三步的先后不能乱",
             "修复 misaki 装不上时被悄悄跳过：原先那行的回退只补了中文那三个包，misaki 本身漏掉也不吭声，Kokoro 读英文就会失败。现在会如实记一笔并阻断",
             "修复 Windows 构建脚本把自己的中文注释当命令执行（满屏「'xxx' 不是内部或外部命令」）。脚本开头第七行自己写着 ASCII-only for GBK consoles —— cmd.exe 在 chcp 65001 之后按字符数记文件偏移，非 ASCII 的注释行会让它重新定位时错位，半截注释就被当成命令跑了。是我往里加中文注释破了这条规矩（注释行从 12 行涨到 24 行），现在两个 .bat 的注释全部改回英文，只剩几行要给用户看的中文 echo",
+            "修复启动自检在 Windows 上卡死 120 秒：该验的全过了（21 个模块齐全、主窗建好、窗口显示），却卡在最后「礼貌关门」那一段 —— app.quit() 退不出事件循环（多半有谁开了模态框跑嵌套循环），或是卡在 player.stop()、等后台线程。自检是个用完即弃的进程，没有任何东西需要收尾：现在放完已排队的事件（首帧画崩也能暴露）就直接 os._exit(0)，不进 app.exec()、不走关闭流程。实测 0.3 秒退出。自检时也不再去联网补嗓音目录 —— 构建机上纯属白等",
             "启动自检加看门狗：到点没跑完就自己硬退出（退出码 3），并把卡在哪一步写进运行日志。上一次 Windows 自检整整卡了 180 秒才被外面的计时器杀掉，什么线索都没留下。自检走完也改成 os._exit —— 解释器收尾要 join 线程、拆 QMediaPlayer/QAudioOutput，Windows 上这一段本身就可能卡住",
             "自检每一步都往日志里记一笔（进程启动 / 主窗构造 / 窗口显示 / 模块点名 / 准备退出）。Windows 产物是 --windowed，sys.stdout 是 None，print 落不到任何地方，日志是那边唯一留得下痕迹的",
             "编译被拦截时把原因写进 dist/构建失败原因.txt（Windows 是 dist/build-blocked.txt）：横幅一闪而过，终端一关就查无对证。Windows 那份还会把自检自己写的那份足迹一并抄进去 —— 产物是 --windowed，落盘是它唯一留得下痕迹的办法",
@@ -641,6 +642,7 @@ CHANGELOG = [
             "Fixed the macOS build having had an invalid code signature all along. PyInstaller ad-hoc signs the bundle, and the build script then edits Info.plist with PlistBuddy (minimum system version, microphone usage description, version numbers) - the bundle signature covers Info.plist, so editing it invalidates the signature: invalid Info.plist (plist or signature have been modified). This has been true since those PlistBuddy lines were added and nobody ever checked. A downloaded copy is then easily reported as damaged and refusing to open, which the user cannot work around. The bundle is now re-signed after the plist edits and the quarantine flags are cleared, then verified - in that order",
             "Fixed misaki being skipped in silence when it fails to install: the fallback only reinstalled the three Chinese packages and let misaki go missing, which breaks Kokoro reading English. It is now recorded and blocks the build",
             "Fixed the Windows build scripts executing their own Chinese comments as commands (screenfuls of \"'xxx' is not recognized as an internal or external command\"). Line seven of the script says ASCII-only for GBK consoles: after chcp 65001, cmd.exe tracks its position in the file by character count, and a non-ASCII comment line throws that count off, so half a comment gets run as a command. Adding Chinese comments is what broke it - they had grown from 12 lines to 24 - and both .bat files now carry English comments only, keeping just the few Chinese echo lines meant for the user",
+            "Fixed the startup self-test hanging for 120 seconds on Windows. Everything it set out to prove had passed - 21 modules present, main window built, window shown - and it then stalled in the polite shutdown: app.quit() not leaving the event loop (most likely a modal dialog running a nested one), or player.stop() and waiting on background threads. A self-test process is disposable and has nothing to tear down, so it now drains the already-queued events (which still catches a crash on the first frame) and calls os._exit(0) - no app.exec(), no shutdown path. It exits in 0.3 seconds. It also no longer fetches voice catalogues over the network, which on a build machine is pure waiting",
             "The startup self-test now carries a watchdog: if it has not finished in time it exits hard with code 3 and logs the step it stalled on. The last Windows self-test hung for a full 180 seconds before the outer timer killed it, leaving nothing to go on. A successful self-test now exits with os._exit too - interpreter shutdown joins threads and tears down QMediaPlayer and QAudioOutput, which can itself hang on Windows",
             "The self-test logs each step it reaches (process start, main window, shown, module roll call, about to exit). A Windows build is --windowed, so sys.stdout is None and print goes nowhere; the log is the only place anything survives",
             "A blocked build writes its reasons to dist/构建失败原因.txt (dist/build-blocked.txt on Windows): the banner scrolls past and closing the terminal used to lose it. The Windows report also copies in the trace the self-test writes for itself, since a --windowed build has nowhere else to leave one",
@@ -13789,6 +13791,9 @@ class MainWindow(QMainWindow):
         只补"能补、还没补过"的：Kokoro 是扫本地目录，edge-tts 一个轻量
         GET，在线引擎得先有 Key。全失败也不影响使用 —— 下拉退回内置表。
         """
+        if SELFTEST:
+            return          # 自检时不联网：构建机上纯属白等，日志里那句
+                            # "连接超时"就是它留下的
         try:
             todo = [x for x in VOICE_CATALOG_SOURCES
                     if _cat_ready(x) and not _cat_fresh(x)
@@ -14107,25 +14112,30 @@ def main():
                   f"个必需模块没被打进产物")
             sys.exit(2)
         _selftest_step("模块点名通过", "module roll call passed")
+        # 把已经排队的事件放出来跑一遍（首次 polish、_safe_fusion 那几个
+        # singleShot(0)），第一帧画崩了也能在这儿暴露。
+        for _ in range(8):
+            app.processEvents()
+        _selftest_step("首帧事件已跑完", "first events processed")
         print(f"[selftest] English Coach {APP_VERSION} started OK; "
               f"{len(SELFTEST_MODULES)} 个必需模块齐全")
         _log_error(f"[selftest] OK: {APP_VERSION}，"
                    f"{len(SELFTEST_MODULES)} 个必需模块齐全")
         _selftest_write(f"OK: {APP_VERSION}, all "
                         f"{len(SELFTEST_MODULES)} required modules present")
-        QTimer.singleShot(0, app.quit)
-        _rc = app.exec()
-        try:
-            win._shutdown_workers()
-        except Exception:
-            pass
-        _selftest_step("准备退出", "about to exit")
-        # 硬退出。走 sys.exit 要过解释器收尾：join 线程、拆 QMediaPlayer /
-        # QAudioOutput，Windows 上这一段能卡住不动（上次 180 秒就是卡在
-        # 主窗建完之后的某处）。自检进程本来就是用完即弃，没什么要收的。
+        _selftest_step("立即退出", "exiting now")
+        # 【不】进 app.exec()，也【不】走 _shutdown_workers。
+        #
+        # Windows 上实测：该验的全过了（21 个模块齐全、主窗建好、窗口显示），
+        # 然后整整卡死 120 秒直到看门狗开枪，卡的位置就在这一段"礼貌关门"里
+        # —— app.quit() 退不出事件循环（多半有谁开了模态框跑嵌套循环），
+        # 再不然是 player.stop() / 等后台线程。
+        #
+        # 而这一步对自检毫无价值：要证明的是"这个产物能起来"，窗口都显示过
+        # 了就已经证完。这是个用完即弃的进程，没有任何东西需要收尾。
         sys.stdout.flush() if sys.stdout else None
         sys.stderr.flush() if sys.stderr else None
-        os._exit(_rc)
+        os._exit(0)
     sys.exit(app.exec())
 
 
